@@ -16,13 +16,7 @@ commercial product integration, see COMMERCIAL-LICENSE.md or contact:
   https://www.un-robotics.com/#contact
 The commercial information document does not itself grant a license.
 
-Earlier MIT material and third-party components
-
-Material previously made available under MIT, including copies distributed
-before this notice, retains its MIT permissions. Including that material
-in a later distribution does not revoke those rights. The original notice
-is preserved verbatim in LICENSES/icadkit-legacy-MIT.txt. It does not grant
-MIT permissions to subsequent additions offered only under the new terms.
+Third-party components
 
 Third-party material retains its own licenses and copyright notices.
 See THIRD_PARTY_NOTICES.md and the accompanying license texts. In particular,

@@ -84,6 +84,6 @@ diagnostics; exit codes are documented in the [reference](docs/api.md#command-li
 icadkit is offered under [PolyForm Noncommercial 1.0.0](LICENSES/PolyForm-Noncommercial-1.0.0.md).
 [Commercial licenses](COMMERCIAL-LICENSE.md) are available from
 [UnRobotics Inc.](https://www.un-robotics.com/#contact).
-Earlier MIT portions and dependencies retain their original permissions.
+Dependencies retain their own licenses and copyright notices.
 Read the [licensing guide](docs/license.md), [license notice](LICENSE) and
 [third-party notices](THIRD_PARTY_NOTICES.md) for details.

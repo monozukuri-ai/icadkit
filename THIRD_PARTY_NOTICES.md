@@ -1,8 +1,7 @@
 # Third-party notices
 
 icadkit project material is offered under PolyForm Noncommercial 1.0.0, with separate
-commercial licensing available from UnRobotics Inc. Earlier MIT material retains
-its permissions; its original notice is in `LICENSES/icadkit-legacy-MIT.txt`.
+commercial licensing available from UnRobotics Inc.
 See `LICENSE` and `COMMERCIAL-LICENSE.md`.
 
 Binary distributions also contain `parasolid-core 0.2.0` (MIT AND Apache-2.0)
@@ -22,9 +21,10 @@ under MIT or Apache-2.0. Third-party components are not relicensed.
   included in `LICENSES/rust-dependencies.txt` (MIT selected where offered).
 - The dependency notices also preserve build/development dependency terms,
   including the LLVM exception and Unicode terms. Their sources are not vendored.
-- The eight fixed synthetic cases in `corpus/public.jsonl` retain their earlier
-  MIT permissions. Their V30 scalar layouts derive from the MIT/Apache-2.0
-  `parasolid-core` profile; see `tests/geometry_fixtures.py` for attribution.
+- The synthetic cases in `corpus/public.jsonl` use PolyForm Noncommercial 1.0.0
+  for project-authored material. Their V30 scalar layouts derive from the
+  MIT/Apache-2.0 `parasolid-core` profile; see `tests/geometry_fixtures.py`
+  for attribution.
 
 No Siemens/iCAD binaries, external schema catalogs, or sample CAD files are
 included in wheel or sdist distributions. Bundled Parasolid profiles are the

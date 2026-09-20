@@ -25,13 +25,10 @@ See [commercial licensing](../COMMERCIAL-LICENSE.md) for available arrangements
 and [contact UnRobotics Inc.](https://www.un-robotics.com/#contact) for a quotation.
 That information page does not itself grant a license.
 
-## Earlier material and dependencies
+## Dependencies
 
-Earlier copies and portions offered under MIT retain those permissions. The
-[original MIT notice](../LICENSES/icadkit-legacy-MIT.txt) is preserved verbatim;
-it does not license all subsequent additions under MIT. Third-party components
-retain their own terms and notices, including `parasolid-core` and PyO3.
-See [third-party notices](../THIRD_PARTY_NOTICES.md).
+Third-party components retain their own terms and notices, including
+`parasolid-core` and PyO3. See [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 The Python package's license expression is
 `PolyForm-Noncommercial-1.0.0 AND MIT AND Apache-2.0`. It records the licenses of

@@ -14,9 +14,6 @@ PINNED_TEXTS = {
     "LICENSES/PolyForm-Noncommercial-1.0.0.md": (
         "c0ea4a896d2c8c394b29f9427589996db826cd501c512279ff0ed3ef48fabbe5"
     ),
-    "LICENSES/icadkit-legacy-MIT.txt": (
-        "6bc7885f82303d04ad2d72ad94a1e0fa74f4c29595ffd364f18f78ecbf15ce4f"
-    ),
     "LICENSES/Apache-2.0.txt": (
         "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
     ),

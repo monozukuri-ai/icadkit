@@ -1,11 +1,10 @@
 # Public regression corpus
 
 These eight cases are authored synthetic framing/topology, not iCAD-produced
-models. No vendor CAD payload, proprietary catalog or SDK is used. These fixed
-cases retain their earlier MIT permissions; see
-[the original notice](../LICENSES/icadkit-legacy-MIT.txt). Project material
-uses the terms in [LICENSE](../LICENSE). The V30 scalar layouts come from the
-MIT/Apache-2.0 parasolid-core profile, as documented in tests/geometry_fixtures.py.
+models. No vendor CAD payload, proprietary catalog or SDK is used. Project-authored
+material is offered under PolyForm Noncommercial 1.0.0; see [LICENSE](../LICENSE).
+The V30 scalar layouts come from the MIT/Apache-2.0 parasolid-core profile,
+as documented in tests/geometry_fixtures.py.
 
 The four wire cases describe endpoints (2, -1, 3) and (5, 3, 3), independently
 giving length 5 in unspecified source units. They cover both byte orders and

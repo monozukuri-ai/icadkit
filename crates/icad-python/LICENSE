@@ -20,13 +20,7 @@ commercial product integration, see COMMERCIAL-LICENSE.md or contact:
   https://www.un-robotics.com/#contact
 The commercial information document does not itself grant a license.
 
-Earlier MIT material and third-party components
-
-Material previously made available under MIT, including copies distributed
-before this notice, retains its MIT permissions. Including that material
-in a later distribution does not revoke those rights. The original notice
-is preserved verbatim in LICENSES/icadkit-legacy-MIT.txt. It does not grant
-MIT permissions to subsequent additions offered only under the new terms.
+Third-party components
 
 Third-party material retains its own licenses and copyright notices.
 See THIRD_PARTY_NOTICES.md and the accompanying license texts. In particular,
@@ -95,7 +89,7 @@ payment does not imply support for every ICD file or complete model reconstructi
 ## Independent rights
 
 The agreement covers only rights the licensor can grant. Third-party conditions
-and existing MIT permissions remain in effect, including after expiry of a
+remain in effect, including after expiry of a
 commercial agreement. Customers retain their rights in their data and outputs;
 we claim no additional ownership or output-based royalties in extracted
 geometry, images or properties. Rights in the input data and any third-party
@@ -111,8 +105,7 @@ liability limits, termination provisions and governing law.
 # Third-party notices
 
 icadkit project material is offered under PolyForm Noncommercial 1.0.0, with separate
-commercial licensing available from UnRobotics Inc. Earlier MIT material retains
-its permissions; its original notice is in `LICENSES/icadkit-legacy-MIT.txt`.
+commercial licensing available from UnRobotics Inc.
 See `LICENSE` and `COMMERCIAL-LICENSE.md`.
 
 Binary distributions also contain `parasolid-core 0.2.0` (MIT AND Apache-2.0)
@@ -132,9 +125,10 @@ under MIT or Apache-2.0. Third-party components are not relicensed.
   included in `LICENSES/rust-dependencies.txt` (MIT selected where offered).
 - The dependency notices also preserve build/development dependency terms,
   including the LLVM exception and Unicode terms. Their sources are not vendored.
-- The eight fixed synthetic cases in `corpus/public.jsonl` retain their earlier
-  MIT permissions. Their V30 scalar layouts derive from the MIT/Apache-2.0
-  `parasolid-core` profile; see `tests/geometry_fixtures.py` for attribution.
+- The synthetic cases in `corpus/public.jsonl` use PolyForm Noncommercial 1.0.0
+  for project-authored material. Their V30 scalar layouts derive from the
+  MIT/Apache-2.0 `parasolid-core` profile; see `tests/geometry_fixtures.py`
+  for attribution.
 
 No Siemens/iCAD binaries, external schema catalogs, or sample CAD files are
 included in wheel or sdist distributions. Bundled Parasolid profiles are the
@@ -215,30 +209,6 @@ The **licensor** is the individual or entity offering these terms, and the **sof
 **Your licenses** are all the licenses granted to you for the software under these terms.
 
 **Use** means anything you do with the software requiring one of your licenses.
-
-
-===== LICENSES/icadkit-legacy-MIT.txt =====
-MIT License
-
-Copyright (c) 2026 icadkit contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 
 ===== LICENSES/Apache-2.0.txt =====

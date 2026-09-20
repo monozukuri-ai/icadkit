@@ -54,7 +54,7 @@ payment does not imply support for every ICD file or complete model reconstructi
 ## Independent rights
 
 The agreement covers only rights the licensor can grant. Third-party conditions
-and existing MIT permissions remain in effect, including after expiry of a
+remain in effect, including after expiry of a
 commercial agreement. Customers retain their rights in their data and outputs;
 we claim no additional ownership or output-based royalties in extracted
 geometry, images or properties. Rights in the input data and any third-party

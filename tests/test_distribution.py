@@ -19,7 +19,6 @@ def test_installed_license_metadata():
         "COMMERCIAL-LICENSE.md",
         "THIRD_PARTY_NOTICES.md",
         "LICENSES/PolyForm-Noncommercial-1.0.0.md",
-        "LICENSES/icadkit-legacy-MIT.txt",
         "LICENSES/Apache-2.0.txt",
         "LICENSES/parasolid-core-MIT.txt",
         "LICENSES/rust-dependencies.txt",
