@@ -1,0 +1,13 @@
+__pycache__/
+.ruff_cache/
+.local/
+.venv/
+.wheel-test/
+.pytest_cache/
+.mypy_cache/
+/target/
+/dist/
+*.so
+*.pyd
+*.egg-info/
+/reports/

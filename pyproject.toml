@@ -1,0 +1,77 @@
+[build-system]
+requires = ["maturin==1.15.0"]
+build-backend = "maturin"
+
+[project]
+name = "icadkit"
+dynamic = ["version"]
+description = "Rust-based Python reader for iCAD SX ICD resources and geometry"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "PolyForm-Noncommercial-1.0.0 AND MIT AND Apache-2.0"
+license-files = ["LICENSE", "COMMERCIAL-LICENSE.md", "LICENSES/*.txt", "LICENSES/*.md", "THIRD_PARTY_NOTICES.md"]
+maintainers = [{ name = "UnRobotics Inc." }]
+dependencies = []
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Rust",
+  "Typing :: Typed",
+]
+
+[project.scripts]
+icadkit = "icadkit.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/monozukuri-ai/icadkit"
+Documentation = "https://github.com/monozukuri-ai/icadkit/tree/main/docs"
+Issues = "https://github.com/monozukuri-ai/icadkit/issues"
+Licensing = "https://github.com/monozukuri-ai/icadkit/blob/main/docs/license.md"
+Commercial = "https://www.un-robotics.com/#contact"
+
+[dependency-groups]
+dev = ["maturin==1.15.0", "pytest>=8.3,<9", "ruff>=0.15,<1", "mypy>=1.15,<3"]
+
+[tool.maturin]
+manifest-path = "crates/icad-python/Cargo.toml"
+python-source = "src"
+module-name = "icadkit._core"
+bindings = "pyo3"
+locked = true
+include = [
+  { path = "Cargo.lock", format = "sdist" },
+  { path = "uv.lock", format = "sdist" },
+  { path = "tests/*.py", format = "sdist" },
+  { path = "scripts/verify_artifacts.py", format = "sdist" },
+  { path = "scripts/verify_corpus.py", format = "sdist" },
+  { path = "scripts/verify_install.py", format = "sdist" },
+  { path = "scripts/check_license.py", format = "sdist" },
+  { path = "scripts/check_public_tree.py", format = "sdist" },
+  { path = "scripts/test_publication.py", format = "sdist" },
+  { path = "docs/*.md", format = "sdist" },
+  { path = "corpus/*.py", format = "sdist" },
+  { path = "corpus/*.jsonl", format = "sdist" },
+  { path = "corpus/README.md", format = "sdist" },
+]
+exclude = [
+  ".local/**", ".venv/**", "reports/**", "dist/**",
+  "**/*.icd", "**/*.sch_txt", "**/*.SCH_TXT", "**/*.x_b", "**/*.x_t",
+  "**/__pycache__/**",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py310"
+include = ["src/**/*.py", "src/**/*.pyi", "tests/**/*.py", "corpus/*.py", "scripts/*.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/icadkit"]
+strict = true

@@ -1,0 +1,22 @@
+[package]
+name = "icad-python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Private PyO3 extension for icadkit"
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+icad-core = { path = "../icad-core" }
+pyo3.workspace = true
+parasolid-core.workspace = true
+
+[lints]
+workspace = true

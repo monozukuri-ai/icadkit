@@ -1,0 +1,12 @@
+name: Release candidate validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Validation only. PyPI/GitHub Release publication is a separate authorized step.
+jobs:
+  qualify:
+    uses: ./.github/workflows/ci.yml
