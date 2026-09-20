@@ -1,12 +1,81 @@
-name: Release candidate validation
+name: Release
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Validation only. PyPI/GitHub Release publication is a separate authorized step.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   qualify:
     uses: ./.github/workflows/ci.yml
+
+  prepare:
+    name: Verify publication bundle
+    needs: qualify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.9.18"
+          python-version: "3.12"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: qualified-candidate
+          path: candidate
+      - name: Check artifacts against the source version and release tag
+        shell: bash
+        run: |
+          release_args=()
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            release_args=(--release-tag "$GITHUB_REF_NAME")
+          fi
+          uv run --no-project python scripts/verify_artifacts.py candidate/dist \
+            --require-platform-set "${release_args[@]}" \
+            --output reports/release-artifacts.json
+      - name: Store the verified wheels and sdist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pypi-distributions
+          path: |
+            candidate/dist/*.whl
+            candidate/dist/*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: evidence-release
+          path: reports/release-artifacts.json
+          if-no-files-found: error
+
+  pypi-publish:
+    name: Publish to PyPI
+    needs: prepare
+    # Manual runs exercise the full preparation path without publishing.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/icadkit
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pypi-distributions
+          path: dist
+      - name: Publish verified distributions with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/
+          verify-metadata: true
+          attestations: true

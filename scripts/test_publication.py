@@ -10,6 +10,7 @@ from check_license import (
     check_archive_licenses,
 )
 from check_public_tree import check_tree
+from verify_artifacts import check_release_versions
 
 
 class PublicationChecks(unittest.TestCase):
@@ -85,6 +86,33 @@ class PublicationChecks(unittest.TestCase):
     def test_link_outside_repository(self):
         with self.assertRaisesRegex(ValueError, "escapes"):
             check_tree(["README.md"], lambda _: b"[sibling](../README.md)")
+
+
+class ReleaseVersions(unittest.TestCase):
+    def test_matching_tag_and_artifacts(self):
+        check_release_versions(["0.2.0"] * 4, "0.2.0", "v0.2.0")
+
+    def test_manual_validation_without_a_tag(self):
+        check_release_versions(["0.2.0"] * 4, "0.2.0")
+
+    def test_development_version_normalization(self):
+        check_release_versions(["0.2.0.dev1"] * 4, "0.2.0-dev.1", "v0.2.0-dev.1")
+
+    def test_wrong_tag(self):
+        for tag in ("v0.1.0", "main", "0.2.0", "v0.2.0-extra", ""):
+            with (
+                self.subTest(tag=tag),
+                self.assertRaisesRegex(ValueError, "release tag"),
+            ):
+                check_release_versions(["0.2.0"] * 4, "0.2.0", tag)
+
+    def test_stale_or_mixed_artifacts(self):
+        for versions in (["0.1.0"] * 4, ["0.1.0", "0.2.0"], []):
+            with (
+                self.subTest(versions=versions),
+                self.assertRaisesRegex(ValueError, "source version"),
+            ):
+                check_release_versions(versions, "0.2.0", "v0.2.0")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
 
 import tomllib
-from check_license import check_archive_licenses, notice_bundle
+from check_license import ROOT, check_archive_licenses, notice_bundle
 from check_public_tree import check_tree
 
 
@@ -237,11 +237,23 @@ def sdist(path):
         }
 
 
+def check_release_versions(versions, workspace_version, release_tag=None):
+    # Match the Cargo development-version spelling used by the sdist check.
+    python_version = workspace_version.replace("-dev.", ".dev")
+    require(set(versions) == {python_version}, "artifacts do not match source version")
+    if release_tag is not None:
+        require(
+            release_tag == "v" + workspace_version,
+            "release tag must match v<workspace.package.version>",
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--require-platform-set", action="store_true")
+    parser.add_argument("--release-tag", help="Require this tag to match Cargo.toml")
     args = parser.parse_args()
     wheels = sorted(args.directory.glob("*.whl"))
     sources = sorted(args.directory.glob("*.tar.gz"))
@@ -255,7 +267,12 @@ def main():
             size_bytes=path.stat().st_size,
         )
         result.append(record)
-    require(len({r["version"] for r in result}) == 1, "artifact version mismatch")
+    workspace_version = tomllib.loads((ROOT / "Cargo.toml").read_text("utf-8"))[
+        "workspace"
+    ]["package"]["version"]
+    check_release_versions(
+        [r["version"] for r in result], workspace_version, args.release_tag
+    )
     if args.require_platform_set:
         require(
             len(wheels) == 3 and len(sources) == 1, "require three wheels and one sdist"

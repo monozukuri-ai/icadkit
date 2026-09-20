@@ -1,4 +1,4 @@
-name: v0.1 qualification
+name: Package qualification
 
 on:
   push:
@@ -51,8 +51,10 @@ jobs:
         run: |
           cp dist/*.tar.gz rebuilt/
           uv run python scripts/verify_artifacts.py rebuilt --output reports/artifacts-rebuilt.json
+          icad_sdist_sources=("$RUNNER_TEMP/icadkit-source"/icadkit-*)
+          test "${#icad_sdist_sources[@]}" -eq 1
           uv run python scripts/verify_install.py --wheel rebuilt/*.whl \
-            --source "$RUNNER_TEMP/icadkit-source/icadkit-0.1.0" \
+            --source "${icad_sdist_sources[0]}" \
             --python 3.10 --python 3.14 --output reports/cold-sdist.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
