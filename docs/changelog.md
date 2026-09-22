@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- V7L7 saved final bodies through `read_saved_bodies()`, `evaluate_saved_body()`
+  and `view --saved-brep`: unique source-ID resource binding, metre-to-mm
+  conversion and root-relative resource frames, with explicit schema selection.
+  Bounded analytic solid conversion includes trimmed curves and saved tolerances.
+- Distinguish CSG component markers from final results and accept the qualified
+  saved-hidden final-marker flag.
+
 - Bounded V7L7 CSG programs through `read_csg()` and optional
   `evaluate_csg()`: box/cylinder union, difference and intersection, with explicit
   ownership, root-relative mm frames and scoped rejection of unknown programs.

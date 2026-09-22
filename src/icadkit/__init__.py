@@ -101,6 +101,14 @@ from .parts import (
     PartReference,
     PartStatus,
 )
+from .saved import (
+    SavedBody,
+    SavedBodyIndex,
+    SavedBodyLimits,
+    SavedBodyMesh,
+    evaluate_saved_body,
+    read_saved_bodies,
+)
 from .schema import CatalogLimits, SchemaCatalog
 
 __all__ += [
@@ -127,4 +135,13 @@ __all__ += [
     "CsgOperand",
     "evaluate_csg",
     "read_csg",
+]
+
+__all__ += [
+    "SavedBody",
+    "SavedBodyIndex",
+    "SavedBodyLimits",
+    "SavedBodyMesh",
+    "read_saved_bodies",
+    "evaluate_saved_body",
 ]

@@ -43,7 +43,11 @@ def bridge(brep: Brep) -> Any:
         "edges": top.Edge,
         "vertices": top.Vertex,
     }
-    curves = {"line": geom.LineCurve, "circle": geom.CircleCurve}
+    curves = {
+        "line": geom.LineCurve,
+        "circle": geom.CircleCurve,
+        "trimmed": geom.TrimmedCurve,
+    }
     surfaces = {
         "plane": geom.PlaneSurface,
         "cylinder": geom.CylinderSurface,
@@ -81,7 +85,16 @@ def bridge(brep: Brep) -> Any:
                 )
             )
         common.update(owner=attrs.pop("owner"), sense=attrs.pop("sense"))
-        for name in ("point", "center", "direction", "normal", "axis", "x_axis"):
+        for name in (
+            "point",
+            "center",
+            "direction",
+            "normal",
+            "axis",
+            "x_axis",
+            "start_point",
+            "end_point",
+        ):
             if name in attrs:
                 attrs[name] = vector(attrs[name])
         definition = constructors[kind](**attrs)

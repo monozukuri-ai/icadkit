@@ -541,6 +541,14 @@ def _view_command(args: argparse.Namespace) -> int:
             limits=ViewerLimits(args.max_triangles, args.max_output_bytes),
             cylinder_segments=args.cylinder_segments,
             csg=args.csg,
+            saved_brep=args.saved_brep,
+            schema=SchemaCatalog.from_file(
+                args.schema,
+                expected_id=args.schema_id,
+                expected_sha256=args.schema_sha256,
+            )
+            if args.schema
+            else None,
         )
         result.update(asdict(written))
         result["directory"] = str(written.directory)
@@ -672,7 +680,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     view.add_argument("--json", action="store_true", help="requires --write-only")
     view.add_argument("--cylinder-segments", type=int, default=64)
-    view.add_argument(
+    geometry_mode = view.add_mutually_exclusive_group()
+    geometry_mode.add_argument(
+        "--saved-brep",
+        action="store_true",
+        help="display qualified saved final bodies (requires preview extra)",
+    )
+    view.add_argument("--schema", help="explicit schema catalog for saved bodies")
+    view.add_argument("--schema-id", help="expected catalog ID")
+    view.add_argument("--schema-sha256", help="expected catalog SHA-256")
+    geometry_mode.add_argument(
         "--csg",
         action="store_true",
         help="evaluate qualified V7L7 boolean bodies (requires preview extra)",
@@ -742,6 +759,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 default=getattr(check_defaults, name),
             )
     args = parser.parse_args(argv)
+    if args.command in ("check", "preview", "view"):
+        if bool(args.schema) != bool(args.schema_id):
+            parser.error("--schema and --schema-id must be supplied together")
+        if args.schema_sha256 and not args.schema:
+            parser.error("--schema-sha256 requires --schema and --schema-id")
+        if args.schema_id and (
+            not args.schema_id.isascii() or not args.schema_id.isdigit()
+        ):
+            parser.error("--schema-id must be an ASCII numeric ID")
+        if args.schema_sha256 and (
+            len(args.schema_sha256) != 64
+            or any(c not in "0123456789abcdefABCDEF" for c in args.schema_sha256)
+        ):
+            parser.error("--schema-sha256 must contain 64 hexadecimal digits")
+        if args.command == "view" and args.schema and not args.saved_brep:
+            parser.error("view --schema requires --saved-brep")
     if args.command in ("parts", "view"):
         for name in PartLimits.__dataclass_fields__:
             if getattr(args, name) > (1 << 31) - 1:
@@ -763,19 +796,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command in ("check", "preview"):
         if args.command == "check" and args.target == "geometry" and not args.resource:
             parser.error("check --target geometry requires --resource")
-        if bool(args.schema) != bool(args.schema_id):
-            parser.error("--schema and --schema-id must be supplied together")
-        if args.schema_sha256 and not args.schema:
-            parser.error("--schema-sha256 requires --schema and --schema-id")
-        if args.schema_id and (
-            not args.schema_id.isascii() or not args.schema_id.isdigit()
-        ):
-            parser.error("--schema-id must be an ASCII numeric ID")
-        if args.schema_sha256 and (
-            len(args.schema_sha256) != 64
-            or any(c not in "0123456789abcdefABCDEF" for c in args.schema_sha256)
-        ):
-            parser.error("--schema-sha256 must contain 64 hexadecimal digits")
         if (
             args.command == "check"
             and args.target != "geometry"

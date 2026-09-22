@@ -69,7 +69,7 @@ def result(*, hidden=False):
         1,
         0,
         0x212,
-        0x01800044,
+        0x01800004 if hidden else 0x01800044,
     )
 
 

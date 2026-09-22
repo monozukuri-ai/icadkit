@@ -72,6 +72,8 @@ entity appearance. The separate [CSG API](docs/csg.md) and
 `uv run --extra preview icadkit view model.icd --csg` evaluate qualified
 box/cylinder unions, differences and intersections. Unknown programs retain
 diagnostics without substitute geometry.
+The [saved final body mode](docs/saved-bodies.md), `view --saved-brep`, also
+displays qualified saved results using an explicit schema catalog when required.
 These additions are not in the 0.2.0 package.
 
 Qualified V8L3 part frames use millimetres. Mirrored frames and external-file

@@ -1,5 +1,5 @@
 // Optional browser regression: node tests/viewer_browser.mjs URL SCENARIO OUTDIR
-// Requires Playwright and Chromium. SCENARIO: mixed, holdout, csg, unsupported or inventory.
+// Requires Playwright and Chromium. SCENARIO: mixed, holdout, csg, saved, unsupported or inventory.
 // mixed: box visible, cylinder hidden, unsupported entity; part comment below.
 import assert from 'node:assert/strict';
 import {mkdir, writeFile} from 'node:fs/promises';
@@ -57,6 +57,15 @@ try {
     assert.equal(await page.evaluate(()=>nativeView.visible.size),2);
     report.checks.push('saved hidden/restored; parent visibility; unsupported selectable; search; stored text rendered literally');
   }
+  if (scenario === 'saved') {
+    assert.equal(await page.evaluate(()=>nativeView.scene.saved_brep.evaluated),1);
+    assert.equal(await page.evaluate(()=>nativeView.drawables.length),1);
+    await page.getByRole('button',{name:/^Saved component/}).first().click();
+    assert.match(await page.locator('#details').innerText(),/not drawn separately/);
+    await page.getByRole('button',{name:/^Saved final body/}).click();
+    assert.match(await page.locator('#details').innerText(),/Volume \(mm³\)/);
+    report.checks.push('saved final body selectable; components not drawn separately; mass properties visible');
+  }
   if (scenario === 'csg') {
     assert.equal(await page.evaluate(()=>nativeView.scene.csg.evaluated),1);
     assert.equal(await page.evaluate(()=>nativeView.drawables.length),1);
@@ -89,7 +98,7 @@ try {
     });
     await page.mouse.click(point.x,point.y);
     assert.equal(await page.evaluate(()=>nativeView.selectionId),point.id);
-    assert.match(await page.locator('#details').innerText(),scenario === 'csg' ? /Volume \(mm³\)/ : /Height \(mm\)/);
+    assert.match(await page.locator('#details').innerText(),['csg','saved'].includes(scenario) ? /Volume \(mm³\)/ : /Height \(mm\)/);
     const before=await page.evaluate(()=>({yaw:nativeView.yaw,target:[...nativeView.target],radius:nativeView.radius}));
     await page.mouse.move(point.x,point.y);await page.mouse.down();await page.mouse.move(point.x+45,point.y+25,{steps:4});await page.mouse.up();
     assert.notEqual(await page.evaluate(()=>nativeView.yaw),before.yaw);

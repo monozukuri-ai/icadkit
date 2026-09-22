@@ -28,6 +28,10 @@ for body in index.bodies:
     print(mesh.volume_mm3, mesh.area_mm2, mesh.centroid_mm)
 ```
 
+Saved results of unqualified programs may be available through the separate
+[saved final body mode](saved-bodies.md). That path reads a saved B-Rep and does
+not interpret those feature operations.
+
 ## Qualified scope
 
 - Little-endian V7L7, a complete part index/hierarchy and a qualified rigid root

@@ -45,6 +45,11 @@ If V7L7 root context/units are unavailable, exports use
 `scope="native_part_inventory"`, null `length_unit` and `coordinate_system`, and
 an empty `meshes` object. The tree remains selectable in both cases.
 
+For saved final B-Rep solids, use `--saved-brep` with the `preview` extra and,
+when needed, an explicit matching `--schema` / `--schema-id`. This can display
+saved results containing feature operations outside the CSG evaluator. See
+[saved final bodies](saved-bodies.md) for binding, units and conversion limits.
+
 ## Controls and scope
 
 - Drag to orbit; right-drag or Shift-drag to pan; scroll to zoom. Fit view (or F
@@ -75,8 +80,8 @@ for entities hidden inside unparsed ranges. Reader statuses, diagnostics and
 unparsed ranges appear in the model properties.
 
 Mirrors, spheres, cones, unqualified CSG programs, drawings and automatic external-file
-loading remain unsupported. Embedded Parasolid resources are counted but not
-placed or displayed here, because their native ownership/placement is unresolved.
+loading remain unsupported. With the default primitive mode, embedded Parasolid resources are counted but
+not placed. `--saved-brep` places only uniquely bound, qualified final resources.
 Use the separate [resource preview](preview.md) to view a selected supported
 embedded resource. Unknown hierarchy links are retained; cycle-safe traversal
 lists each part once. This does not repair or certify the hierarchy.

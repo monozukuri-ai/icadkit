@@ -177,82 +177,7 @@ def evaluate(body: CsgBody, limits: CsgLimits, deflection: float) -> CsgMesh:
                 stack.append(result)
             # Validated 0/255 saved checkpoints leave the accumulated result unchanged.
         shape = stack[0]
-        solids = _check(shape, limits, api)
-        volume = api["GProp"].GProp_GProps()
-        area = api["GProp"].GProp_GProps()
-        api["BRepGProp"].BRepGProp.VolumeProperties_s(shape, volume)
-        api["BRepGProp"].BRepGProp.SurfaceProperties_s(shape, area)
-        center = volume.CentreOfMass()
-        centroid = (center.X(), center.Y(), center.Z())
-        if (
-            not all(math.isfinite(v) for v in (*centroid, volume.Mass(), area.Mass()))
-            or volume.Mass() <= 0
-            or area.Mass() <= 0
-        ):
-            _fail(
-                "csg.mass_properties", "Invalid CSG mass properties", category="invalid"
-            )
-        mesher = api["BRepMesh"].BRepMesh_IncrementalMesh(
-            shape, deflection, False, 0.3, False
-        )
-        if not mesher.IsDone():
-            _fail(
-                "csg.tessellation",
-                "CSG tessellation did not complete",
-                category="invalid",
-            )
-        positions: list[float] = []
-        triangles: list[int] = []
-        edges: list[int] = []
-        for item in _shapes(shape, api["TopAbs"].TopAbs_FACE, api):
-            face = api["TopoDS"].TopoDS.Face_s(item)
-            location = api["TopLoc"].TopLoc_Location()
-            mesh = api["BRep"].BRep_Tool.Triangulation_s(face, location)
-            if mesh is None or mesh.NbTriangles() <= 0 or mesh.NbNodes() <= 0:
-                _fail(
-                    "csg.tessellation",
-                    "CSG face has no triangles; no partial mesh",
-                    category="invalid",
-                )
-            offset = len(positions) // 3
-            if (
-                offset + mesh.NbNodes() > limits.max_vertices
-                or len(triangles) // 3 + mesh.NbTriangles() > limits.max_triangles
-            ):
-                _fail(
-                    "csg.limit_mesh",
-                    "CSG mesh exceeds vertex/triangle limits",
-                    category="limit_exceeded",
-                )
-            transform = location.Transformation()
-            for i in range(1, mesh.NbNodes() + 1):
-                point = mesh.Node(i).Transformed(transform)
-                positions.extend((point.X(), point.Y(), point.Z()))
-            reverse = face.Orientation() == api["TopAbs"].TopAbs_REVERSED
-            boundary: Counter[tuple[int, int]] = Counter()
-            for i in range(1, mesh.NbTriangles() + 1):
-                a, b, c = (int(v) - 1 + offset for v in mesh.Triangle(i).Get())
-                if reverse:
-                    b, c = c, b
-                triangles.extend((a, b, c))
-                for first, second in ((a, b), (b, c), (c, a)):
-                    boundary[min(first, second), max(first, second)] += 1
-            for (a, b), count in boundary.items():
-                if count == 1:
-                    edges.extend((a, b))
-        if not triangles or not all(math.isfinite(v) for v in positions):
-            _fail("csg.tessellation", "Invalid or empty CSG mesh", category="invalid")
-        return CsgMesh(
-            body.body_id,
-            tuple(positions),
-            tuple(triangles),
-            tuple(edges),
-            volume.Mass(),
-            area.Mass(),
-            centroid,
-            solids,
-            deflection,
-        )
+        return mesh_shape(shape, body.body_id, limits, deflection, api)
     except IcadError:
         raise
     except Exception as exc:
@@ -262,3 +187,82 @@ def evaluate(body: CsgBody, limits: CsgLimits, deflection: float) -> CsgMesh:
             body.byte_range.start,
             "invalid",
         )
+
+
+def mesh_shape(
+    shape: Any, body_id: str, limits: CsgLimits, deflection: float, api: dict[str, Any]
+) -> CsgMesh:
+    solids = _check(shape, limits, api)
+    volume = api["GProp"].GProp_GProps()
+    area = api["GProp"].GProp_GProps()
+    api["BRepGProp"].BRepGProp.VolumeProperties_s(shape, volume)
+    api["BRepGProp"].BRepGProp.SurfaceProperties_s(shape, area)
+    center = volume.CentreOfMass()
+    centroid = (center.X(), center.Y(), center.Z())
+    if (
+        not all(math.isfinite(v) for v in (*centroid, volume.Mass(), area.Mass()))
+        or volume.Mass() <= 0
+        or area.Mass() <= 0
+    ):
+        _fail("csg.mass_properties", "Invalid CSG mass properties", category="invalid")
+    mesher = api["BRepMesh"].BRepMesh_IncrementalMesh(
+        shape, deflection, False, 0.3, False
+    )
+    if not mesher.IsDone():
+        _fail(
+            "csg.tessellation",
+            "CSG tessellation did not complete",
+            category="invalid",
+        )
+    positions: list[float] = []
+    triangles: list[int] = []
+    edges: list[int] = []
+    for item in _shapes(shape, api["TopAbs"].TopAbs_FACE, api):
+        face = api["TopoDS"].TopoDS.Face_s(item)
+        location = api["TopLoc"].TopLoc_Location()
+        mesh = api["BRep"].BRep_Tool.Triangulation_s(face, location)
+        if mesh is None or mesh.NbTriangles() <= 0 or mesh.NbNodes() <= 0:
+            _fail(
+                "csg.tessellation",
+                "CSG face has no triangles; no partial mesh",
+                category="invalid",
+            )
+        offset = len(positions) // 3
+        if (
+            offset + mesh.NbNodes() > limits.max_vertices
+            or len(triangles) // 3 + mesh.NbTriangles() > limits.max_triangles
+        ):
+            _fail(
+                "csg.limit_mesh",
+                "CSG mesh exceeds vertex/triangle limits",
+                category="limit_exceeded",
+            )
+        transform = location.Transformation()
+        for i in range(1, mesh.NbNodes() + 1):
+            point = mesh.Node(i).Transformed(transform)
+            positions.extend((point.X(), point.Y(), point.Z()))
+        reverse = face.Orientation() == api["TopAbs"].TopAbs_REVERSED
+        boundary: Counter[tuple[int, int]] = Counter()
+        for i in range(1, mesh.NbTriangles() + 1):
+            a, b, c = (int(v) - 1 + offset for v in mesh.Triangle(i).Get())
+            if reverse:
+                b, c = c, b
+            triangles.extend((a, b, c))
+            for first, second in ((a, b), (b, c), (c, a)):
+                boundary[min(first, second), max(first, second)] += 1
+        for (a, b), count in boundary.items():
+            if count == 1:
+                edges.extend((a, b))
+    if not triangles or not all(math.isfinite(v) for v in positions):
+        _fail("csg.tessellation", "Invalid or empty CSG mesh", category="invalid")
+    return CsgMesh(
+        body_id,
+        tuple(positions),
+        tuple(triangles),
+        tuple(edges),
+        volume.Mass(),
+        area.Mass(),
+        centroid,
+        solids,
+        deflection,
+    )

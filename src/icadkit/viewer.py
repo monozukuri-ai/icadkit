@@ -24,9 +24,12 @@ from .errors import (
     LimitExceededError,
     UnsupportedFormatError,
 )
+from .geometry import GeometryLimits
 from .models import Diagnostic, ErrorCategory
 from .native import NativePrimitive
 from .parts import PartLimits
+from .saved import SavedBodyLimits, _read_saved_bodies, evaluate_saved_body
+from .schema import SchemaCatalog
 
 __all__ = [
     "ViewerLimits",
@@ -64,6 +67,7 @@ class ViewerResult:
     output_bytes: int
     model_status: str = "partial"
     evaluated_csg_bodies: int = 0
+    evaluated_saved_bodies: int = 0
 
 
 def _limit(message: str) -> LimitExceededError:
@@ -150,6 +154,10 @@ def write_native_viewer(
     cylinder_segments: int = 64,
     csg: bool = False,
     csg_limits: CsgLimits | None = None,
+    saved_brep: bool = False,
+    saved_limits: SavedBodyLimits | None = None,
+    schema: SchemaCatalog | None = None,
+    geometry_limits: GeometryLimits | None = None,
 ) -> ViewerResult:
     """Write scene.json and an offline viewer into a new directory.
 
@@ -161,6 +169,15 @@ def write_native_viewer(
     """
     if not isinstance(document, Document):
         raise TypeError("document must be an icadkit.Document")
+    if not isinstance(saved_brep, bool):
+        raise TypeError("saved_brep must be a bool")
+    if csg and saved_brep:
+        raise ValueError("Choose csg or saved_brep evaluation")
+    if schema is not None and not saved_brep:
+        raise ValueError("schema requires saved_brep=True")
+    saved_limits = SavedBodyLimits() if saved_limits is None else saved_limits
+    if not isinstance(saved_limits, SavedBodyLimits):
+        raise TypeError("saved_limits must be SavedBodyLimits")
     if not isinstance(csg, bool):
         raise TypeError("csg must be a bool")
     csg_limits = CsgLimits() if csg_limits is None else csg_limits
@@ -291,6 +308,76 @@ def write_native_viewer(
                     entities[operand.entity_id]["csg_role"] = "operand"
                     entities[operand.entity_id]["csg_body_id"] = body.body_id
         csg_summary["omitted"] = len(programs.bodies) - csg_summary["evaluated"]
+    saved_summary = {"enabled": saved_brep, "bodies": 0, "evaluated": 0, "omitted": 0}
+    if saved_brep:
+        saved = _read_saved_bodies(document, index, saved_limits)
+        csg_diagnostics.extend(asdict(d) for d in saved.diagnostics)
+        saved_summary["bodies"] = len(saved.bodies)
+        entities = {e["entity_id"]: e for p in rows for e in p["entities"]}
+        for saved_body in saved.bodies:
+            row = entities[saved_body.body_id]
+            detail = {
+                "status": saved_body.status,
+                "resource_id": saved_body.resource_id,
+                "diagnostics": [asdict(d) for d in saved_body.diagnostics],
+            }
+            row["saved_body"] = detail
+            if saved_body.status != "complete":
+                continue
+            remaining = limits.max_triangles - triangles
+            if remaining <= 0:
+                raise _limit("Saved body tessellation exceeds max_triangles")
+            try:
+                result = evaluate_saved_body(
+                    document,
+                    saved_body,
+                    schema=schema,
+                    geometry_limits=geometry_limits,
+                    limits=replace(
+                        saved_limits,
+                        max_triangles=min(saved_limits.max_triangles, remaining),
+                    ),
+                )
+            except IcadError as exc:
+                if isinstance(exc, LimitExceededError) or exc.diagnostic.code in (
+                    "csg.missing_dependency",
+                    "csg.backend_version",
+                ):
+                    raise
+                detail.update(
+                    status=exc.diagnostic.category, diagnostics=[asdict(exc.diagnostic)]
+                )
+                continue
+            meshes[saved_body.body_id] = {
+                "positions": result.positions,
+                "triangles": result.triangles,
+                "edges": result.edges,
+            }
+            triangles += len(result.triangles) // 3
+            saved_summary["evaluated"] += 1
+            detail.update(
+                volume_mm3=result.volume_mm3,
+                area_mm2=result.area_mm2,
+                centroid_mm=result.centroid_mm,
+                solid_count=result.solid_count,
+                face_count=result.face_count,
+                payload_sha256=result.payload_sha256,
+                linear_deflection_mm=result.linear_deflection_mm,
+                representation_operations=result.representation_operations,
+            )
+            row["geometry_status"] = "complete"
+            row["appearance"] = {
+                "color_index": saved_body.appearance.color_index,
+                "visible": saved_body.appearance.visible,
+                "layer": saved_body.appearance.layer,
+                "status": saved_body.appearance.status,
+            }
+        saved_summary["omitted"] = len(saved.bodies) - saved_summary["evaluated"]
+        for part in index.parts:
+            for entity in part.entities:
+                raw = document.source_bytes(entity.byte_range)
+                if len(raw) >= 16 and raw[13] & 1:
+                    entities[entity.entity_id]["saved_role"] = "component"
     lower, upper = [math.inf] * 3, [-math.inf] * 3
     for mesh in meshes.values():
         for axis in range(3):
@@ -326,6 +413,8 @@ def write_native_viewer(
         "model_status": "partial",
         "scope": "native_part_inventory"
         if metadata_only
+        else "qualified_saved_brep"
+        if saved_brep
         else "qualified_native_csg"
         if csg
         else "qualified_native_primitives",
@@ -347,6 +436,7 @@ def write_native_viewer(
         "opaque_ranges": [asdict(r) for r in index.opaque_ranges],
         "parts": rows,
         "csg": csg_summary,
+        "saved_brep": saved_summary,
         "meshes": meshes,
         "summary": {
             "parts": len(index.parts),
@@ -391,6 +481,7 @@ def write_native_viewer(
         triangles,
         total,
         evaluated_csg_bodies=int(csg_summary["evaluated"]),
+        evaluated_saved_bodies=int(saved_summary["evaluated"]),
     )
 
 

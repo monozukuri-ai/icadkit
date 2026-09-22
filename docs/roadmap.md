@@ -162,9 +162,16 @@ SDK comparisons cover repeated cuts, mixed operations, disconnected results,
 multiple owners, root transforms, held-out cases and saved final appearance.
 Negative heights and additional feature operations remain unqualified.
 
+## V7L7 saved final bodies
+
+[Saved final body display](saved-bodies.md) binds qualified final markers to
+resources by unique source IDs and applies their saved frames and units. This
+provides a display path for the design-change tutorial while its feature
+history remains outside the CSG replay scope.
+
 ## Deferred scope
 
 General CSG evaluation, full feature history, complete 2D drawings and dimensions,
 ICD writing, and unrestricted whole-model STEP/mesh export are later work.
-Resource-to-part mapping and assembly GLB export remain follow-up work.
+Broader resource-to-part mapping and assembly GLB export remain follow-up work.
 Resource-local previews retain explicit coordinate and completeness limits.

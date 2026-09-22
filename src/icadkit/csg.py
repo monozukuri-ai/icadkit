@@ -322,7 +322,13 @@ def _read_csg(doc: Document, parts: PartIndex, limits: CsgLimits) -> CsgIndex:
                 metadata_by_owner[owner.part_id].append(opaque.byte_range)
     for part in parts.parts:
         # A final type-85 marker, or a single leaf with an explicit saved tree.
-        markers = [e for e in part.entities if e.raw_type == 85]
+        markers = [
+            e
+            for e in part.entities
+            if e.raw_type == 85
+            and _word(doc.source_bytes(e.byte_range), 12) & 0xFFFFFF
+            not in (0x109E1, 0x109A1)
+        ]
         metas = metadata_by_owner[part.part_id]
         if not markers and len(part.entities) == 1 and metas:
             markers = list(part.entities)
@@ -389,7 +395,7 @@ def _read_csg(doc: Document, parts: PartIndex, limits: CsgLimits) -> CsgIndex:
                     or _word(b, 28) != 0x1000000
                     or _word(b, 32) != tree_id
                     or _word(b, 36)
-                    or _word(b, 44) != 0x01800044
+                    or _word(b, 44) != (0x01800004 | (_word(b, 12) & 0x40))
                 ):
                     _fail(
                         "csg.result_binding",

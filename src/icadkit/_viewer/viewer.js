@@ -209,7 +209,7 @@ class NativeView {
     const summary = this.scene.summary;
     $('scope').textContent = this.scene.scope === 'native_part_inventory'
       ? `Part inventory · ${summary.entities} saved entity records retained. Geometry, placement and appearance are unavailable for this profile. Embedded resources are not displayed.`
-      : `${this.scene.csg?.enabled ? "Native primitives & CSG results" : "Native boxes & cylinders"} · ${summary.rendered} / ${summary.entities} indexed entities represented · ${summary.omitted} saved records not drawn · ${this.scene.resource_count} embedded resources not displayed. Colors are illustrative; full-model coverage is unverified.`;
+      : `${this.scene.saved_brep?.enabled ? "Native primitives & saved final bodies" : this.scene.csg?.enabled ? "Native primitives & CSG results" : "Native boxes & cylinders"} · ${summary.rendered} / ${summary.entities} indexed entities represented · ${summary.omitted} saved records not drawn · ${this.scene.resource_count - (this.scene.saved_brep?.evaluated || 0)} embedded resources not displayed. Colors are illustrative; full-model coverage is unverified.`;
     const seen = new Set();
     const addRow = (parent, id, label, tag, unsupported) => {
       const row = node('div', undefined, `tree-row${unsupported ? ' unsupported' : ''}`);
@@ -234,7 +234,7 @@ class NativeView {
         if (seen.has(part.part_id)) continue; seen.add(part.part_id);
         addRow(parent, part.part_id, part.name ?? '(undecoded name)', part.is_external ? 'external' : part.is_root ? 'root' : 'part', false);
         const branch = node('div', undefined, 'branch'); parent.append(branch);
-        for (const entity of part.entities) addRow(branch, entity.entity_id, `${entity.csg ? 'CSG result' : entity.csg_role === 'operand' ? 'CSG operand' : entity.primitive?.kind || 'Unsupported'} · ${entity.entity_id}`, entity.csg_role === 'operand' ? 'operand' : entity.csg?.status === 'complete' || entity.geometry_status === 'complete' ? '' : entity.csg?.status || entity.geometry_status, !this.scene.meshes[entity.entity_id]);
+        for (const entity of part.entities) addRow(branch, entity.entity_id, `${entity.saved_body ? 'Saved final body' : entity.saved_role === 'component' ? 'Saved component' : entity.csg ? 'CSG result' : entity.csg_role === 'operand' ? 'CSG operand' : entity.primitive?.kind || 'Unsupported'} · ${entity.entity_id}`, entity.saved_role === 'component' ? 'component' : entity.csg_role === 'operand' ? 'operand' : entity.csg?.status === 'complete' || entity.geometry_status === 'complete' ? '' : entity.csg?.status || entity.geometry_status, !this.scene.meshes[entity.entity_id]);
         const children = this.children.get(part.part_id) || [];
         for (let i=children.length-1;i>=0;i--) stack.push([children[i], branch]);
       }
@@ -274,7 +274,7 @@ class NativeView {
     this.selectionId = id;
     const part = this.parts.get(id), entity = this.entities.get(id);
     this.selected = new Set(part ? this.entityIds(id) : [id]);
-    $('details').replaceChildren(node('h3', part ? part.name ?? '(undecoded name)' : entity.csg ? 'CSG result' : entity.csg_role === 'operand' ? 'CSG operand' : entity.primitive?.kind || 'Unsupported entity'));
+    $('details').replaceChildren(node('h3', part ? part.name ?? '(undecoded name)' : entity.saved_body ? 'Saved final body' : entity.saved_role === 'component' ? 'Saved component' : entity.csg ? 'CSG result' : entity.csg_role === 'operand' ? 'CSG operand' : entity.primitive?.kind || 'Unsupported entity'));
     if (part) {
       this.fields([['Part ID',part.part_id],['Parent ID',part.parent_id],['Source ID',part.source_id],['External reference',part.external_reference],['Placement status',part.placement_status],[this.scene.length_unit ? 'Part world frame (mm)' : 'Part world frame',part.world_transform],['Native geometry status',part.native_geometry_status]]);
       $('details').append(node('h3','Stored attributes'));
@@ -283,9 +283,12 @@ class NativeView {
     } else {
       this.fields([['Entity ID',id],['Owner',this.parts.get(entity.owner_id)?.name ?? entity.owner_id],['Geometry status',entity.geometry_status],['Source byte range',entity.byte_range],['Saved visibility',entity.appearance.visible],['Palette index (not RGB)',entity.appearance.color_index],['Layer',entity.appearance.layer],['Appearance status',entity.appearance.status]]);
       if (entity.primitive) this.fields([['Dimensions (mm)',entity.primitive.box_dimensions],['Radius (mm)',entity.primitive.radius],['Height (mm)',entity.primitive.height],['Global frame (mm)',entity.primitive.world_transform]]);
+      else if (entity.saved_body?.volume_mm3) this.fields([['Volume (mm³)',entity.saved_body.volume_mm3],['Area (mm²)',entity.saved_body.area_mm2],['Centroid (mm)',entity.saved_body.centroid_mm],['Faces',entity.saved_body.face_count],['Solids',entity.saved_body.solid_count],['Mesh deflection (mm)',entity.saved_body.linear_deflection_mm]]);
+      else if (entity.saved_role === 'component') $('details').append(node('p','This saved component is not drawn separately from the final body.'));
       else if (entity.csg?.volume_mm3) this.fields([['Volume (mm³)',entity.csg.volume_mm3],['Area (mm²)',entity.csg.area_mm2],['Centroid (mm)',entity.csg.centroid_mm],['Solids',entity.csg.solid_count],['Mesh deflection (mm)',entity.csg.linear_deflection_mm]]);
       else if (entity.csg_role === 'operand') $('details').append(node('p','This saved operand contributes to the CSG result and is not drawn separately.'));
       else $('details').append(node('p','This entity is not drawn. Its geometry is unsupported or invalid.', 'notice'));
+      if (entity.saved_body) this.fields([['Saved body status',entity.saved_body.status],['Resource',entity.saved_body.resource_id],['Saved body diagnostics',entity.saved_body.diagnostics]]);
       if (entity.csg) this.fields([['CSG status',entity.csg.status],['CSG diagnostics',entity.csg.diagnostics],['Program source range',entity.csg.program_range]]);
       this.fields([['Saved record diagnostics',entity.diagnostics]]);
     }
@@ -335,7 +338,7 @@ export const application = (async () => {
     const response = await fetch('scene.json');
     if (!response.ok) throw Error(`Cannot load scene: HTTP ${response.status}`);
     const scene = await response.json();
-    if (scene.schema_version !== 1 || !['qualified_native_primitives','qualified_native_csg','native_part_inventory'].includes(scene.scope)) throw Error('Unsupported native scene schema');
+    if (scene.schema_version !== 1 || !['qualified_native_primitives','qualified_native_csg','qualified_saved_brep','native_part_inventory'].includes(scene.scope)) throw Error('Unsupported native scene schema');
     return new NativeView(scene);
   } catch (error) {
     $('app').dataset.status = 'error';
