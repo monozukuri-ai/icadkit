@@ -135,6 +135,55 @@ def test_root_owned_geometry_empty_and_unsupported_models(tmp_path):
         assert result.model_status == "partial"
 
 
+def test_unqualified_native_profile_is_not_a_successful_empty_view(tmp_path):
+    data = bytearray(view_parts([part(ROOT, root=True), native()]))
+    data[12:16] = b"\x00\x07\x00\x07"
+    destination = tmp_path / "view"
+    with pytest.raises(icadkit.UnsupportedFormatError, match="V7L7") as exc:
+        write_native_viewer(icadkit.read(bytes(data)), destination)
+    assert exc.value.diagnostic.code == "parts.profile"
+    assert "not an empty model" in exc.value.diagnostic.message
+    assert not destination.exists()
+
+
+def test_unreadable_native_view_does_not_publish_an_inventory(tmp_path):
+    # A valid outer container with a native view missing its required root.
+    with pytest.raises(icadkit.InvalidFormatError, match="parts.no_root"):
+        write_native_viewer(icadkit.read(view_parts([])), tmp_path / "view")
+    assert not (tmp_path / "view").exists()
+
+
+def test_view_cli_reports_profile_failure_without_starting_browser(
+    tmp_path, monkeypatch, capsys
+):
+    from icadkit import viewer
+
+    data = bytearray(view_parts([part(ROOT, root=True), native()]))
+    data[12:16] = b"\x00\x07\x00\x07"
+    path = tmp_path / "old-profile.icd"
+    path.write_bytes(data)
+
+    def unexpected_server(*args, **kwargs):
+        raise AssertionError("An unreadable native profile must not start the viewer")
+
+    monkeypatch.setattr(viewer, "serve_viewer", unexpected_server)
+    assert main(["view", str(path), "--no-open"]) == 3
+    captured = capsys.readouterr()
+    assert captured.out == "" and "V7L7" in captured.err
+    assert "V8L3" in captured.err
+    destination = tmp_path / "view"
+    assert (
+        main(
+            ["view", str(path), "--write-only", "--output", str(destination), "--json"]
+        )
+        == 3
+    )
+    row = json.loads(capsys.readouterr().out)
+    assert row["error"]["code"] == "parts.profile"
+    assert row["error"]["category"] == "unsupported"
+    assert "directory" not in row and not destination.exists()
+
+
 @pytest.mark.parametrize(
     "limits", [ViewerLimits(max_triangles=11), ViewerLimits(max_output_bytes=100)]
 )

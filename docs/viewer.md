@@ -7,6 +7,13 @@ controls. No preview extra, OCCT, iCAD, Wine, internet connection or schema cata
 is required. The browser needs WebGL for 3D display; without it, the part/property
 inventory remains available.
 
+Native reading currently requires the qualified **little-endian V8L3** profile.
+Older profiles such as V7L7 are not supported. If the native part inventory cannot
+be read, the command reports the reader diagnostic and exits without opening an
+empty viewer. An indexed model whose shapes are unsupported can still open its
+part/property inventory. Saving in a newer iCAD version does not make CSG or
+other unsupported geometry renderable.
+
 From a source checkout:
 
 ```sh

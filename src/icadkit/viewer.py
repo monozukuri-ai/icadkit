@@ -17,8 +17,8 @@ from typing import Any
 
 from ._viewer_io import ViewerServer, publish
 from .document import Document
-from .errors import InvalidFormatError, LimitExceededError
-from .models import Diagnostic
+from .errors import InvalidFormatError, LimitExceededError, UnsupportedFormatError
+from .models import Diagnostic, ErrorCategory
 from .native import NativePrimitive
 from .parts import PartLimits
 
@@ -147,7 +147,8 @@ def write_native_viewer(
     Native global frames are applied exactly once. Saved-hidden entities start
     hidden; unknown visibility is shown and labelled unknown. Colors are
     illustrative. Unsupported geometry is listed, never synthesized. A result
-    with zero rendered entities is valid and opens an inventory-only view.
+    with zero rendered entities is valid when a native part inventory was read.
+    Unreadable native inventories raise instead of presenting an empty model.
     """
     if not isinstance(document, Document):
         raise TypeError("document must be an icadkit.Document")
@@ -164,6 +165,32 @@ def write_native_viewer(
     if output.exists() or output.is_symlink():
         raise FileExistsError(f"Viewer destination already exists: {output}")
     index = document.read_parts(limits=part_limits)
+    if not index.parts:
+        # No indexed entities can mean the native reader could not enter this
+        # format at all. Keep that distinct from a qualified, empty root part.
+        category: ErrorCategory = (
+            "invalid" if index.status.index == "invalid" else "unsupported"
+        )
+        issue = next(
+            (d for d in index.diagnostics if d.category == category),
+            next(iter(index.diagnostics), None),
+        )
+        message = issue.message if issue else "No native part inventory could be read"
+        if issue is not None and issue.code == "parts.profile":
+            raw = document.header.raw_version
+            known_profiles = {b"\x00\x07\x00\x07": "V7L7", b"\x00\x08\x00\x03": "V8L3"}
+            profile = known_profiles.get(raw, "0x" + raw.hex())
+            message = f"File profile {profile}: {message}"
+        message += ". No native parts were read; this is not an empty model."
+        error = InvalidFormatError if category == "invalid" else UnsupportedFormatError
+        raise error(
+            Diagnostic(
+                category,
+                issue.code if issue else "viewer.native_index",
+                issue.byte_offset if issue else None,
+                message,
+            )
+        )
     count = sum(len(p.entities) for p in index.parts)
     triangles = sum(
         12 if e.primitive.kind == "box" else 4 * cylinder_segments

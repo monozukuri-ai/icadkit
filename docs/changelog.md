@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The native viewer now rejects unreadable native part inventories with the
+  reader's diagnostic. Unsupported file profiles no longer open a misleading
+  empty model; qualified empty roots and unsupported-shape inventories still open.
+
 - `icadkit view model.icd` and `icadkit.viewer` for native box/cylinder viewing,
   saved global placement, part hierarchy, stored attributes, selection and
   visibility controls. Works without the preview extra or iCAD.
