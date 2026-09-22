@@ -509,6 +509,80 @@ def _preview_command(args: argparse.Namespace) -> int:
     return code
 
 
+def _view_command(args: argparse.Namespace) -> int:
+    from .viewer import ViewerLimits, serve_viewer, write_native_viewer
+
+    result: dict[str, object] = {"schema_version": 1, "operation": "view"}
+    temporary = None
+    try:
+        doc = read(
+            args.path,
+            limits=ReadLimits(
+                **{
+                    name: getattr(args, name)
+                    for name in ReadLimits.__dataclass_fields__
+                }
+            ),
+        )
+        if args.output is None:
+            temporary = tempfile.TemporaryDirectory(prefix="icadkit-view-")
+            destination = Path(temporary.name) / "viewer"
+        else:
+            destination = Path(args.output)
+        written = write_native_viewer(
+            doc,
+            destination,
+            part_limits=PartLimits(
+                **{
+                    name: getattr(args, name)
+                    for name in PartLimits.__dataclass_fields__
+                }
+            ),
+            limits=ViewerLimits(args.max_triangles, args.max_output_bytes),
+            cylinder_segments=args.cylinder_segments,
+        )
+        result.update(asdict(written))
+        result["directory"] = str(written.directory)
+        if args.write_only:
+            if args.json:
+                print(json.dumps(result, sort_keys=True))
+            else:
+                print(
+                    f"Wrote {written.directory}: {written.rendered_entities} shapes; "
+                    f"{written.omitted_entities} unsupported/invalid entities"
+                )
+        else:
+            with serve_viewer(written.directory, port=args.port) as server:
+                print(f"Native viewer: {server.url}", flush=True)
+                print(
+                    f"{written.rendered_entities}/{written.entity_count} indexed "
+                    "entities represented; partial model. Ctrl-C to stop.",
+                    flush=True,
+                )
+                if not args.no_open and not server.open_browser():
+                    print("Open the URL above in a browser.", flush=True)
+                try:
+                    Event().wait()
+                except KeyboardInterrupt:
+                    pass
+    except (IcadError, OSError) as exc:
+        diagnostic = (
+            exc.diagnostic
+            if isinstance(exc, IcadError)
+            else Diagnostic("io", "io.failed", None, str(exc))
+        )
+        result["error"] = asdict(diagnostic)
+        if args.json:
+            print(json.dumps(result, sort_keys=True))
+        else:
+            print(f"icadkit: {diagnostic.message}", file=sys.stderr)
+        return {"unsupported": 3, "limit_exceeded": 4}.get(diagnostic.category, 1)
+    finally:
+        if temporary is not None:
+            temporary.cleanup()
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     # Keep Japanese paths/names usable when stdout is redirected on a system
     # whose locale encoding cannot represent them. In-memory capture streams
@@ -581,6 +655,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                 type=_positive_u64,
                 default=getattr(part_defaults, name),
             )
+    view = commands.add_parser(
+        "view", help="view native boxes/cylinders, part hierarchy and properties"
+    )
+    view.add_argument("path")
+    view.add_argument("--output", help="new directory to keep viewer files")
+    view.add_argument(
+        "--write-only", action="store_true", help="export without serving"
+    )
+    view.add_argument(
+        "--no-open", action="store_true", help="print URL without opening a browser"
+    )
+    view.add_argument(
+        "--port", type=int, default=0, help="loopback port (0: automatic)"
+    )
+    view.add_argument("--json", action="store_true", help="requires --write-only")
+    view.add_argument("--cylinder-segments", type=int, default=64)
+    view.add_argument("--max-triangles", type=_positive_u64, default=1_000_000)
+    view.add_argument(
+        "--max-output-bytes", type=_positive_u64, default=128 * 1024 * 1024
+    )
+    for view_defaults in (ReadLimits(), PartLimits()):
+        for name in view_defaults.__dataclass_fields__:
+            view.add_argument(
+                "--" + name.replace("_", "-"),
+                type=_positive_u64,
+                default=getattr(view_defaults, name),
+            )
     preview = commands.add_parser(
         "preview", help="view one resource and write a metre-based GLB (preview extra)"
     )
@@ -635,11 +736,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 default=getattr(check_defaults, name),
             )
     args = parser.parse_args(argv)
-    if args.command == "parts":
+    if args.command in ("parts", "view"):
         for name in PartLimits.__dataclass_fields__:
             if getattr(args, name) > (1 << 31) - 1:
                 parser.error(f"--{name.replace('_', '-')} must be at most 2**31 - 1")
-        return _parts_command(args)
+        if args.command == "parts":
+            return _parts_command(args)
+        if not 0 <= args.port <= 65535:
+            parser.error("--port must be between 0 and 65535")
+        if not 8 <= args.cylinder_segments <= 256:
+            parser.error("--cylinder-segments must be between 8 and 256")
+        for name in ("max_triangles", "max_output_bytes"):
+            if getattr(args, name) > (1 << 63) - 1:
+                parser.error(f"--{name.replace('_', '-')} must be at most 2**63 - 1")
+        if args.json and not args.write_only:
+            parser.error("view --json requires --write-only")
+        if args.write_only and args.output is None:
+            parser.error("view --write-only requires --output")
+        return _view_command(args)
     if args.command in ("check", "preview"):
         if args.command == "check" and args.target == "geometry" and not args.resource:
             parser.error("check --target geometry requires --resource")

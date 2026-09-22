@@ -4,6 +4,9 @@ Version **0.2.0** adds saved native entities to `Document.read_parts()`.
 It reads qualified V8L3 boxes and cylinders, and selected stored appearance
 fields. It does not evaluate native B-Rep, CSG, tessellation or a complete scene.
 
+The source checkout's [native viewer](viewer.md) can tessellate the supported
+box/cylinder parameters for an explicitly partial display with a part tree.
+
 ```python
 import icadkit
 

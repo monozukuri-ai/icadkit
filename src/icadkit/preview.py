@@ -10,13 +10,13 @@ import hashlib
 import html
 import json
 import math
-import shutil
 import tempfile
 from dataclasses import asdict, dataclass, fields
 from importlib import import_module, metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from ._viewer_io import publish as _publish
 from .errors import IcadError
 from .models import Diagnostic, ErrorCategory
 
@@ -155,27 +155,6 @@ def _adapt_viewer(staged: Path) -> None:
     script = script.replace(original, replacement)
     script += "\n// icadkit adaptation: metre-scale camera near-plane floor (1 nm).\n"
     path.write_text(script, encoding="utf-8")
-
-
-def _publish(staged: Path, output: Path) -> None:
-    # Reserve the destination exclusively. Never overwrite even an empty directory.
-    output.mkdir()
-    created = []
-    try:
-        for source in sorted(staged.iterdir()):
-            target = output / source.name
-            with target.open("xb") as stream:
-                created.append(target)
-                with source.open("rb") as content:
-                    shutil.copyfileobj(content, stream)
-    except BaseException:
-        for target in created:
-            target.unlink(missing_ok=True)
-        try:
-            output.rmdir()
-        except OSError:
-            pass  # Preserve anything another process added.
-        raise
 
 
 def write_preview(

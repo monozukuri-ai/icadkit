@@ -15,6 +15,10 @@ The optional [preview extra](preview.md) adds bounded solid resource
 tessellation, metre-based GLB output and a local browser viewer. It requires an
 explicit source unit and does not apply part placements or saved appearance.
 
+After 0.2.0, the source checkout also offers a [native file viewer](viewer.md)
+for qualified boxes/cylinders in their saved global frames, with part/property
+inspection. It is always an explicitly partial view and uses no optional backend.
+
 | Operation | Supported behavior | Scope boundary |
 | --- | --- | --- |
 | Header inspection | Both byte orders; leading MOD/DRW/RES framing; raw header fields and a CP932 name candidate | Unknown fields and later ranges remain unparsed |
@@ -42,8 +46,9 @@ available only when the backend can calculate them.
 
 Whole-model reconstruction, general iCAD-native shape evaluation, assembly
 geometry placement, drawing interpretation, feature history, STEP export
-and ICD writing remain unsupported. Tessellation/GLB is limited to the optional
-preview contract.
+and ICD writing remain unsupported. GLB is limited to the optional resource
+preview contract; the native viewer separately tessellates supported parameters
+for display without producing B-Rep or GLB.
 
 ## Schemas
 

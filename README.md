@@ -22,6 +22,10 @@ frames and embedded resource coordinates have separate contracts. Complete
 assembly geometry, inherited attributes and drawings remain unsupported.
 Read the [support boundaries](docs/support.md) and [changes since 0.1.0](docs/changelog.md).
 
+The source checkout also includes a [native file viewer](docs/viewer.md):
+`uv run icadkit view model.icd` opens native boxes/cylinders with a part tree,
+properties and visibility controls. This addition is not in the 0.2.0 package.
+
 ## Installation
 
 The base reader supports standard GIL-enabled CPython 3.10–3.14. Wheel targets
