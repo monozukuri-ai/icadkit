@@ -44,6 +44,110 @@ pub fn read_path(
 
 #[pymethods]
 impl DocumentHandle {
+    fn read_parts<'py>(
+        &self,
+        py: Python<'py>,
+        policy: (usize, usize, usize, usize),
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let index = py
+            .detach(|| {
+                self.inner.read_parts(icad_core::PartLimits {
+                    max_parts: policy.0,
+                    max_entities: policy.1,
+                    max_depth: policy.2,
+                    max_property_bytes: policy.3,
+                })
+            })
+            .map_err(inspection_error)?;
+        let result = PyDict::new(py);
+        result.set_item("index_status", index.index_status.as_str())?;
+        result.set_item("hierarchy_status", index.hierarchy_status.as_str())?;
+        let parts = PyList::empty(py);
+        for part in index.parts {
+            let p = PyDict::new(py);
+            p.set_item("byte_range", (part.byte_range.start, part.byte_range.end))?;
+            p.set_item("view_offset", part.view_offset)?;
+            p.set_item("source_id", part.source_id)?;
+            p.set_item("flags", part.flags)?;
+            p.set_item("is_root", part.is_root)?;
+            p.set_item("raw_name", PyBytes::new(py, &part.raw_name))?;
+            p.set_item("raw_comment", PyBytes::new(py, &part.raw_comment))?;
+            p.set_item("placement_values", part.placement_values)?;
+            p.set_item("coordinate_values", part.coordinate_values)?;
+            p.set_item(
+                "raw_reference_name",
+                PyBytes::new(py, &part.raw_reference_name),
+            )?;
+            let fields = PyList::empty(py);
+            for field in part.extra_fields {
+                fields.append((
+                    (field.byte_range.start, field.byte_range.end),
+                    PyBytes::new(py, &field.raw_value),
+                ))?;
+            }
+            p.set_item("extra_fields", fields)?;
+            let entities = PyList::empty(py);
+            for entity in part.entities {
+                let e = PyDict::new(py);
+                e.set_item(
+                    "byte_range",
+                    (entity.byte_range.start, entity.byte_range.end),
+                )?;
+                e.set_item("source_id", entity.source_id)?;
+                e.set_item("raw_type", entity.raw_type)?;
+                e.set_item("layer", entity.layer)?;
+                e.set_item("color_index", entity.color_index)?;
+                e.set_item("visible", entity.visible)?;
+                e.set_item("is_mirror", entity.is_mirror)?;
+                e.set_item("appearance_status", entity.appearance_status.as_str())?;
+                e.set_item("geometry_status", entity.geometry_status.as_str())?;
+                if let Some(primitive) = entity.primitive {
+                    let value = PyDict::new(py);
+                    value.set_item("kind", primitive.kind)?;
+                    value.set_item("frame", primitive.frame)?;
+                    value.set_item("parameters", primitive.parameters)?;
+                    e.set_item("primitive", value)?;
+                } else {
+                    e.set_item("primitive", py.None())?;
+                }
+                let diagnostics = PyList::empty(py);
+                for d in entity.diagnostics {
+                    let value = PyDict::new(py);
+                    value.set_item("category", d.kind.as_str())?;
+                    value.set_item("code", d.code)?;
+                    value.set_item("byte_offset", d.byte_offset)?;
+                    value.set_item("message", d.message)?;
+                    diagnostics.append(value)?;
+                }
+                e.set_item("diagnostics", diagnostics)?;
+                entities.append(e)?;
+            }
+            p.set_item("entities", entities)?;
+            p.set_item("parent_source_id", part.parent_source_id)?;
+            p.set_item("first_child_source_id", part.first_child_source_id)?;
+            p.set_item("previous_source_id", part.previous_source_id)?;
+            p.set_item("next_source_id", part.next_source_id)?;
+            parts.append(p)?;
+        }
+        result.set_item("parts", parts)?;
+        let ranges = PyList::empty(py);
+        for r in index.opaque_ranges {
+            ranges.append(((r.byte_range.start, r.byte_range.end), r.reason))?;
+        }
+        result.set_item("opaque_ranges", ranges)?;
+        let diagnostics = PyList::empty(py);
+        for d in index.diagnostics {
+            let value = PyDict::new(py);
+            value.set_item("category", d.kind.as_str())?;
+            value.set_item("code", d.code)?;
+            value.set_item("byte_offset", d.byte_offset)?;
+            value.set_item("message", d.message)?;
+            diagnostics.append(value)?;
+        }
+        result.set_item("diagnostics", diagnostics)?;
+        Ok(result)
+    }
+
     #[pyo3(signature = (resource_id, catalog, policy))]
     fn read_geometry(
         &self,

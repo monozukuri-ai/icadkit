@@ -6,7 +6,9 @@ def test_installed_type_markers_and_runtime_dependencies():
     package = files("icadkit")
     assert package.joinpath("py.typed").is_file()
     assert package.joinpath("_core.pyi").is_file()
-    assert distribution("icadkit").requires in (None, [])
+    assert distribution("icadkit").requires == [
+        "parasolid-kit[occt]==0.2.0 ; extra == 'preview'"
+    ]
 
 
 def test_installed_license_metadata():

@@ -23,7 +23,7 @@ def check(command, *, cwd, env=None):
     ).stdout
 
 
-def verify(wheel, source, versions):
+def verify(wheel, source, versions, *, preview=False):
     rows = []
     for version in versions:
         with tempfile.TemporaryDirectory(prefix="icadkit-cold-") as temporary:
@@ -39,8 +39,8 @@ def verify(wheel, source, versions):
                     "install",
                     "--python",
                     str(python),
-                    "--no-deps",
-                    str(wheel),
+                    *([] if preview else ["--no-deps"]),
+                    str(wheel) + ("[preview]" if preview else ""),
                 ],
                 cwd=work,
             )
@@ -57,7 +57,9 @@ def verify(wheel, source, versions):
                         "import json,sys,platform,icadkit,icadkit._core; "
                         "from dataclasses import asdict; "
                         "from importlib.metadata import distribution; "
-                        "assert distribution('icadkit').requires in (None, []); "
+                        "assert distribution('icadkit').requires == "
+                        + repr(["parasolid-kit[occt]==0.2.0 ; extra == 'preview'"])
+                        + "; "
                         "assert sys.prefix in icadkit._core.__file__; "
                         "print(json.dumps(dict(python=platform.python_version(), "
                         "machine=platform.machine(), native=icadkit._core.__file__, "
@@ -78,6 +80,32 @@ def verify(wheel, source, versions):
                 ["uv", "pip", "install", "--python", str(python), "pytest==8.4.2"],
                 cwd=work,
             )
+            if preview:
+                check(
+                    [
+                        str(python),
+                        "-I",
+                        "-c",
+                        "import parasolid_kit,OCP; "
+                        "from importlib.metadata import version; "
+                        "assert version('parasolid-kit') == '0.2.0'",
+                    ],
+                    cwd=work,
+                    env=env,
+                )
+            else:
+                check(
+                    [
+                        str(python),
+                        "-I",
+                        "-c",
+                        "import importlib.util; "
+                        "assert importlib.util.find_spec('parasolid_kit') is None; "
+                        "assert importlib.util.find_spec('OCP') is None",
+                    ],
+                    cwd=work,
+                    env=env,
+                )
             tests = check(
                 [str(python), "-I", "-m", "pytest", str(source / "tests"), "-q"],
                 cwd=work,
@@ -126,6 +154,7 @@ def verify(wheel, source, versions):
         "platform": platform.platform(),
         "machine": platform.machine(),
         "wheel": wheel.name,
+        "preview_extra": preview,
         "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
         "source_commit": os.environ.get("GITHUB_SHA"),
         "runs": rows,
@@ -138,9 +167,17 @@ if __name__ == "__main__":
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--python", required=True, action="append")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--preview", action="store_true", help="install and test preview extra"
+    )
     args = parser.parse_args()
     try:
-        result = verify(args.wheel.resolve(), args.source.resolve(), args.python)
+        result = verify(
+            args.wheel.resolve(),
+            args.source.resolve(),
+            args.python,
+            preview=args.preview,
+        )
     except subprocess.CalledProcessError as exc:
         print(exc.stdout)
         print(exc.stderr)

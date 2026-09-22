@@ -80,6 +80,7 @@ class RawExtraction(TypedDict):
     encoding: Literal["raw", "zlib"]
 
 class DocumentHandle:
+    def read_parts(self, policy: tuple[int, int, int, int]) -> RawPartIndex: ...
     def read_geometry(
         self,
         resource_id: str,
@@ -89,6 +90,49 @@ class DocumentHandle:
     def summary(self) -> RawDocument: ...
     def extract(self, resource_id: str) -> RawExtraction: ...
     def source_bytes(self, start: int, end: int) -> bytes: ...
+
+class RawNativePrimitive(TypedDict):
+    kind: Literal["box", "cylinder"]
+    frame: list[float]
+    parameters: list[float]
+
+class RawNativeEntity(TypedDict):
+    byte_range: tuple[int, int]
+    source_id: int | None
+    raw_type: int | None
+    layer: int | None
+    color_index: int | None
+    visible: bool | None
+    is_mirror: bool | None
+    appearance_status: Status
+    geometry_status: Status
+    primitive: RawNativePrimitive | None
+    diagnostics: list[RawDiagnostic]
+
+class RawPart(TypedDict):
+    entities: list[RawNativeEntity]
+    byte_range: tuple[int, int]
+    view_offset: int
+    source_id: int
+    flags: int
+    is_root: bool
+    raw_name: bytes
+    raw_comment: bytes
+    placement_values: list[float]
+    coordinate_values: list[float]
+    raw_reference_name: bytes
+    extra_fields: list[tuple[tuple[int, int], bytes]]
+    parent_source_id: int
+    first_child_source_id: int
+    previous_source_id: int
+    next_source_id: int
+
+class RawPartIndex(TypedDict):
+    index_status: Status
+    hierarchy_status: Status
+    parts: list[RawPart]
+    diagnostics: list[RawDiagnostic]
+    opaque_ranges: list[tuple[tuple[int, int], str]]
 
 def read_bytes(
     data: bytes, policy: tuple[int, int, int, int, int]

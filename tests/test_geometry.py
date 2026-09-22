@@ -66,6 +66,69 @@ def test_wire_provenance_and_independent_measurements(geometry_doc):
         g.raw.node_count = 0
 
 
+@pytest.mark.parametrize("version", [0, 4])
+def test_icad_v34_without_catalog(geometry_doc, version):
+    payload = wire_payload(embedded=True)
+    doc = geometry_doc(payload, version=version, count=0 if version == 0 else 3)
+    g = doc.read_geometry(doc.resources[0].resource_id).require_complete()
+    assert g.schema.kind == "builtin"
+    assert g.schema.profile_id == "icad-sch34101-13006-r1"
+    assert g.schema.profile_revision == 1
+    assert g.schema.profile_sha256 == (
+        "a516a515d3d0c0866a001cf148e7e2e066e9741912c26d45c6ba4fc232179d6e"
+    )
+    assert g.raw.schema_key == "SCH_3401212_34101_13006"
+    assert g.raw.to_bytes() == payload
+    assert g.raw.node_count == 11 and g.brep.counts["edges"] == 1
+    assert g.brep.topology_valid
+    assert g.brep.vertex_bounds == ((2.0, -1.0, 3.0), (5.0, 3.0, 3.0))
+    assert (
+        math.dist(*(p.attributes["position"] for p in g.brep.entities("points"))) == 5
+    )
+    assert g.status.container == "partial" and g.status.model == "not_checked"
+
+
+def test_icad_v34_rejects_nearby_key_and_unknown_base(geometry_doc):
+    payload = wire_payload(embedded=True)
+    nearby = payload.replace(b"SCH_3401212_34101_13006", b"SCH_3401213_34101_13006")
+    unknown = bytearray(payload)
+    offset = len(header(b"SCH_3401212_34101_13006"))
+    unknown[offset : offset + 2] = b"\0\x6e"  # Unreviewed base type 110.
+    for data, code in (
+        (nearby, "schema.missing_base_schema"),
+        (bytes(unknown), "schema.unknown_base_type"),
+    ):
+        doc = geometry_doc(data)
+        g = doc.read_geometry(doc.resources[0].resource_id)
+        assert g.raw is None and g.brep is None
+        assert g.diagnostics[0].code == code
+
+
+def test_icad_v34_cli_uses_builtin(geometry_doc, tmp_path):
+    doc = geometry_doc(wire_payload(embedded=True))
+    source = tmp_path / "v34.icd"
+    source.write_bytes(doc.source_bytes(ic.ByteRange(0, doc.file_size)))
+    result = subprocess.run(
+        [
+            "icadkit",
+            "check",
+            str(source),
+            "--target",
+            "geometry",
+            "--resource",
+            doc.resources[0].resource_id,
+            "--json",
+        ],
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr
+    row = json.loads(result.stdout)
+    assert row["schema"]["profile_id"] == "icad-sch34101-13006-r1"
+    assert row["status"]["brep"] == "complete"
+    assert row["status"]["model"] == "not_checked"
+
+
 def test_raw_pages_lifetime_and_threads(geometry_doc):
     doc = geometry_doc()
     g = doc.read_geometry(doc.resources[0].resource_id)

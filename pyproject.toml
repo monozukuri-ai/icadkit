@@ -30,8 +30,22 @@ Issues = "https://github.com/monozukuri-ai/icadkit/issues"
 Licensing = "https://github.com/monozukuri-ai/icadkit/blob/main/docs/license.md"
 Commercial = "https://www.un-robotics.com/#contact"
 
+[project.optional-dependencies]
+preview = ["parasolid-kit[occt]==0.2.0"]
+
 [dependency-groups]
 dev = ["maturin==1.15.0", "pytest>=8.3,<9", "ruff>=0.15,<1", "mypy>=1.15,<3"]
+
+[tool.uv]
+# Version and native extension inputs live outside pyproject.toml.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "Cargo.toml" },
+  { file = "Cargo.lock" },
+  { file = "crates/**/Cargo.toml" },
+  { file = "crates/**/*.rs" },
+  { file = "README.md" },
+]
 
 [tool.maturin]
 manifest-path = "crates/icad-python/Cargo.toml"

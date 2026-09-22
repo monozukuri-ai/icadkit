@@ -67,7 +67,14 @@ def wheel(path):
         metadata = BytesParser().parsebytes(archive.read(metadata_names[0]))
         require(metadata["Name"] == "icadkit", "unexpected distribution")
         require(metadata["Requires-Python"] == ">=3.10", "Python range changed")
-        require(not metadata.get_all("Requires-Dist"), "runtime dependency added")
+        require(
+            metadata.get_all("Requires-Dist")
+            == ["parasolid-kit[occt]==0.2.0 ; extra == 'preview'"],
+            "unexpected base or optional runtime dependency",
+        )
+        require(
+            metadata.get_all("Provides-Extra") == ["preview"], "preview extra missing"
+        )
         check_archive_licenses(metadata, archive.read, dist_info + "/licenses/")
         for name in names:
             require(
@@ -79,6 +86,10 @@ def wheel(path):
             "api.py",
             "models.py",
             "document.py",
+            "parts.py",
+            "native.py",
+            "preview.py",
+            "_preview_bridge.py",
             "geometry.py",
             "schema.py",
             "errors.py",
@@ -149,6 +160,8 @@ def sdist(path):
             "crates/icad-core/src/error.rs",
             "crates/icad-core/src/limits.rs",
             "crates/icad-core/src/document.rs",
+            "crates/icad-core/src/parts.rs",
+            "crates/icad-core/src/native.rs",
             "crates/icad-core/src/parasolid.rs",
             "crates/icad-core/src/schema.rs",
             "crates/icad-core/src/resource.rs",
@@ -162,8 +175,12 @@ def sdist(path):
             "crates/icad-python/src/brep.rs",
             "crates/icad-python/src/document.rs",
             "src/icadkit/document.py",
+            "src/icadkit/parts.py",
+            "src/icadkit/native.py",
             "src/icadkit/geometry.py",
             "src/icadkit/schema.py",
+            "src/icadkit/preview.py",
+            "src/icadkit/_preview_bridge.py",
             "src/icadkit/_core.pyi",
             "src/icadkit/py.typed",
             "tests/test_api.py",
@@ -173,6 +190,12 @@ def sdist(path):
             "tests/test_resources.py",
             "tests/test_geometry.py",
             "tests/geometry_fixtures.py",
+            "tests/part_fixtures.py",
+            "tests/test_parts.py",
+            "tests/test_part_semantics.py",
+            "tests/test_native.py",
+            "tests/preview_fixtures.py",
+            "tests/test_preview.py",
             "tests/test_resource_cli.py",
             "tests/conftest.py",
             "tests/fixture_builders.py",
@@ -186,6 +209,10 @@ def sdist(path):
             "scripts/check_license.py",
             "scripts/check_public_tree.py",
             "docs/api.md",
+            "docs/changelog.md",
+            "docs/parts.md",
+            "docs/native.md",
+            "docs/preview.md",
             "docs/support.md",
             "docs/license.md",
             "crates/icad-core/LICENSE",
@@ -201,16 +228,16 @@ def sdist(path):
         lock = tomllib.loads(read("Cargo.lock").decode())
         dep = next(p for p in lock["package"] if p["name"] == "parasolid-core")
         require(
-            dep["version"] == "0.2.0" and dep["source"].startswith("registry+"),
-            "backend must be registry 0.2.0",
+            dep["version"] == "0.3.0" and dep["source"].startswith("registry+"),
+            "backend must be registry 0.3.0",
         )
         manifest = tomllib.loads(read("Cargo.toml").decode())
         require(
-            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.2.0",
+            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.3.0",
             "backend manifest pin changed",
         )
         require(
-            b'PARASOLID_CORE_VERSION: &str = "0.2.0"'
+            b'PARASOLID_CORE_VERSION: &str = "0.3.0"'
             in read("crates/icad-core/src/lib.rs"),
             "reported backend version changed",
         )

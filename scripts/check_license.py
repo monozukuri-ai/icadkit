@@ -21,7 +21,7 @@ PINNED_TEXTS = {
         "f6e2a77034e7fd3c2d82b44600b45bf362d6c9b941299d696a7e234525979291"
     ),
     "LICENSES/rust-dependencies.txt": (
-        "d2fbcbfac33327a2b60db27b67ff45714fcd18a64d063afffb0aed4bb8ee8964"
+        "a26356415c87fee788c0f95989e24e6fb49b653c2fdf61f7244c3207c2c0538e"
     ),
 }
 LICENSE_PATHS = (
@@ -84,7 +84,7 @@ def check_source(root=ROOT):
         )
     ledger = (root / "LICENSES/rust-dependencies.txt").read_text("utf-8")
     covered = set(re.findall(r"^=== (\S+) (\S+) \(", ledger, re.MULTILINE))
-    covered.add(("parasolid-core", "0.2.0"))
+    covered.add(("parasolid-core", "0.3.0"))
     lock = tomllib.loads((root / "Cargo.lock").read_text("utf-8"))
     dependencies = {(p["name"], p["version"]) for p in lock["package"] if "source" in p}
     require(

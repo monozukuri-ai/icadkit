@@ -80,4 +80,31 @@ from .geometry import (
     RawNode,
     SchemaSelection,
 )
+from .native import NativeAppearance, NativeEntity, NativePrimitive
+from .parts import (
+    Part,
+    PartDefinition,
+    PartIndex,
+    PartLimits,
+    PartOpaqueRange,
+    PartPlacement,
+    PartProperty,
+    PartReference,
+    PartStatus,
+)
 from .schema import CatalogLimits, SchemaCatalog
+
+__all__ += [
+    "NativeAppearance",
+    "NativeEntity",
+    "NativePrimitive",
+    "Part",
+    "PartIndex",
+    "PartLimits",
+    "PartDefinition",
+    "PartReference",
+    "PartOpaqueRange",
+    "PartPlacement",
+    "PartProperty",
+    "PartStatus",
+]

@@ -111,6 +111,12 @@ jobs:
           name: candidate-${{ matrix.os }}
           path: dist/*.whl
           if-no-files-found: error
+      - name: Cold install preview extra from exact candidate wheel
+        shell: bash
+        run: |
+          uv run --no-project --python 3.12 python scripts/verify_install.py \
+            --wheel dist/*.whl --source "$GITHUB_WORKSPACE" \
+            --preview --python 3.12 --output "reports/preview-${RUNNER_OS}.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: evidence-${{ matrix.os }}

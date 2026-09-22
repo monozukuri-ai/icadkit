@@ -26,6 +26,7 @@ from .models import (
     SourceRef,
     UnparsedRange,
 )
+from .parts import PartIndex, PartLimits, _read_parts
 from .schema import SchemaCatalog
 
 
@@ -59,6 +60,10 @@ class Document:
     resource_index_status: Literal["complete", "partial"]
     status: InspectionStatus
     _handle: _core.DocumentHandle = field(repr=False, compare=False)
+
+    def read_parts(self, *, limits: PartLimits | None = None) -> PartIndex:
+        """Read bounded native part records, independently of geometry support."""
+        return _read_parts(self, limits)
 
     def read_geometry(
         self,

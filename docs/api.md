@@ -1,14 +1,15 @@
 # Python API and CLI
 
-icadkit 0.1 provides header inspection, owner-based resource indexing, lazy
+icadkit 0.2.0 provides header inspection, owner-based resource indexing, lazy
 extraction and resource-level raw geometry and B-Rep. For supported platforms
 and model boundaries, see [supported capabilities](support.md).
 
 ## Compatibility
 
-The public Python interface consists of the names in `icadkit.__all__`.
+The public Python interface consists of the names in `icadkit.__all__` and
+the documented names in the optional [icadkit.preview module](preview.md).
 `icadkit._core`, native handles and attributes beginning with `_` are private.
-Within 0.1.x, existing arguments, result fields, diagnostic codes, coordinate
+Within a minor release series, existing arguments, result fields, diagnostic codes, coordinate
 semantics and CLI exit codes are preserved. Message wording and human-readable
 CLI formatting are not stable interfaces.
 
@@ -16,6 +17,17 @@ CLI JSON uses `schema_version=1`. Ignore unrecognized additional fields.
 Removing existing fields or changing their meanings requires a schema version
 change. A `complete` status always refers to an explicit scope, not the whole
 ICD model.
+
+Version 0.2.0 adds [native part access](parts.md) through
+`Document.read_parts()`, returning `PartIndex`, `Part`, `PartDefinition`,
+`PartReference`, `PartPlacement` and `PartProperty`. It exposes qualified part
+frames and selected stored attributes. Its scope statuses are independent of
+the resource geometry API described below. Saved entities expose
+`NativeEntity`, `NativeAppearance` and `NativePrimitive`; see
+[native parameter and appearance access](native.md).
+The optional `icadkit.preview.write_preview()` and `icadkit preview` command
+export one qualified resource to a GLB and local viewer, with explicit source
+units. See the [preview API and CLI](preview.md) for scope and dependencies.
 
 ## Header inspection
 
