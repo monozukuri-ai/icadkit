@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>icadkit · Native viewer</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="viewer.css">
+  <script type="module" src="viewer.js"></script>
+</head>
+<body>
+  <header><div class="brand">icadkit <span>Native viewer</span></div><span class="badge">PARTIAL MODEL</span></header>
+  <div id="scope" role="status">Loading native parts…</div>
+  <main id="app" data-status="loading">
+    <aside class="parts-panel">
+      <div class="panel-heading"><h1>Parts &amp; entities</h1><span id="part-count"></span></div>
+      <label class="search-label" for="search">Find a part or entity</label>
+      <input id="search" type="search" placeholder="Name, ID, shape…" autocomplete="off">
+      <div class="visibility-actions"><button id="show-all">Show all</button><button id="restore-visibility">Saved visibility</button></div>
+      <div id="tree" aria-label="Parts and entities"></div>
+    </aside>
+    <section class="viewport-panel" aria-label="3D view">
+      <div class="toolbar">
+        <button id="fit" title="Fit visible shapes (F)">Fit view</button>
+        <label>View <select id="camera"><option value="iso">Isometric</option><option value="top">Top · XY</option><option value="front">Front · XZ</option><option value="right">Right · YZ</option></select></label>
+        <label><input id="edges" type="checkbox" checked> Edges</label>
+      </div>
+      <div class="canvas-wrap"><canvas id="canvas" tabindex="0" aria-label="Native geometry. Drag to orbit, right drag to pan, scroll to zoom; click a shape to inspect it."></canvas><div id="empty" hidden></div></div>
+      <footer><span>Drag: orbit · Right drag / Shift: pan · Scroll: zoom · Click: inspect</span><span id="view-status"></span></footer>
+    </section>
+    <aside class="details-panel"><div class="panel-heading"><h2>Properties</h2></div><div id="details"></div></aside>
+  </main>
+</body>
+</html>

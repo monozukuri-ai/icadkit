@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `icadkit view model.icd` and `icadkit.viewer` for native box/cylinder viewing,
+  saved global placement, part hierarchy, stored attributes, selection and
+  visibility controls. Works without the preview extra or iCAD.
+- Offline viewer export with source hashes, bounded tessellation/output,
+  explicit partial-model status and retained unsupported entities.
+
 ## 0.2.0
 
 ### Added

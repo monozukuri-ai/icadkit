@@ -8,6 +8,8 @@ and model boundaries, see [supported capabilities](support.md).
 
 The public Python interface consists of the names in `icadkit.__all__` and
 the documented names in the optional [icadkit.preview module](preview.md).
+The source checkout also exposes [icadkit.viewer](viewer.md) for native
+box/cylinder display and part/property inspection without optional dependencies.
 `icadkit._core`, native handles and attributes beginning with `_` are private.
 Within a minor release series, existing arguments, result fields, diagnostic codes, coordinate
 semantics and CLI exit codes are preserved. Message wording and human-readable
