@@ -3,6 +3,15 @@
 from importlib.metadata import version
 
 from .api import build_info, inspect
+from .csg import (
+    CsgBody,
+    CsgIndex,
+    CsgLimits,
+    CsgMesh,
+    CsgOperand,
+    evaluate_csg,
+    read_csg,
+)
 from .document import Document, read
 from .errors import (
     IcadError,
@@ -107,4 +116,15 @@ __all__ += [
     "PartPlacement",
     "PartProperty",
     "PartStatus",
+]
+
+
+__all__ += [
+    "CsgBody",
+    "CsgIndex",
+    "CsgLimits",
+    "CsgMesh",
+    "CsgOperand",
+    "evaluate_csg",
+    "read_csg",
 ]

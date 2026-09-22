@@ -1,8 +1,20 @@
 # Supported capabilities
 
+For qualified V7L7 final boolean bodies, use the separate [CSG API](csg.md)
+or `view --csg` with the `preview` extra. The native-primitive scope described
+here keeps operands opaque.
+
 icadkit 0.2.0 is an experimental reader for selected iCAD SX ICD structures and
 embedded Parasolid X_B resources. Support is determined by the actual layout and
 exact schema key, not a product-version label or filename extension alone.
+
+The source checkout after 0.2.0 additionally reads qualified little-endian V7L7
+part inventories, hierarchy, names/comments, extended text and saved external
+reference names, plus root-relative millimetre frames and standalone native
+box/cylinder owners with saved entity appearance. Unknown or CSG records keep
+their entire owner's geometry opaque. Invalid/unresolved root contexts keep
+placement unavailable. The viewer displays only qualified primitives. See
+[part access](parts.md) for scoped statuses and CLI exit behavior.
 
 Version 0.2.0 additionally supports a bounded
 [native part API](parts.md): hierarchy, millimetre part frames, snapshot

@@ -135,13 +135,13 @@ def test_root_owned_geometry_empty_and_unsupported_models(tmp_path):
         assert result.model_status == "partial"
 
 
-def test_unqualified_native_profile_is_not_a_successful_empty_view(tmp_path):
+def test_mismatched_native_record_profile_is_not_a_successful_empty_view(tmp_path):
     data = bytearray(view_parts([part(ROOT, root=True), native()]))
     data[12:16] = b"\x00\x07\x00\x07"
     destination = tmp_path / "view"
     with pytest.raises(icadkit.UnsupportedFormatError, match="V7L7") as exc:
         write_native_viewer(icadkit.read(bytes(data)), destination)
-    assert exc.value.diagnostic.code == "parts.profile"
+    assert exc.value.diagnostic.code == "parts.record_profile"
     assert "not an empty model" in exc.value.diagnostic.message
     assert not destination.exists()
 
@@ -179,7 +179,7 @@ def test_view_cli_reports_profile_failure_without_starting_browser(
         == 3
     )
     row = json.loads(capsys.readouterr().out)
-    assert row["error"]["code"] == "parts.profile"
+    assert row["error"]["code"] == "parts.record_profile"
     assert row["error"]["category"] == "unsupported"
     assert "directory" not in row and not destination.exists()
 

@@ -23,9 +23,11 @@ def part(
     axes=(0, 0, 1, 1, 0, 0),
     flags=None,
     reference="",
+    profile="v8l3",
 ):
     data = bytearray(356)
-    struct.pack_into("<5I", data, 0, 0x61000003, 352, 64 if root else 0, 0, source_id)
+    tag = {"v7l7": 0x61000002, "v8l3": 0x61000003}[profile]
+    struct.pack_into("<5I", data, 0, tag, 352, 64 if root else 0, 0, source_id)
     data[20:60] = name.encode("cp932").ljust(40, b" ")
     data[60:108] = comment.encode("cp932").ljust(48, b" ")
     struct.pack_into("<9d", data, 108, *position, 0, 0, 1, 1, 0, 0)
@@ -57,7 +59,7 @@ def extra_info(value, *, first=True):
     return (struct.pack("<I", 0x30010000) if first else b"") + record
 
 
-def view_parts(records, *, end=True, prefix=None, after=b""):
+def view_parts(records, *, end=True, prefix=None, after=b"", profile="v8l3"):
     header = bytearray(796)
     for at, value in [
         (16, 132),
@@ -73,7 +75,7 @@ def view_parts(records, *, end=True, prefix=None, after=b""):
     payload = bytes(header[8:]) + b"".join(records)
     payload += (b"\0\0\0\xfe" if end else b"") + after
     data = bytearray(document_factory()(view_payload=payload, with_usr=False, tail=b""))
-    data[12:16] = b"\0\x08\0\x03"
+    data[12:16] = {"v7l7": b"\0\x07\0\x07", "v8l3": b"\0\x08\0\x03"}[profile]
     return bytes(data)
 
 

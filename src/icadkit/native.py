@@ -30,7 +30,7 @@ class NativeAppearance:
 
 @dataclass(frozen=True)
 class NativePrimitive:
-    """Positive box/cylinder parameters in the qualified V8L3 native profile.
+    """Positive box/cylinder parameters in qualified V7L7/V8L3 native layouts.
 
     world_transform acts on column vectors in the 3DGLOBAL frame. Its origin is
     the cylinder's bottom centre or the box's saved cross-section reference.

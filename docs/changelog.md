@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Bounded V7L7 CSG programs through `read_csg()` and optional
+  `evaluate_csg()`: box/cylinder union, difference and intersection, with explicit
+  ownership, root-relative mm frames and scoped rejection of unknown programs.
+  `view --csg` uses the preview extra to display final bodies and their mass
+  properties, retaining operands as undrawn records. See [scope/limits](csg.md).
+
+- Bounded little-endian V7L7 part inventories: hierarchy, names, comments,
+  stored extended text and unresolved external references through the part API,
+  CLI and viewer. Root-relative millimetre part frames, standalone box/cylinder
+  owners and saved entity appearance are now qualified. Raw blocks retain their
+  provenance. Unknown/CSG records keep the entire owner's geometry opaque;
+  unqualified metadata layouts stop traversal with a partial result.
 - The native viewer now rejects unreadable native part inventories with the
   reader's diagnostic. Unsupported file profiles no longer open a misleading
   empty model; qualified empty roots and unsupported-shape inventories still open.

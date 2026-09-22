@@ -1,5 +1,9 @@
 # Native parts
 
+For qualified V7L7 final boolean bodies, use the separate [CSG API](csg.md)
+or `view --csg` with the `preview` extra. The native-primitive scope described
+here keeps operands opaque.
+
 Added in **0.2.0**.
 Read saved part structure, coordinate frames, names, comments and selected
 extended information without installing iCAD or a geometry schema catalog.
@@ -20,11 +24,15 @@ rows = index.to_rows()  # One row per saved part, excluding the document root.
 # Optional, if pandas is installed: pandas.DataFrame(rows)
 ```
 
-The qualified profile is the observed little-endian V8L3 `3DGLOBAL` part and
-entity layout. Other byte orders, view headers and part record layouts remain
-unsupported. A product-version label alone does not establish support. An empty
-document has a root record and zero non-root rows; unknown content is not an
-empty assembly.
+The source checkout after 0.2.0 also reads the observed little-endian V7L7
+`3DGLOBAL` part layout. V7L7 supports the saved inventory, hierarchy, snapshot
+definitions, names, comments, extended text and unresolved external names.
+Both profiles provide qualified millimetre part frames and bounded native
+parameters, subject to the profile-specific restrictions below.
+Other byte orders, view headers and part record layouts remain unsupported.
+A product-version label alone does not establish support: the record tags must
+match the profile. An empty document has a root record and zero non-root rows;
+unknown content is not an empty assembly.
 
 ## Structure and identity
 
@@ -54,6 +62,19 @@ reference status remain partial, even if the saved host graph is consistent.
 Read-only and unloaded runtime states are not inferred from saved flags.
 
 ## Coordinate frames and units
+
+V7L7 evaluates `world_transform = inverse(saved_root_frame) * saved_part_frame`.
+The root becomes identity; each child local frame is inverse(parent world) times
+child world. This normalization is independently checked against reopened SDK
+frames, including translated and rotated roots. It applies only with a complete
+saved hierarchy and a finite rigid root frame. Otherwise transforms and units
+remain unavailable, with `parts.root_frame` and the underlying diagnostics.
+Mirrored placements and descendants of mirrored/external ancestors remain
+unsupported. Nonfinite, non-rigid or overflowing evaluated frames are invalid.
+Both raw coordinate blocks and their exact source ranges remain unchanged.
+
+For V8L3, the stored part frame is already the qualified world frame. The
+following matrix convention applies to both profiles.
 
 `placement.world_transform` is the saved **part coordinate frame** in the
 `3DGLOBAL` work frame. It is a 4-by-4 tuple of rows acting on column vectors:
@@ -114,6 +135,14 @@ appearance](native.md). Qualified boxes and cylinders retain global frames and
 dimensions; unsupported entities remain with diagnostics. `Part.resource_ids`
 is still unresolved, and native parameter support does not evaluate a B-Rep.
 
+V7L7 decodes a complete internal owner's entity list only when every entity
+matches a qualified standalone box, cylinder or sphere header and none is
+mirrored. Box/cylinder parameters and saved appearance are exposed; spheres
+retain appearance but no evaluated primitive. Unknown/CSG records keep the
+entire owner's list opaque, including any primitive-shaped operands. Incomplete
+indexes and mirrored/external owners also stay opaque. Independent qualified
+owners can still be displayed. See [native access](native.md).
+
 ## Completeness and limits
 
 | Scope | Meaning |
@@ -136,6 +165,8 @@ Unsupported native shapes and embedded geometry do not remove part rows.
 Unknown entity framing stops view traversal; the parser does not search later
 bytes for plausible part signatures. Length-framed geometry contents stay
 opaque. Recovered records, diagnostics and `opaque_ranges` remain available.
+Preceding metadata blocks require a qualified profile-specific length/count pair;
+unknown variants stop traversal, and truncated or out-of-bounds lengths are invalid.
 The document's `unparsed_ranges` still apply to the rest of the container.
 Use `doc.source_bytes(byte_range)` for exact source bytes.
 
@@ -173,6 +204,12 @@ was exceeded. `--require-native` also requires complete native parameter and
 appearance scopes; see [native access](native.md). External references and mirrored frames return `3` with retained
 rows. Exit `0` does not certify arbitrary attributes, geometry ownership or a
 complete model. `check --target model` continues to reject model completeness.
+
+A qualified V7L7 inventory can now return exit `0` for the default metadata
+and placement scopes. Unqualified roots, mirrors or incomplete indexes still
+return exit `3` (invalid data returns `1`). Requesting native geometry adds that
+scope to the exit decision; CSG owners remain unsupported. Each result retains
+independent `index`, `hierarchy` and `stored_attributes` statuses.
 
 Qualification uses private iCAD-authored models reopened through its SDK,
 including nested rotations, independent holdouts, repeated internal/external

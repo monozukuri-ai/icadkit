@@ -155,7 +155,7 @@ class NativeView {
     }
     if (!picking) {
       const count = this.visible.size;
-      $('view-status').textContent = `${count} visible · mm · Z up`;
+      $('view-status').textContent = this.scene.length_unit ? `${count} visible · mm · Z up` : 'Part inventory · geometry unavailable';
       $('empty').hidden = count > 0;
       $('empty').textContent = this.drawables.length ? 'All supported shapes are hidden. Use Show all to inspect them.' : 'No supported native shapes. Select a part or entity to inspect its properties.';
     }
@@ -207,7 +207,9 @@ class NativeView {
   buildTree() {
     $('part-count').textContent = this.parts.size;
     const summary = this.scene.summary;
-    $('scope').textContent = `Native boxes & cylinders · ${summary.rendered} / ${summary.entities} indexed entities represented · ${summary.omitted} unsupported or invalid · ${this.scene.resource_count} embedded resources not displayed. Colors are illustrative; full-model coverage is unverified.`;
+    $('scope').textContent = this.scene.scope === 'native_part_inventory'
+      ? `Part inventory · ${summary.entities} saved entity records retained. Geometry, placement and appearance are unavailable for this profile. Embedded resources are not displayed.`
+      : `${this.scene.csg?.enabled ? "Native primitives & CSG results" : "Native boxes & cylinders"} · ${summary.rendered} / ${summary.entities} indexed entities represented · ${summary.omitted} saved records not drawn · ${this.scene.resource_count} embedded resources not displayed. Colors are illustrative; full-model coverage is unverified.`;
     const seen = new Set();
     const addRow = (parent, id, label, tag, unsupported) => {
       const row = node('div', undefined, `tree-row${unsupported ? ' unsupported' : ''}`);
@@ -232,7 +234,7 @@ class NativeView {
         if (seen.has(part.part_id)) continue; seen.add(part.part_id);
         addRow(parent, part.part_id, part.name ?? '(undecoded name)', part.is_external ? 'external' : part.is_root ? 'root' : 'part', false);
         const branch = node('div', undefined, 'branch'); parent.append(branch);
-        for (const entity of part.entities) addRow(branch, entity.entity_id, `${entity.primitive?.kind || 'Unsupported'} · ${entity.entity_id}`, entity.geometry_status === 'complete' ? '' : entity.geometry_status, !entity.primitive);
+        for (const entity of part.entities) addRow(branch, entity.entity_id, `${entity.csg ? 'CSG result' : entity.csg_role === 'operand' ? 'CSG operand' : entity.primitive?.kind || 'Unsupported'} · ${entity.entity_id}`, entity.csg_role === 'operand' ? 'operand' : entity.csg?.status === 'complete' || entity.geometry_status === 'complete' ? '' : entity.csg?.status || entity.geometry_status, !this.scene.meshes[entity.entity_id]);
         const children = this.children.get(part.part_id) || [];
         for (let i=children.length-1;i>=0;i--) stack.push([children[i], branch]);
       }
@@ -260,8 +262,9 @@ class NativeView {
   describeModel() {
     this.selectionId = null;
     $('details').replaceChildren(node('h3','Native model'), node('p','Select a part in the tree or click a shape to inspect its saved properties.'));
-    $('details').append(node('p','This view renders qualified native boxes and cylinders. Unsupported shapes and unloaded external references stay in the tree.', 'notice'));
-    this.fields([['Units','mm · 3DGLOBAL'],['Represented entities',this.scene.summary.rendered],['Unsupported / invalid entities',this.scene.summary.omitted],['Appearance','Illustrative colors; saved entity visibility']]);
+    const inventoryOnly = this.scene.scope === 'native_part_inventory';
+    $('details').append(node('p',inventoryOnly ? 'Saved parts and attributes are available. Geometry and placement are not yet supported for this profile.' : 'This view renders qualified native boxes and cylinders. Unsupported shapes and unloaded external references stay in the tree.', 'notice'));
+    this.fields([['Units',this.scene.length_unit ? 'mm · 3DGLOBAL' : 'Unqualified'],['Represented entities',this.scene.summary.rendered],['Saved records not drawn',this.scene.summary.omitted],['Appearance',inventoryOnly ? 'Unavailable' : 'Illustrative colors; saved entity visibility']]);
     const details = node('details'); details.append(node('summary','Read diagnostics & source'));
     this.fields([['Source SHA-256',this.scene.source_sha256],['Read status',this.scene.part_status],['Diagnostics',this.scene.diagnostics],['Unparsed native ranges',this.scene.opaque_ranges]], details);
     $('details').append(details);
@@ -271,17 +274,20 @@ class NativeView {
     this.selectionId = id;
     const part = this.parts.get(id), entity = this.entities.get(id);
     this.selected = new Set(part ? this.entityIds(id) : [id]);
-    $('details').replaceChildren(node('h3', part ? part.name ?? '(undecoded name)' : entity.primitive?.kind || 'Unsupported entity'));
+    $('details').replaceChildren(node('h3', part ? part.name ?? '(undecoded name)' : entity.csg ? 'CSG result' : entity.csg_role === 'operand' ? 'CSG operand' : entity.primitive?.kind || 'Unsupported entity'));
     if (part) {
-      this.fields([['Part ID',part.part_id],['Parent ID',part.parent_id],['Source ID',part.source_id],['External reference',part.external_reference],['Placement status',part.placement_status],['Part world frame (mm)',part.world_transform],['Native geometry status',part.native_geometry_status]]);
+      this.fields([['Part ID',part.part_id],['Parent ID',part.parent_id],['Source ID',part.source_id],['External reference',part.external_reference],['Placement status',part.placement_status],[this.scene.length_unit ? 'Part world frame (mm)' : 'Part world frame',part.world_transform],['Native geometry status',part.native_geometry_status]]);
       $('details').append(node('h3','Stored attributes'));
       this.fields(part.properties.map(p => [p.name,p.value]));
-      $('details').append(node('p','Part frames are shown for inspection. Native shapes already use their saved global frame.'));
+      $('details').append(node('p',this.scene.length_unit ? 'Part frames are shown for inspection. Native shapes already use their saved global frame.' : 'Raw coordinate values are retained by the reader; evaluated placement is unavailable.'));
     } else {
       this.fields([['Entity ID',id],['Owner',this.parts.get(entity.owner_id)?.name ?? entity.owner_id],['Geometry status',entity.geometry_status],['Source byte range',entity.byte_range],['Saved visibility',entity.appearance.visible],['Palette index (not RGB)',entity.appearance.color_index],['Layer',entity.appearance.layer],['Appearance status',entity.appearance.status]]);
       if (entity.primitive) this.fields([['Dimensions (mm)',entity.primitive.box_dimensions],['Radius (mm)',entity.primitive.radius],['Height (mm)',entity.primitive.height],['Global frame (mm)',entity.primitive.world_transform]]);
+      else if (entity.csg?.volume_mm3) this.fields([['Volume (mm³)',entity.csg.volume_mm3],['Area (mm²)',entity.csg.area_mm2],['Centroid (mm)',entity.csg.centroid_mm],['Solids',entity.csg.solid_count],['Mesh deflection (mm)',entity.csg.linear_deflection_mm]]);
+      else if (entity.csg_role === 'operand') $('details').append(node('p','This saved operand contributes to the CSG result and is not drawn separately.'));
       else $('details').append(node('p','This entity is not drawn. Its geometry is unsupported or invalid.', 'notice'));
-      this.fields([['Diagnostics',entity.diagnostics]]);
+      if (entity.csg) this.fields([['CSG status',entity.csg.status],['CSG diagnostics',entity.csg.diagnostics],['Program source range',entity.csg.program_range]]);
+      this.fields([['Saved record diagnostics',entity.diagnostics]]);
     }
     this.updateRows(); this.draw();
   }
@@ -329,7 +335,7 @@ export const application = (async () => {
     const response = await fetch('scene.json');
     if (!response.ok) throw Error(`Cannot load scene: HTTP ${response.status}`);
     const scene = await response.json();
-    if (scene.schema_version !== 1 || scene.scope !== 'qualified_native_primitives') throw Error('Unsupported native scene schema');
+    if (scene.schema_version !== 1 || !['qualified_native_primitives','qualified_native_csg','native_part_inventory'].includes(scene.scope)) throw Error('Unsupported native scene schema');
     return new NativeView(scene);
   } catch (error) {
     $('app').dataset.status = 'error';

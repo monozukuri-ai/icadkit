@@ -1,4 +1,4 @@
-//! Bounded V8L3 native part records and owned entity lists.
+//! Bounded V7L7/V8L3 part records and owned entity lists.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -34,7 +34,7 @@ pub struct PartRecord {
     pub raw_comment: Vec<u8>,
     /// Nine stored doubles; no assumption about local/world coordinates.
     pub placement_values: [f64; 9],
-    /// Saved part coordinate frame in 3DGLOBAL coordinates: origin, Z, X.
+    /// Stored part frame. V7L7 requires inverse(saved root frame) for global placement.
     pub coordinate_values: [f64; 9],
     pub raw_reference_name: Vec<u8>,
     pub extra_fields: Vec<PartTextRecord>,
@@ -72,6 +72,47 @@ fn word(bytes: &[u8], at: usize) -> u32 {
 
 fn limit(at: u64, code: &'static str, message: &str) -> InspectError {
     InspectError::format(ErrorKind::LimitExceeded, code, at, message)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PartProfile {
+    V7L7,
+    V8L3,
+}
+
+impl PartProfile {
+    fn from_header(order: ByteOrder, version: [u8; 4]) -> Option<Self> {
+        if order != ByteOrder::Little {
+            return None;
+        }
+        match version {
+            [0, 7, 0, 7] => Some(Self::V7L7),
+            [0, 8, 0, 3] => Some(Self::V8L3),
+            _ => None,
+        }
+    }
+
+    fn part_tag(self) -> u32 {
+        match self {
+            Self::V7L7 => 0x61000002,
+            Self::V8L3 => 0x61000003,
+        }
+    }
+
+    fn metadata_layout(self, length: u32, count: u32) -> bool {
+        // Exact observed framing pairs, not a general metadata decoder.
+        // Payloads stay opaque; a nearby length or count is not compatible.
+        match self {
+            Self::V7L7 => matches!(
+                (count, length),
+                (
+                    1,
+                    176 | 184 | 192 | 200 | 216 | 240 | 248 | 256 | 272 | 304 | 336 | 352 | 360
+                ) | (2, 392 | 400 | 416 | 440 | 704)
+            ),
+            Self::V8L3 => count == 2 && matches!(length, 440 | 504),
+        }
+    }
 }
 
 impl PartIndex {
@@ -232,7 +273,7 @@ impl PartIndex {
 }
 
 impl Document {
-    /// Read the observed V8L3 little-endian 3DGLOBAL part-record layout.
+    /// Read observed little-endian V7L7/V8L3 3DGLOBAL part-record layouts.
     /// Unknown entities stop the view; their bytes are never scanned for parts.
     pub fn read_parts(&self, limits: PartLimits) -> Result<PartIndex, InspectError> {
         if limits.max_parts == 0
@@ -250,12 +291,12 @@ impl Document {
             hierarchy_status: Status::Unsupported,
         };
         let h = &self.inspection().header;
-        if h.byte_order != ByteOrder::Little || h.raw_version != [0, 8, 0, 3] {
+        let Some(profile) = PartProfile::from_header(h.byte_order, h.raw_version) else {
             result.issue(
                 ErrorKind::Unsupported,
                 "parts.profile",
                 12,
-                "part records require the observed little-endian V8L3 profile",
+                "part records require an observed little-endian V7L7 or V8L3 profile",
             );
             for r in self.records().iter().filter(|r| r.tag == "V/W") {
                 result.opaque(
@@ -265,7 +306,7 @@ impl Document {
                 );
             }
             return Ok(result);
-        }
+        };
         let mut views = 0;
         let mut entities = 0;
         for view in self.records().iter().filter(|r| r.tag == "V/W") {
@@ -339,18 +380,62 @@ impl Document {
                     }
                     break;
                 }
-                // Observed saved face-colour metadata preceding an entity list.
-                // Its values remain opaque; only this fixed framing is qualified.
-                if tag == 0x21000000
-                    && !in_entities
-                    && !result.parts.is_empty()
-                    && end - at >= 20
-                    && matches!(word(bytes, at + 4), 440 | 504)
-                    && (word(bytes, at + 4) as usize) <= end - at - 4
-                    && word(bytes, at + 8) == 2
-                    && word(bytes, at + 12) == 0
-                    && word(bytes, at + 16) == 0xc9500088
-                {
+                if matches!(tag, 0x61000002 | 0x61000003) && tag != profile.part_tag() {
+                    result.index_status = if result.parts.is_empty() {
+                        Status::Unsupported
+                    } else {
+                        Status::Partial
+                    };
+                    result.issue(
+                        ErrorKind::Unsupported,
+                        "parts.record_profile",
+                        base + at as u64,
+                        "part record tag does not match the saved V7L7/V8L3 profile",
+                    );
+                    result.opaque(base + at as u64, base + end as u64, "unparsed_entities");
+                    break;
+                }
+                // Metadata has its own framing, outside the length-prefixed
+                // entity group. Never scan its payload for part signatures.
+                if tag == 0x21000000 && !in_entities && !result.parts.is_empty() {
+                    if end - at < 20 {
+                        result.index_status = Status::Invalid;
+                        result.issue(
+                            ErrorKind::Invalid,
+                            "parts.metadata_length",
+                            base + at as u64,
+                            "truncated metadata header",
+                        );
+                        result.opaque(base + at as u64, base + end as u64, "unparsed_entities");
+                        break;
+                    }
+                    let length = word(bytes, at + 4);
+                    if length < 16 || !length.is_multiple_of(4) || length as usize > end - at - 4 {
+                        result.index_status = Status::Invalid;
+                        result.issue(
+                            ErrorKind::Invalid,
+                            "parts.metadata_length",
+                            base + at as u64 + 4,
+                            "invalid metadata byte length",
+                        );
+                        result.opaque(base + at as u64, base + end as u64, "unparsed_entities");
+                        break;
+                    }
+                    if !profile.metadata_layout(length, word(bytes, at + 8))
+                        || word(bytes, at + 12) != 0
+                        || !(word(bytes, at + 16) == 0xc9500088
+                            || (profile == PartProfile::V7L7 && word(bytes, at + 16) == 0xc9580088))
+                    {
+                        result.index_status = Status::Partial;
+                        result.issue(
+                            ErrorKind::Unsupported,
+                            "parts.metadata_layout",
+                            base + at as u64,
+                            "unqualified metadata layout; subsequent bytes remain opaque",
+                        );
+                        result.opaque(base + at as u64, base + end as u64, "unparsed_entities");
+                        break;
+                    }
                     if entities >= limits.max_entities {
                         return Err(limit(
                             base + at as u64,
@@ -359,7 +444,7 @@ impl Document {
                         ));
                     }
                     entities += 1;
-                    let next = at + word(bytes, at + 4) as usize + 4;
+                    let next = at + length as usize + 4;
                     result.opaque(base + at as u64, base + next as u64, "entity_metadata");
                     at = next;
                     continue;
@@ -368,7 +453,9 @@ impl Document {
                 // first entity has this marker; subsequent entities begin with
                 // their own byte length, not another marker.
                 if tag == 0x30010000 && !in_entities && !result.parts.is_empty() {
-                    if end - at >= 8 && matches!(word(bytes, at + 4), 0xfe000000 | 0x61000003) {
+                    if end - at >= 8
+                        && matches!(word(bytes, at + 4), 0xfe000000 | 0x61000002 | 0x61000003)
+                    {
                         result.index_status = Status::Partial;
                         result.issue(
                             ErrorKind::Unsupported,
@@ -391,7 +478,7 @@ impl Document {
                     ));
                 }
                 entities += 1;
-                if tag != 0x61000003 && !in_entities {
+                if tag != profile.part_tag() && !in_entities {
                     result.index_status = Status::Partial;
                     result.issue(
                         ErrorKind::Unsupported,
@@ -413,7 +500,7 @@ impl Document {
                     result.opaque(base + at as u64, base + end as u64, "invalid_entity");
                     break;
                 }
-                let is_part = tag == 0x61000003;
+                let is_part = tag == profile.part_tag();
                 let prefix = if is_part { 4 } else { 0 };
                 let length = word(bytes, at + prefix) as usize;
                 if length < 4 || !length.is_multiple_of(4) || length > end - at - prefix {
@@ -554,13 +641,15 @@ impl Document {
                     }
                 } else {
                     if let Some(part) = result.parts.last_mut() {
-                        part.entities.push(crate::native::read_entity(
-                            &bytes[at..next],
-                            ByteRange {
-                                start: base + at as u64,
-                                end: base + next as u64,
-                            },
-                        ));
+                        let range = ByteRange {
+                            start: base + at as u64,
+                            end: base + next as u64,
+                        };
+                        part.entities.push(if profile == PartProfile::V8L3 {
+                            crate::native::read_entity(&bytes[at..next], range)
+                        } else {
+                            crate::native::read_opaque_entity(&bytes[at..next], range)
+                        });
                     }
                     result.opaque(base + at as u64, base + next as u64, "geometry_entity");
                 }
@@ -588,6 +677,34 @@ impl Document {
                 );
             }
             result.hierarchy_status = result.index_status;
+        }
+        // V7L7 CSG operands can have primitive-shaped records. Only promote a
+        // complete owner's list when every entity has a qualified standalone
+        // layout. An unknown sibling, mirror, external owner, or unparsed tail
+        // keeps the entire owner's list opaque, never a guessed final shape.
+        if profile == PartProfile::V7L7
+            && result.index_status == Status::Complete
+            && result.hierarchy_status == Status::Complete
+        {
+            for part in &mut result.parts {
+                if !matches!(part.flags, 0 | 64) {
+                    continue;
+                }
+                let candidates = part
+                    .entities
+                    .iter()
+                    .map(|e| {
+                        self.source_bytes(e.byte_range)
+                            .map(|bytes| crate::native::read_entity(bytes, e.byte_range))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if candidates
+                    .iter()
+                    .all(|e| e.source_id.is_some() && e.is_mirror == Some(false))
+                {
+                    part.entities = candidates;
+                }
+            }
         }
         Ok(result)
     }

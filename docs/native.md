@@ -1,11 +1,21 @@
 # Native primitive parameters and appearance
 
+For qualified V7L7 final boolean bodies, use the separate [CSG API](csg.md)
+or `view --csg` with the `preview` extra. The native-primitive scope described
+here keeps operands opaque.
+
 Version **0.2.0** adds saved native entities to `Document.read_parts()`.
 It reads qualified V8L3 boxes and cylinders, and selected stored appearance
 fields. It does not evaluate native B-Rep, CSG, tessellation or a complete scene.
 
 The source checkout's [native viewer](viewer.md) can tessellate the supported
 box/cylinder parameters for an explicitly partial display with a part tree.
+The source checkout also decodes qualified V7L7 standalone box/cylinder owners
+and saved entity appearance. V7L7 requires a complete saved hierarchy/index and
+an entire internal owner's list of qualified nonmirrored box/cylinder/sphere
+headers. An unknown or CSG record keeps the whole owner's list opaque; primitive
+operands are never drawn as a completed boolean result. Sphere parameters,
+mirrored/external owners and unsupported layouts remain unavailable.
 
 ```python
 import icadkit
@@ -56,8 +66,11 @@ are the X, Y and Z axes; the fourth is the origin. A box spans the saved X/Y
 bounds and Z from zero to `height`. A cylinder's bottom centre is `(0, 0, 0)` and
 its top centre is `(0, 0, height)` in this frame.
 
-The stored frame is already in **3DGLOBAL coordinates**; do not multiply it by
-the part frame again. A box's saved reference origin can be the centre of its
+The exposed `world_transform` is in **3DGLOBAL coordinates**; do not multiply it
+by the part frame again. V8L3 stores this frame directly. V7L7 uses
+`inverse(saved_root_frame) * stored_primitive_frame`, independently of the owning
+part frame. Raw bytes retain the original stored frame. If the root context is
+unavailable or normalization overflows, `primitive=None` with a diagnostic. A box's saved reference origin can be the centre of its
 bottom cross-section instead of the creation corner. The axes are validated as
 orthonormal and are never silently normalized. Nonfinite values, nonpositive
 dimensions, reversed bounds and dimension overflow produce an invalid status

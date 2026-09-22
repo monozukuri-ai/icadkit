@@ -540,6 +540,7 @@ def _view_command(args: argparse.Namespace) -> int:
             ),
             limits=ViewerLimits(args.max_triangles, args.max_output_bytes),
             cylinder_segments=args.cylinder_segments,
+            csg=args.csg,
         )
         result.update(asdict(written))
         result["directory"] = str(written.directory)
@@ -549,7 +550,7 @@ def _view_command(args: argparse.Namespace) -> int:
             else:
                 print(
                     f"Wrote {written.directory}: {written.rendered_entities} shapes; "
-                    f"{written.omitted_entities} unsupported/invalid entities"
+                    f"{written.omitted_entities} saved records not drawn"
                 )
         else:
             with serve_viewer(written.directory, port=args.port) as server:
@@ -671,6 +672,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     view.add_argument("--json", action="store_true", help="requires --write-only")
     view.add_argument("--cylinder-segments", type=int, default=64)
+    view.add_argument(
+        "--csg",
+        action="store_true",
+        help="evaluate qualified V7L7 boolean bodies (requires preview extra)",
+    )
     view.add_argument("--max-triangles", type=_positive_u64, default=1_000_000)
     view.add_argument(
         "--max-output-bytes", type=_positive_u64, default=128 * 1024 * 1024

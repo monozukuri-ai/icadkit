@@ -89,6 +89,8 @@ class PartPlacement:
     comes from the saved part frame; local_transform is inverse(parent world)
     times world. The original first block (values/raw_bytes) is retained, but
     is not used as the part frame or as a geometry transform.
+    V7L7 global frames use inverse(saved root frame) times the stored frame.
+    Both profiles retain the original coordinate blocks unchanged.
     """
 
     values: tuple[float | None, ...]
@@ -336,6 +338,34 @@ def _relative(parent: Matrix4, child: Matrix4) -> Matrix4 | None:
     return result if all(math.isfinite(v) for row in result for v in row) else None
 
 
+def _v7_global_entity(entity: NativeEntity, root: Matrix4 | None) -> NativeEntity:
+    if entity.primitive is None:
+        return entity
+    world = _relative(root, entity.primitive.world_transform) if root else None
+    if world is not None:
+        return replace(
+            entity, primitive=replace(entity.primitive, world_transform=world)
+        )
+    kind: Literal["unsupported", "invalid"] = (
+        "unsupported" if root is None else "invalid"
+    )
+    return replace(
+        entity,
+        primitive=None,
+        geometry_status=kind,
+        diagnostics=entity.diagnostics
+        + (
+            Diagnostic(
+                kind,
+                "native.root_frame",
+                entity.byte_range.start,
+                "V7L7 global primitive frame is unavailable; "
+                "source parameters retained",
+            ),
+        ),
+    )
+
+
 def _scope(statuses: list[Status], index_status: Status) -> Status:
     if not statuses:
         return index_status
@@ -375,6 +405,39 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
     occurrences: dict[str, list[str]] = defaultdict(list)
     reference_ids: dict[bytes, str] = {}
     diagnostics = [Diagnostic(**d) for d in data["diagnostics"]]
+    v7 = doc.header.raw_version == b"\x00\x07\x00\x07"
+    roots = [p for p in data["parts"] if p["is_root"]]
+    root_frame = None
+    if v7 and len(roots) == 1 and data["hierarchy_status"] == "complete":
+        root = roots[0]
+        if all(math.isfinite(v) for v in root["placement_values"]):
+            root_frame = _frame(root["coordinate_values"])
+    if v7 and data["parts"] and root_frame is None:
+        diagnostics.append(
+            Diagnostic(
+                "unsupported",
+                "parts.root_frame",
+                12,
+                "V7L7 global placement requires a complete hierarchy and a rigid "
+                "saved root frame; raw coordinates retained",
+            )
+        )
+    units_qualified = bool(data["parts"]) and (not v7 or root_frame is not None)
+    blocked_placements: set[int] = set()
+    if v7 and root_frame is not None:
+        children_by_source: dict[int, list[_core.RawPart]] = defaultdict(list)
+        for raw_part in data["parts"]:
+            children_by_source[raw_part["parent_source_id"]].append(raw_part)
+        pending = [(roots[0], False)]
+        while pending:
+            raw_part, inherited_block = pending.pop()
+            if inherited_block:
+                blocked_placements.add(raw_part["source_id"])
+            child_block = inherited_block or bool(raw_part["flags"] & 0x18)
+            pending.extend(
+                (child, child_block)
+                for child in children_by_source[raw_part["source_id"]]
+            )
     text_status: Status = "complete" if data["parts"] else "not_checked"
     stored_attributes: Status = text_status
     for p in data["parts"]:
@@ -517,8 +580,39 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                     "Mirrored placement retained; transforms unsupported",
                 )
             )
+        if v7 and world is not None:
+            if p["source_id"] in blocked_placements:
+                world = None
+                placement_status = "unsupported"
+                diagnostics.append(
+                    Diagnostic(
+                        "unsupported",
+                        "parts.placement_ancestor",
+                        at + 180,
+                        "Placement beneath a mirrored or external ancestor "
+                        "is not qualified",
+                    )
+                )
+            else:
+                world = _relative(root_frame, world) if root_frame is not None else None
+            if world is None:
+                unavailable = root_frame is None or p["source_id"] in blocked_placements
+                placement_status = "unsupported" if unavailable else "invalid"
+                if not unavailable:
+                    diagnostics.append(
+                        Diagnostic(
+                            "invalid",
+                            "parts.global_nonfinite",
+                            at + 180,
+                            "Root-relative transform overflowed; "
+                            "global frame unavailable",
+                        )
+                    )
         parent = (p["view_offset"], p["parent_source_id"])
         entities = tuple(_read_entity(doc, e, part_id) for e in p["entities"])
+        if v7:
+            context = None if p["source_id"] in blocked_placements else root_frame
+            entities = tuple(_v7_global_entity(e, context) for e in entities)
         entity_scope = "partial" if external else data["index_status"]
         parts.append(
             Part(
@@ -616,7 +710,7 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
             text_status,
             placements=_scope([p.placement.status for p in parts], index_status),
             definitions=definition_status,
-            units="complete" if parts else "unsupported",
+            units="complete" if units_qualified else "unsupported",
             references="partial" if external_found else index_status,
             stored_attributes=stored_attributes,
             native_geometry=_scope(
@@ -629,10 +723,10 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
             PartOpaqueRange(ByteRange(*r), reason)
             for r, reason in data["opaque_ranges"]
         ),
-        source_length_unit="mm" if parts else None,
+        source_length_unit="mm" if units_qualified else None,
         definitions=tuple(
             replace(d, occurrence_ids=tuple(occurrences[d.definition_id]))
             for d in definitions.values()
         ),
-        length_unit_source="qualified_part_profile" if parts else None,
+        length_unit_source=("qualified_part_profile" if units_qualified else None),
     )

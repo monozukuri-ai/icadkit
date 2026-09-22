@@ -4,7 +4,8 @@ use crate::{ByteRange, Diagnostic, ErrorKind, Status};
 #[derive(Debug, Clone)]
 pub struct NativePrimitiveRecord {
     pub kind: &'static str,
-    /// Global frame: origin, Z axis, X axis. Values are in millimetres.
+    /// Stored frame: origin, Z axis, X axis, in millimetres. V8L3 is global;
+    /// V7L7 requires inverse(saved root frame) before exposing global placement.
     pub frame: [f64; 9],
     /// Box: height, xmin, ymin, xmax, ymax. Cylinder: radius, height.
     pub parameters: Vec<f64>,
@@ -40,8 +41,8 @@ impl NativeEntityRecord {
     }
 }
 
-pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
-    let mut result = NativeEntityRecord {
+fn undecoded_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
+    NativeEntityRecord {
         byte_range,
         source_id: None,
         raw_type: (bytes.len() >= 16).then(|| word(bytes, 12) >> 24),
@@ -53,7 +54,22 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
         geometry_status: Status::Unsupported,
         primitive: None,
         diagnostics: Vec::new(),
-    };
+    }
+}
+
+pub(crate) fn read_opaque_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
+    let mut result = undecoded_entity(bytes, byte_range);
+    result.issue(
+        ErrorKind::Unsupported,
+        "native.v7_owner",
+        0,
+        "V7L7 owner is not a complete standalone primitive list; entities remain opaque",
+    );
+    result
+}
+
+pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
+    let mut result = undecoded_entity(bytes, byte_range);
     // Layer, saved visibility and palette index are qualified only for these
     // exact native layouts. A Parasolid body has a different attribute layout.
     let shape = match result.raw_type {

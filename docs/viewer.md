@@ -3,16 +3,18 @@
 The native viewer is available in the source checkout after 0.2.0. It renders
 qualified native **boxes and cylinders**, using their saved global frames in
 millimetres. It includes a part tree, stored properties, selection and visibility
-controls. No preview extra, OCCT, iCAD, Wine, internet connection or schema catalog
+controls. By default, no preview extra, OCCT, iCAD, Wine, internet connection or schema catalog
 is required. The browser needs WebGL for 3D display; without it, the part/property
 inventory remains available.
 
-Native reading currently requires the qualified **little-endian V8L3** profile.
-Older profiles such as V7L7 are not supported. If the native part inventory cannot
-be read, the command reports the reader diagnostic and exits without opening an
-empty viewer. An indexed model whose shapes are unsupported can still open its
-part/property inventory. Saving in a newer iCAD version does not make CSG or
-other unsupported geometry renderable.
+The qualified **little-endian V8L3** profile supports native box/cylinder display.
+The source checkout also displays qualified **little-endian V7L7** standalone
+box/cylinder owners, using root-relative placement and millimetres. Add `--csg`
+with the `preview` extra for [qualified boolean results](csg.md). Unknown
+records/programs keep the affected body undisplayed; their part properties
+remain selectable. Unqualified root contexts open as inventory only. If the part inventory cannot be
+read, the command reports the reader diagnostic and exits without opening an
+empty viewer. Saving in a newer iCAD version does not qualify unsupported geometry.
 
 From a source checkout:
 
@@ -38,6 +40,10 @@ The output directory must not exist. It contains `index.html`, `viewer.js`,
 opening HTML with `file://` is not supported. There are no remote asset requests.
 The exported JSON includes part names, stored text and source byte metadata;
 share it only when you intend to share those attributes too.
+Qualified V7L7 exports use `scope="qualified_native_primitives"`, like V8L3.
+If V7L7 root context/units are unavailable, exports use
+`scope="native_part_inventory"`, null `length_unit` and `coordinate_system`, and
+an empty `meshes` object. The tree remains selectable in both cases.
 
 ## Controls and scope
 
@@ -68,7 +74,7 @@ reports represented and omitted indexed entities; these counts do not account
 for entities hidden inside unparsed ranges. Reader statuses, diagnostics and
 unparsed ranges appear in the model properties.
 
-Mirrors, spheres, cones, native CSG/booleans, drawings and automatic external-file
+Mirrors, spheres, cones, unqualified CSG programs, drawings and automatic external-file
 loading remain unsupported. Embedded Parasolid resources are counted but not
 placed or displayed here, because their native ownership/placement is unresolved.
 Use the separate [resource preview](preview.md) to view a selected supported
@@ -91,7 +97,8 @@ with serve_viewer(result.directory) as server:
 
 `ViewerResult` and `ViewerLimits` are frozen dataclasses. `write_native_viewer`
 accepts `part_limits=PartLimits(...)`, `limits=ViewerLimits(...)` and
-`cylinder_segments=64`. Input/index limits also remain available on `icadkit.read`.
+`cylinder_segments=64`. Optional `csg=True` and `csg_limits=CsgLimits(...)`
+enable bounded V7L7 boolean evaluation; see [CSG scope and limits](csg.md). Input/index limits also remain available on `icadkit.read`.
 The CLI exposes the read/part limits plus `--max-triangles` (default 1,000,000) and
 `--max-output-bytes` (default 128 MiB). Limits do not cap total process/browser
 memory or CPU time. Files are prepared and size-checked before the destination

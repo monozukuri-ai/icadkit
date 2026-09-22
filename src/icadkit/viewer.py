@@ -1,6 +1,6 @@
-"""Dependency-free viewing of qualified native primitives and part metadata.
+"""View qualified native primitives, optional CSG results and part metadata.
 
-This is an explicitly partial model view, not a native CSG/B-Rep evaluator.
+CSG evaluation explicitly opts into the optional preview runtime.
 Unknown entities and unloaded references remain in the inventory.
 """
 
@@ -10,14 +10,20 @@ import hashlib
 import json
 import math
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ._viewer_io import ViewerServer, publish
+from .csg import CsgLimits, _read_csg, evaluate_csg
 from .document import Document
-from .errors import InvalidFormatError, LimitExceededError, UnsupportedFormatError
+from .errors import (
+    IcadError,
+    InvalidFormatError,
+    LimitExceededError,
+    UnsupportedFormatError,
+)
 from .models import Diagnostic, ErrorCategory
 from .native import NativePrimitive
 from .parts import PartLimits
@@ -57,6 +63,7 @@ class ViewerResult:
     triangle_count: int
     output_bytes: int
     model_status: str = "partial"
+    evaluated_csg_bodies: int = 0
 
 
 def _limit(message: str) -> LimitExceededError:
@@ -141,6 +148,8 @@ def write_native_viewer(
     part_limits: PartLimits | None = None,
     limits: ViewerLimits | None = None,
     cylinder_segments: int = 64,
+    csg: bool = False,
+    csg_limits: CsgLimits | None = None,
 ) -> ViewerResult:
     """Write scene.json and an offline viewer into a new directory.
 
@@ -152,6 +161,11 @@ def write_native_viewer(
     """
     if not isinstance(document, Document):
         raise TypeError("document must be an icadkit.Document")
+    if not isinstance(csg, bool):
+        raise TypeError("csg must be a bool")
+    csg_limits = CsgLimits() if csg_limits is None else csg_limits
+    if not isinstance(csg_limits, CsgLimits):
+        raise TypeError("csg_limits must be CsgLimits")
     if not isinstance(destination, (str, Path)):
         raise TypeError("destination must be a path")
     if isinstance(cylinder_segments, bool) or not isinstance(cylinder_segments, int):
@@ -176,7 +190,10 @@ def write_native_viewer(
             next(iter(index.diagnostics), None),
         )
         message = issue.message if issue else "No native part inventory could be read"
-        if issue is not None and issue.code == "parts.profile":
+        if issue is not None and issue.code in (
+            "parts.profile",
+            "parts.record_profile",
+        ):
             raw = document.header.raw_version
             known_profiles = {b"\x00\x07\x00\x07": "V7L7", b"\x00\x08\x00\x03": "V8L3"}
             profile = known_profiles.get(raw, "0x" + raw.hex())
@@ -206,6 +223,74 @@ def write_native_viewer(
         for e in p.entities
         if e.primitive is not None
     }
+    rows = cast(list[dict[str, Any]], index.to_rows(include_root=True))
+    csg_diagnostics: list[dict[str, Any]] = []
+    csg_summary = {"enabled": csg, "bodies": 0, "evaluated": 0, "omitted": 0}
+    if csg:
+        programs = _read_csg(document, index, csg_limits)
+        csg_diagnostics = [asdict(d) for d in programs.diagnostics]
+        entities = {e["entity_id"]: e for p in rows for e in p["entities"]}
+        csg_summary["bodies"] = len(programs.bodies)
+        for body in programs.bodies:
+            row = entities[body.body_id]
+            detail: dict[str, Any] = {
+                "status": body.status,
+                "tree_id": body.tree_id,
+                "program_range": asdict(body.program_range)
+                if body.program_range
+                else None,
+                "diagnostics": [asdict(d) for d in body.diagnostics],
+            }
+            row["csg"] = detail
+            if body.status != "complete":
+                continue
+            remaining = limits.max_triangles - triangles
+            if remaining <= 0:
+                raise _limit("CSG tessellation exceeds max_triangles")
+            try:
+                result = evaluate_csg(
+                    body,
+                    limits=replace(
+                        csg_limits,
+                        max_triangles=min(csg_limits.max_triangles, remaining),
+                    ),
+                )
+            except IcadError as exc:
+                if isinstance(exc, LimitExceededError) or exc.diagnostic.code in (
+                    "csg.missing_dependency",
+                    "csg.backend_version",
+                ):
+                    raise
+                detail.update(
+                    status=exc.diagnostic.category, diagnostics=[asdict(exc.diagnostic)]
+                )
+                continue
+            meshes[body.body_id] = {
+                "positions": result.positions,
+                "triangles": result.triangles,
+                "edges": result.edges,
+            }
+            triangles += len(result.triangles) // 3
+            csg_summary["evaluated"] += 1
+            detail.update(
+                volume_mm3=result.volume_mm3,
+                area_mm2=result.area_mm2,
+                centroid_mm=result.centroid_mm,
+                solid_count=result.solid_count,
+                linear_deflection_mm=result.linear_deflection_mm,
+            )
+            row["geometry_status"] = "complete"
+            row["appearance"] = {
+                "color_index": body.appearance.color_index,
+                "visible": body.appearance.visible,
+                "layer": body.appearance.layer,
+                "status": body.appearance.status,
+            }
+            for operand in body.operands:
+                if operand.entity_id != body.body_id:
+                    entities[operand.entity_id]["csg_role"] = "operand"
+                    entities[operand.entity_id]["csg_body_id"] = body.body_id
+        csg_summary["omitted"] = len(programs.bodies) - csg_summary["evaluated"]
     lower, upper = [math.inf] * 3, [-math.inf] * 3
     for mesh in meshes.values():
         for axis in range(3):
@@ -234,23 +319,34 @@ def write_native_viewer(
             else (value - origin[i % 3]) / scale
             for i, value in enumerate(mesh["positions"])
         ]
+    metadata_only = index.source_length_unit is None
     scene = {
         "schema_version": 1,
         "source_sha256": document.source_sha256,
         "model_status": "partial",
-        "scope": "qualified_native_primitives",
-        "coordinate_system": "3DGLOBAL",
-        "length_unit": "mm",
+        "scope": "native_part_inventory"
+        if metadata_only
+        else "qualified_native_csg"
+        if csg
+        else "qualified_native_primitives",
+        "coordinate_system": None if metadata_only else "3DGLOBAL",
+        "length_unit": None if metadata_only else "mm",
         "render_origin_mm": origin,
         "render_scale_mm": scale,
         "bounds_mm": [lower, upper] if meshes else None,
-        "appearance": "illustrative_colors_saved_entity_visibility",
+        "appearance": (
+            "unavailable"
+            if metadata_only
+            else "illustrative_colors_saved_entity_visibility"
+        ),
         "part_status": asdict(index.status),
         "resource_count": len(document.resources),
         "resource_index_status": document.resource_index_status,
-        "diagnostics": [asdict(d) for d in (*document.diagnostics, *index.diagnostics)],
+        "diagnostics": [asdict(d) for d in (*document.diagnostics, *index.diagnostics)]
+        + csg_diagnostics,
         "opaque_ranges": [asdict(r) for r in index.opaque_ranges],
-        "parts": index.to_rows(include_root=True),
+        "parts": rows,
+        "csg": csg_summary,
         "meshes": meshes,
         "summary": {
             "parts": len(index.parts),
@@ -294,6 +390,7 @@ def write_native_viewer(
         count - len(meshes),
         triangles,
         total,
+        evaluated_csg_bodies=int(csg_summary["evaluated"]),
     )
 
 

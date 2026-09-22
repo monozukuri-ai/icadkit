@@ -216,9 +216,12 @@ def test_qualified_metadata_is_bounded_and_not_scanned(length):
 
 
 def test_unknown_and_truncated_metadata_do_not_resynchronize():
-    for b in (metadata(444) + native(), metadata()[:100] + native()):
+    for b, status in (
+        (metadata(444) + native(), "partial"),
+        (metadata()[:100] + native(), "invalid"),
+    ):
         _, index = read(b)
-        assert index.status.index == "partial"
+        assert index.status.index == status
         assert not index.parts[1].entities
 
 

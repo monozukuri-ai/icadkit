@@ -1,5 +1,5 @@
 // Optional browser regression: node tests/viewer_browser.mjs URL SCENARIO OUTDIR
-// Requires Playwright and Chromium. SCENARIO: mixed, holdout or unsupported.
+// Requires Playwright and Chromium. SCENARIO: mixed, holdout, csg, unsupported or inventory.
 // mixed: box visible, cylinder hidden, unsupported entity; part comment below.
 import assert from 'node:assert/strict';
 import {mkdir, writeFile} from 'node:fs/promises';
@@ -22,8 +22,16 @@ try {
   await page.waitForFunction(()=>document.getElementById('app').dataset.status !== 'loading');
   assert.equal(await page.locator('#app').getAttribute('data-status'),'ready');
   await page.evaluate(async()=>{window.nativeView=await(await import('./viewer.js')).application;});
-  assert.match(await page.locator('#scope').innerText(),/full-model coverage is unverified/);
-  report.checks.push('WebGL ready; partial scope visible; no external requests');
+  if (scenario === 'inventory') {
+    assert.match(await page.locator('#scope').innerText(),/Geometry, placement and appearance are unavailable/);
+    assert.match(await page.locator('#details').innerText(),/Unqualified/);
+    assert.equal(await page.evaluate(()=>nativeView.scene.length_unit),null);
+    assert.equal(await page.evaluate(()=>nativeView.scene.coordinate_system),null);
+    assert.match(await page.locator('#view-status').innerText(),/Part inventory/);
+  } else {
+    assert.match(await page.locator('#scope').innerText(),/full-model coverage is unverified/);
+  }
+  report.checks.push('WebGL ready; profile scope visible; no external requests');
   report.renderer=await page.evaluate(()=>{const gl=nativeView.gl,info=gl.getExtension('WEBGL_debug_renderer_info');return info?gl.getParameter(info.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);});
   if (scenario === 'mixed') {
     assert.equal(await page.evaluate(()=>nativeView.visible.size),1);
@@ -49,7 +57,26 @@ try {
     assert.equal(await page.evaluate(()=>nativeView.visible.size),2);
     report.checks.push('saved hidden/restored; parent visibility; unsupported selectable; search; stored text rendered literally');
   }
-  if(scenario !== 'unsupported') {
+  if (scenario === 'csg') {
+    assert.equal(await page.evaluate(()=>nativeView.scene.csg.evaluated),1);
+    assert.equal(await page.evaluate(()=>nativeView.drawables.length),1);
+    await page.getByRole('button',{name:/^CSG operand/}).first().click();
+    assert.match(await page.locator('#details').innerText(),/not drawn separately/);
+    await page.getByRole('button',{name:/^CSG result/}).click();
+    assert.match(await page.locator('#details').innerText(),/Volume \(mm³\)/);
+    // SDK subtract fixture: the through-hole is centered at (10, 12) mm.
+    await page.locator('#camera').selectOption('top');
+    await page.locator('#fit').click();
+    const hole=await page.evaluate(()=>{
+      const v=nativeView,s=v.scene,p=[10,12,20].map((a,i)=>(a-s.render_origin_mm[i])/s.render_scale_mm),m=v.matrix();
+      const x=m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12],y=m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13];
+      const r=v.canvas.getBoundingClientRect();return {x:r.x+(x+1)*r.width/2,y:r.y+(1-y)*r.height/2};
+    });
+    await page.mouse.click(hole.x,hole.y);
+    assert.equal(await page.evaluate(()=>nativeView.selectionId),null);
+    report.checks.push('one final CSG mesh; operands retained without drawing; mass properties; picking through hole reaches background');
+  }
+  if(!['unsupported','inventory'].includes(scenario)) {
     for(const view of ['top','front','right','iso']) await page.locator('#camera').selectOption(view);
     await page.locator('#fit').click();
     await page.locator('#edges').uncheck(); await page.locator('#edges').check();
@@ -62,7 +89,7 @@ try {
     });
     await page.mouse.click(point.x,point.y);
     assert.equal(await page.evaluate(()=>nativeView.selectionId),point.id);
-    assert.match(await page.locator('#details').innerText(),/Height \(mm\)/);
+    assert.match(await page.locator('#details').innerText(),scenario === 'csg' ? /Volume \(mm³\)/ : /Height \(mm\)/);
     const before=await page.evaluate(()=>({yaw:nativeView.yaw,target:[...nativeView.target],radius:nativeView.radius}));
     await page.mouse.move(point.x,point.y);await page.mouse.down();await page.mouse.move(point.x+45,point.y+25,{steps:4});await page.mouse.up();
     assert.notEqual(await page.evaluate(()=>nativeView.yaw),before.yaw);
@@ -78,6 +105,16 @@ try {
     await page.locator('.tree-row.unsupported button').first().click();
     assert.match(await page.locator('#details').innerText(),/not drawn/);
     report.checks.push('empty geometry retains selectable inventory and diagnostic');
+  }
+  if (scenario === 'inventory') {
+    const name=await page.evaluate(()=>nativeView.scene.parts.find(p=>!p.is_root).name);
+    await page.locator('#search').fill(name);
+    await page.getByRole('button',{name,exact:true}).first().click();
+    assert.match(await page.locator('#details').innerText(),/Stored attributes/);
+    assert.match(await page.locator('#details').innerText(),/evaluated placement is unavailable/);
+    assert.doesNotMatch(await page.locator('#details').innerText(),/\(mm\)/);
+    await page.locator('#search').fill('');
+    report.checks.push('inventory search and stored attributes; no invented units or frames');
   }
   await page.screenshot({path:join(output,`viewer-${scenario}.png`)});
   await page.setViewportSize({width:600,height:850});

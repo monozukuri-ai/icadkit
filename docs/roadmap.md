@@ -124,6 +124,44 @@ and optional cold-install tests accompany synthetic geometry, limits, CLI and
 loopback-server checks. Local headless-browser validation covers rendering and
 source picking; remote platform CI and release publication are separate gates.
 
+## V7L7 stage 2: bounded part inventory
+
+The source checkout adds the verified little-endian V7L7 record profile to the
+part API, CLI and viewer. It reads saved part hierarchy, names, comments, general
+extended text and external reference names. Profile-specific metadata framing
+is accepted only for observed layouts; unknown layouts stop traversal and retain
+the unparsed tail. This is bounded support, not general V7L7 compatibility.
+
+Validation compares saved/reopened SDK inventories across 24 cases and three
+save generations, plus an original legacy model. The existing V8L3 placement and
+primitive regressions remain separate checks. Public tests use synthetic data.
+
+## V7L7 stage 3: placement and standalone primitive owners
+
+The source checkout now qualifies millimetre placement relative to the saved
+root frame. Raw coordinate blocks retain their bytes and ranges. Reopened SDK
+checks include translated/rotated roots, nested placements, an independent
+compound-rotation holdout and an original legacy model.
+
+Complete internal owners consisting entirely of qualified nonmirrored
+box/cylinder/sphere headers expose saved entity appearance. Boxes and cylinders
+also expose dimensions and global frames for the viewer. Final SDK faces,
+edges, mass properties and appearance are checked separately from part frames.
+Unknown or CSG entities keep the whole owner's list opaque, including operands
+that resemble standalone primitives. Incomplete indexes, unqualified root
+contexts and mirrored/external ancestry cannot provide evaluated geometry.
+Additional layouts and broader legacy metadata framing remain later work.
+
+## V7L7 stage 4: bounded final boolean bodies
+
+The separate [CSG API](csg.md) reads explicitly bound saved postfix programs
+and evaluates box/cylinder union, difference and intersection with optional
+OCCT. The viewer opts in with `--csg`, displays final results and retains source
+operands without drawing them. Unknown programs reject the whole body.
+SDK comparisons cover repeated cuts, mixed operations, disconnected results,
+multiple owners, root transforms, held-out cases and saved final appearance.
+Negative heights and additional feature operations remain unqualified.
+
 ## Deferred scope
 
 General CSG evaluation, full feature history, complete 2D drawings and dimensions,

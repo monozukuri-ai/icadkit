@@ -64,10 +64,19 @@ for part in parts.walk(include_root=False):
 rows = parts.to_rows()  # JSON-compatible rows; not certified BOM quantities.
 ```
 
-The qualified native profile is the observed little-endian V8L3 `3DGLOBAL`
-layout. Part frames use millimetres. Mirrored frames and external-file loading
-remain unsupported. Extended information is stored text, not interpreted typed
-engineering properties. Check each scope's status before relying on its values.
+The source checkout also reads the observed little-endian V7L7 part layout:
+hierarchy, names, comments, extended text and saved external reference names.
+Qualified V7L7 part frames use millimetres and are evaluated relative to the
+saved root frame. Standalone box/cylinder owners also expose geometry and saved
+entity appearance. The separate [CSG API](docs/csg.md) and
+`uv run --extra preview icadkit view model.icd --csg` evaluate qualified
+box/cylinder unions, differences and intersections. Unknown programs retain
+diagnostics without substitute geometry.
+These additions are not in the 0.2.0 package.
+
+Qualified V8L3 part frames use millimetres. Mirrored frames and external-file
+loading remain unsupported. Extended information is stored text, not interpreted
+typed engineering properties. Check each scope's status before relying on its values.
 
 ## Embedded geometry
 
