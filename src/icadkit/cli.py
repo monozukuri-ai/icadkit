@@ -9,6 +9,7 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
+from threading import Event
 
 from . import (
     Diagnostic,
@@ -17,6 +18,7 @@ from . import (
     Inspection,
     InspectionLimits,
     LimitExceededError,
+    PartLimits,
     ReadLimits,
     SchemaCatalog,
     UnsupportedFormatError,
@@ -244,6 +246,98 @@ def _resource_command(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def _parts_command(args: argparse.Namespace) -> int:
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "operation": "parts",
+        "source": args.path,
+    }
+    code = 3
+    try:
+        doc = read(
+            args.path,
+            limits=ReadLimits(
+                **{
+                    name: getattr(args, name)
+                    for name in ReadLimits.__dataclass_fields__
+                }
+            ),
+        )
+        parts = doc.read_parts(
+            limits=PartLimits(
+                **{
+                    name: getattr(args, name)
+                    for name in PartLimits.__dataclass_fields__
+                }
+            )
+        )
+        result.update(
+            {
+                "source_sha256": parts.source_sha256,
+                "status": asdict(parts.status),
+                "part_count": sum(not p.is_root for p in parts.parts),
+                "source_length_unit": parts.source_length_unit,
+                "length_unit_source": parts.length_unit_source,
+                "definition_count": len(parts.definitions),
+                "definitions": [
+                    {
+                        "definition_id": d.definition_id,
+                        "kind": d.kind,
+                        "occurrence_ids": d.occurrence_ids,
+                        "status": d.status,
+                        "reference_name": d.reference.name if d.reference else None,
+                    }
+                    for d in parts.definitions
+                ],
+                "parts": parts.to_rows(include_root=args.include_root),
+                "opaque_ranges": [asdict(r) for r in parts.opaque_ranges],
+                "diagnostics": [asdict(d) for d in parts.diagnostics],
+            }
+        )
+        if any(d.category == "invalid" for d in parts.diagnostics):
+            code = 1
+        elif (
+            parts.status.index
+            == parts.status.hierarchy
+            == parts.status.text
+            == parts.status.placements
+            == parts.status.definitions
+            == parts.status.units
+            == parts.status.references
+            == parts.status.stored_attributes
+            == "complete"
+        ):
+            code = 0
+        if args.require_native:
+            if parts.status.native_geometry == "invalid":
+                code = 1
+            elif code == 0 and (
+                parts.status.native_geometry != "complete"
+                or parts.status.appearance != "complete"
+            ):
+                code = 3
+    except IcadError as exc:
+        result["error"] = asdict(exc.diagnostic)
+        code = (
+            4
+            if isinstance(exc, LimitExceededError)
+            else (3 if isinstance(exc, UnsupportedFormatError) else 1)
+        )
+    except OSError as exc:
+        result["error"] = asdict(Diagnostic("io", "io.failed", None, str(exc)))
+        code = 1
+    print(
+        json.dumps(
+            result,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=None if args.json else 2,
+            allow_nan=False,
+        )
+    )
+    return code
+
+
 def _check_command(args: argparse.Namespace) -> int:
     result: dict[str, object] = {
         "schema_version": 1,
@@ -338,6 +432,83 @@ def _check_command(args: argparse.Namespace) -> int:
     return code
 
 
+def _preview_command(args: argparse.Namespace) -> int:
+    from .preview import PreviewLimits, serve_preview, write_preview
+
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "operation": "preview",
+        "source": args.path,
+    }
+    code = 0
+    try:
+        doc = read(
+            args.path,
+            limits=ReadLimits(
+                **{
+                    name: getattr(args, name)
+                    for name in ReadLimits.__dataclass_fields__
+                }
+            ),
+        )
+        catalog = (
+            SchemaCatalog.from_file(
+                args.schema,
+                expected_id=args.schema_id,
+                expected_sha256=args.schema_sha256,
+            )
+            if args.schema
+            else None
+        )
+        preview = write_preview(
+            doc,
+            args.resource,
+            args.output,
+            source_unit=args.source_unit,
+            schema=catalog,
+            geometry_limits=GeometryLimits(
+                **{
+                    name: getattr(args, name)
+                    for name in GeometryLimits.__dataclass_fields__
+                }
+            ),
+            limits=PreviewLimits(
+                max_triangles=args.max_triangles,
+                max_output_bytes=args.max_output_bytes,
+            ),
+        )
+        result.update(asdict(preview))
+        result["directory"] = str(preview.directory)
+        result.update(scope="resource_local", output_unit="m", placement="not_applied")
+        if not args.write_only:
+            with serve_preview(preview.directory, port=args.port) as server:
+                print(f"Preview: {server.url}", flush=True)
+                print(
+                    "Resource coordinates; assembly placement unknown. "
+                    "Press Ctrl-C to stop.",
+                    flush=True,
+                )
+                if not args.no_open and not server.open_browser():
+                    print("Open the URL above in a browser.", flush=True)
+                try:
+                    Event().wait()
+                except KeyboardInterrupt:
+                    pass
+    except IcadError as exc:
+        result["error"] = asdict(exc.diagnostic)
+        code = {"limit_exceeded": 4, "unsupported": 3}.get(exc.diagnostic.category, 1)
+    except OSError as exc:
+        result["error"] = asdict(Diagnostic("io", "io.failed", None, str(exc)))
+        code = 1
+    if args.json:
+        print(json.dumps(result, sort_keys=True))
+    elif "error" in result:
+        print(f"icadkit: {result['error']}", file=sys.stderr)
+    else:
+        print(f"Wrote {preview.glb_path} ({preview.triangle_count} triangles)")
+    return code
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     # Keep Japanese paths/names usable when stdout is redirected on a system
     # whose locale encoding cannot represent them. In-memory capture streams
@@ -392,6 +563,55 @@ def main(argv: Sequence[str] | None = None) -> int:
             subparser.add_argument(
                 "--output", required=True, help="new output path; never overwritten"
             )
+    parts = commands.add_parser(
+        "parts", help="read native part hierarchy and stored text"
+    )
+    parts.add_argument("path")
+    parts.add_argument("--json", action="store_true")
+    parts.add_argument("--include-root", action="store_true")
+    parts.add_argument(
+        "--require-native",
+        action="store_true",
+        help="also require complete native primitive parameters and stored appearance",
+    )
+    for part_defaults in (ReadLimits(), PartLimits()):
+        for name in part_defaults.__dataclass_fields__:
+            parts.add_argument(
+                "--" + name.replace("_", "-"),
+                type=_positive_u64,
+                default=getattr(part_defaults, name),
+            )
+    preview = commands.add_parser(
+        "preview", help="view one resource and write a metre-based GLB (preview extra)"
+    )
+    preview.add_argument("path")
+    preview.add_argument("--resource", required=True)
+    preview.add_argument(
+        "--source-unit", required=True, choices=("mm", "cm", "m", "in")
+    )
+    preview.add_argument("--output", required=True, help="new viewer directory")
+    preview.add_argument(
+        "--write-only", action="store_true", help="write without serving"
+    )
+    preview.add_argument("--no-open", action="store_true", help="do not open a browser")
+    preview.add_argument(
+        "--port", type=int, default=0, help="loopback port (0: automatic)"
+    )
+    preview.add_argument("--json", action="store_true", help="requires --write-only")
+    preview.add_argument("--schema")
+    preview.add_argument("--schema-id")
+    preview.add_argument("--schema-sha256")
+    preview.add_argument("--max-triangles", type=_positive_u64, default=1_000_000)
+    preview.add_argument(
+        "--max-output-bytes", type=_positive_u64, default=128 * 1024 * 1024
+    )
+    for preview_defaults in (ReadLimits(), GeometryLimits()):
+        for name in preview_defaults.__dataclass_fields__:
+            preview.add_argument(
+                "--" + name.replace("_", "-"),
+                type=_positive_u64,
+                default=getattr(preview_defaults, name),
+            )
     check = commands.add_parser("check", help="check one explicit completeness target")
     check.add_argument("path")
     check.add_argument(
@@ -415,8 +635,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 default=getattr(check_defaults, name),
             )
     args = parser.parse_args(argv)
-    if args.command == "check":
-        if args.target == "geometry" and not args.resource:
+    if args.command == "parts":
+        for name in PartLimits.__dataclass_fields__:
+            if getattr(args, name) > (1 << 31) - 1:
+                parser.error(f"--{name.replace('_', '-')} must be at most 2**31 - 1")
+        return _parts_command(args)
+    if args.command in ("check", "preview"):
+        if args.command == "check" and args.target == "geometry" and not args.resource:
             parser.error("check --target geometry requires --resource")
         if bool(args.schema) != bool(args.schema_id):
             parser.error("--schema and --schema-id must be supplied together")
@@ -431,11 +656,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             or any(c not in "0123456789abcdefABCDEF" for c in args.schema_sha256)
         ):
             parser.error("--schema-sha256 must contain 64 hexadecimal digits")
-        if args.target != "geometry" and (args.resource or args.schema):
+        if (
+            args.command == "check"
+            and args.target != "geometry"
+            and (args.resource or args.schema)
+        ):
             parser.error("--resource and --schema require --target geometry")
         for name in GeometryLimits.__dataclass_fields__:
             if getattr(args, name) > (1 << 63) - 1:
                 parser.error(f"--{name.replace('_', '-')} must be at most 2**63 - 1")
+        if args.command == "preview":
+            if not 0 <= args.port <= 65535:
+                parser.error("--port must be between 0 and 65535")
+            if args.json and not args.write_only:
+                parser.error("preview --json requires --write-only")
+            return _preview_command(args)
         return _check_command(args)
     if args.command == "inspect":
         return _inspect_command(args)

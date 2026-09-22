@@ -5,7 +5,9 @@ mod document;
 mod error;
 mod header;
 mod limits;
+mod native;
 mod parasolid;
+mod parts;
 mod provenance;
 mod reader;
 mod record;
@@ -19,9 +21,11 @@ pub use header::{
     inspect_reader,
 };
 pub use limits::{CatalogLimits, GeometryLimits, InspectionLimits, ReadLimits};
+pub use native::{NativeEntityRecord, NativePrimitiveRecord};
 pub use parasolid::{
     GeometryDiagnostic, GeometryError, GeometryResult, GeometryStatus, SchemaSelection,
 };
+pub use parts::{PartIndex, PartLimits, PartOpaqueRange, PartRecord};
 pub use provenance::{Extraction, SourceRef};
 pub use reader::ByteOrder;
 pub use record::{ByteRange, RecordInfo};
@@ -34,7 +38,7 @@ use parasolid_core::{BuiltinProfileRegistry, ParseError};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Exact registry dependency; checked against the manifest and lock in CI.
-pub const PARASOLID_CORE_VERSION: &str = "0.2.0";
+pub const PARASOLID_CORE_VERSION: &str = "0.3.0";
 
 /// Metadata of the compiled Parasolid backend, not ICD format coverage.
 #[derive(Debug, Clone, PartialEq, Eq)]
