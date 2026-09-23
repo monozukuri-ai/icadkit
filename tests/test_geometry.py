@@ -72,10 +72,10 @@ def test_icad_v34_without_catalog(geometry_doc, version):
     doc = geometry_doc(payload, version=version, count=0 if version == 0 else 3)
     g = doc.read_geometry(doc.resources[0].resource_id).require_complete()
     assert g.schema.kind == "builtin"
-    assert g.schema.profile_id == "icad-sch34101-13006-r1"
-    assert g.schema.profile_revision == 1
+    assert g.schema.profile_id == "icad-sch34101-13006-r2"
+    assert g.schema.profile_revision == 2
     assert g.schema.profile_sha256 == (
-        "a516a515d3d0c0866a001cf148e7e2e066e9741912c26d45c6ba4fc232179d6e"
+        "eaebc3477246b7a6b56d1b5dc500029beba46f54e9226973883bc444684f26eb"
     )
     assert g.raw.schema_key == "SCH_3401212_34101_13006"
     assert g.raw.to_bytes() == payload
@@ -124,7 +124,7 @@ def test_icad_v34_cli_uses_builtin(geometry_doc, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     row = json.loads(result.stdout)
-    assert row["schema"]["profile_id"] == "icad-sch34101-13006-r1"
+    assert row["schema"]["profile_id"] == "icad-sch34101-13006-r2"
     assert row["status"]["brep"] == "complete"
     assert row["status"]["model"] == "not_checked"
 

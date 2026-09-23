@@ -1,6 +1,6 @@
 # Saved final bodies
 
-The source checkout supports an additional V7L7 display path using saved final
+Version 0.3.0 supports V7L7 and V8L3 display paths using saved final
 B-Rep solids. This displays the saved result without replaying feature history.
 It is separate from `--csg` and does not claim support for unknown CSG operations.
 
@@ -36,22 +36,35 @@ requires a complete parsed B-Rep and topology plus the optional preview runtime.
 
 ## Qualified binding and geometry
 
-The adapter accepts little-endian V7L7, complete part/resource indexes, internal
-nonmirrored owners and qualified saved root frames. Final type-85 markers are
+The adapter accepts qualified little-endian V7L7/V8L3, complete part/resource
+indexes, internal nonmirrored owners and qualified saved root frames.
+Mirrored or external ancestors also prevent evaluation. Final type-85 markers are
 distinguished from component markers. Exactly one indexed resource must match
-the final marker's source ID, and that native ID must be unique. Resource order
-never supplies ownership. Unknown marker layouts and ambiguous IDs are rejected.
+the marker's profile-specific key, and the native marker ID must be unique.
+Resource order never supplies ownership. Unknown layouts and ambiguous keys
+are rejected. Imported-solid and evaluated-native final markers are qualified
+separately from feature replay.
 
-Only the qualified type-134/version-5 resource layout is placed. The saved
-resource frame uses native mm; B-Rep coordinates use source metres. Conversion
-first scales the resource geometry by 1,000, then applies
-`inverse(saved_root_frame) * saved_resource_frame` once. Part placement is not
-applied again. Source frames, byte ranges, resource IDs and payload hashes remain
-available. The saved final marker supplies visibility, palette index and layer;
-colors are illustrative and layer visibility is not interpreted.
+| Profile | Binding | Frame applied after scaling resource metres to mm |
+| --- | --- | --- |
+| V7L7 | Native marker source ID to a unique type-134/version-5 resource | `inverse(saved_root_frame) * saved_resource_frame` |
+| V8L3 | Explicit marker resource key to a unique type-135/version-6 resource | Saved global frame inside the native marker |
 
-The current converter covers solid bodies with planes, cylinders, lines,
-circles and explicit line/circle trims. Shared source vertices/edges/loops and
+V8L3 occurrences can share a resource key while retaining distinct native IDs,
+owners and global frames. Multiple bodies can belong to the same part. Part
+placement is never applied again. V8L3 retains the part API's saved-global
+coordinate convention, even when the saved root is nonidentity; it is distinct
+from the root-relative SDK observation frame and the V7L7 convention.
+`resource_source_id`, `binding_kind` and `frame_source` describe the binding.
+`resource_frame_range` locates the frame in the resource header for V7L7 and
+the native marker for V8L3. Original bytes and payload hashes remain available.
+The final marker supplies visibility, palette index and layer; colors are
+illustrative and layer visibility is not interpreted.
+
+The current converter covers solid bodies with planes, cylinders, spheres,
+cones, tori, lines, circles and explicit line/circle trims. This is a bounded
+surface/boundary combination, not support for arbitrary solids containing those
+surfaces. Faces require explicit boundary loops. Shared source vertices/edges/loops and
 material-region shells are preserved. Surface parameter curves, periodic seams
 and wire orientation are constructed by the pinned `parasolid-kit==0.2.0` OCCT
 adapter. Generated edges/vertices retain the declared body resolution; existing
@@ -66,6 +79,13 @@ Volume, area and centroid come from the resulting analytic solid; display meshes
 use an absolute linear deflection of 0.05 mm by default. Nonanalytic surfaces,
 unqualified resource layouts, mirrors, external-file loading and complete feature
 history remain unsupported. Existing `--csg` evaluation remains separately scoped.
+
+An exact built-in schema profile can still lack a base type required by a
+resource. Such resources need the explicitly matching catalog. Version 0.3.0
+uses `parasolid-core 0.3.1` and exact V34 profile revision 2, which adds
+TORUS (54): qualified trimmed-torus and swept-arc solids no longer require a
+catalog. Other uncompiled types retain a diagnostic when no catalog is supplied.
+Catalogs are not bundled.
 
 ## Limits and viewer
 
@@ -83,7 +103,9 @@ These guards do not cap native-kernel execution time or total process memory.
 
 The viewer uses `scope="qualified_saved_brep"`, reports evaluated/omitted saved
 bodies in `scene.saved_brep`, and labels source components without drawing them
-separately. Selecting the saved final body shows its properties and diagnostics.
+separately. `resources_evaluated` counts distinct resources; `evaluated` counts
+body occurrences, including copies that share a resource. Selecting the saved
+final body shows its properties and diagnostics.
 The model summary continues counting saved records, which include components.
 `--saved-brep` and `--csg` are alternative evaluation modes. The default viewer
 continues to display only qualified standalone native primitives.

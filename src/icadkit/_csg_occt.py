@@ -101,7 +101,7 @@ def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
         abs(m[i][j] - rigid[i][j]) > 1e-8 for i in range(4) for j in range(4)
     ):
         _fail("csg.operand_frame", "Non-rigid operand matrix", category="invalid")
-    if not math.isfinite(p.height) or p.height <= 0:
+    if p.height is None or not math.isfinite(p.height) or p.height <= 0:
         _fail("csg.operand_dimensions", "Invalid operand height", category="invalid")
     if p.kind == "box":
         if p.x_bounds is None or p.y_bounds is None:

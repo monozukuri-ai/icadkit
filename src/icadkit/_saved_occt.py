@@ -52,10 +52,11 @@ def _preflight(model: Any, limits: SavedBodyLimits) -> None:
         ].kind.value not in ("line", "circle"):
             raise _error("curve", "Nested or nonanalytic curve trims are not qualified")
     if any(
-        s.kind.value not in ("plane", "cylinder") or s.sense.value == "unknown"
+        s.kind.value not in ("plane", "cylinder", "sphere", "cone", "torus")
+        or s.sense.value == "unknown"
         for s in model.surfaces
     ):
-        raise _error("surface", "Only saved planes and cylinders are qualified")
+        raise _error("surface", "Only qualified analytic saved surfaces are supported")
     if any(f.sense.value == "unknown" or not f.loops for f in model.faces):
         raise _error("face", "Saved faces require explicit oriented boundary loops")
     if any(
@@ -82,7 +83,12 @@ def _build(
         builder._build_edge(edge)
     for face in model.faces:
         builder._build_face(face)
-    for face in model.faces:
+    # Generate cylindrical/other seams before spherical seams. The shared
+    # replacement context must see the adjacent ring splits before it closes
+    # a spherical band; source face enumeration is not a construction order.
+    for face in sorted(
+        model.faces, key=lambda f: builder.surfaces[f.surface].kind.value == "sphere"
+    ):
         builder._finish_face(face)
     kernel = api["BRep"].BRep_Builder()
     for face in model.faces:
@@ -136,7 +142,7 @@ def convert(
 ) -> SavedBodyMesh:
     api = _runtime()
     try:
-        model = bridge(brep)
+        model = bridge(brep, saved_surfaces=True)
         _preflight(model, limits)
         options = import_module(
             "parasolid_kit.interop.occt.options"

@@ -134,7 +134,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 
-=== parasolid-core 0.3.0 (MIT AND Apache-2.0) ===
+=== parasolid-core 0.3.1 (MIT AND Apache-2.0) ===
 MIT License
 
 Copyright (c) 2026 parasolid-kit contributors

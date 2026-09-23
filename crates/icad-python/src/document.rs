@@ -86,6 +86,16 @@ impl DocumentHandle {
                 ))?;
             }
             p.set_item("extra_fields", fields)?;
+            let attributes = PyList::empty(py);
+            for field in part.opaque_attributes {
+                attributes.append((
+                    (field.byte_range.start, field.byte_range.end),
+                    field.source_id,
+                    field.subtype,
+                    PyBytes::new(py, &field.raw_bytes),
+                ))?;
+            }
+            p.set_item("opaque_attributes", attributes)?;
             let entities = PyList::empty(py);
             for entity in part.entities {
                 let e = PyDict::new(py);

@@ -4,27 +4,27 @@ A Rust-based Python reader for **iCAD SX `.icd` files**. Read saved part
 structure, coordinate frames, names and selected attributes; inspect native
 box/cylinder parameters; and extract embedded Parasolid geometry.
 
-Version **0.2.0** adds:
+Version **0.3.0** adds:
 
-- [Native part access](docs/parts.md): hierarchy, internal snapshot definitions,
-  unresolved external references, millimetre local/world part frames, comments
-  and extended text, with per-part Python rows.
-- [Native parameters and appearance](docs/native.md): qualified box/cylinder
-  dimensions and global frames, saved entity palette indices, visibility and layers.
-- The exact iCAD V34 `SCH_3401212_34101_13006` Parasolid profile through
-  `parasolid-core 0.3.0`, without an external catalog for qualified resources.
-- Optional [resource preview and GLB export](docs/preview.md), with explicit
-  source units and a local browser viewer.
+- A [native file viewer](docs/viewer.md) with a part tree, stored properties,
+  selection and visibility controls. Qualified boxes, cylinders, full spheres,
+  cones/frusta and full ring tori use their saved frames.
+- Broader [part access](docs/parts.md): V7L7 traversal, bounded V8L1/V8L2
+  inventories and binary attributes retained with ownership and raw bytes.
+- Optional [V7L7 boolean evaluation](docs/csg.md) and
+  [saved final body display](docs/saved-bodies.md) for V7L7/V8L3, including
+  imported solids, shared resources and bounded analytic surfaces.
+- Updated exact V34 Parasolid support through `parasolid-core 0.3.1`, including
+  qualified toroidal resources without an external catalog.
 
 icadkit is experimental. Unsupported geometry remains in the part inventory;
 unknown values and source ranges are preserved. Part frames, native primitive
 frames and embedded resource coordinates have separate contracts. Complete
 assembly geometry, inherited attributes and drawings remain unsupported.
-Read the [support boundaries](docs/support.md) and [changes since 0.1.0](docs/changelog.md).
+Read the [support boundaries](docs/support.md) and [release notes](docs/changelog.md).
 
-The source checkout also includes a [native file viewer](docs/viewer.md):
-`uv run icadkit view model.icd` opens native boxes/cylinders with a part tree,
-properties and visibility controls. This addition is not in the 0.2.0 package.
+Run `icadkit view model.icd` to open qualified native primitives and their
+part properties. The base viewer works without the preview extra.
 
 ## Installation
 
@@ -32,7 +32,7 @@ The base reader supports standard GIL-enabled CPython 3.10–3.14. Wheel targets
 are Linux x86_64 (glibc 2.28+), Windows x86_64 and macOS ARM64 (11+):
 
 ```sh
-python -m pip install icadkit==0.2.0
+python -m pip install icadkit==0.3.0
 ```
 
 The native extension bundles `parasolid-core` and has no mandatory Python
@@ -41,7 +41,7 @@ explicit compatible catalog is needed only for schemas absent from the built-in
 profiles. Release files are available on the
 [GitHub releases page](https://github.com/monozukuri-ai/icadkit/releases).
 
-For preview/GLB, install `python -m pip install 'icadkit[preview]==0.2.0'`.
+For preview/GLB, install `python -m pip install 'icadkit[preview]==0.3.0'`.
 The optional OCCT dependency requires glibc 2.31+ on Linux; see
 [preview requirements](docs/preview.md#dependencies-and-validation).
 To build from a source checkout or sdist, install Rust 1.88+ and a C linker,
@@ -64,17 +64,25 @@ for part in parts.walk(include_root=False):
 rows = parts.to_rows()  # JSON-compatible rows; not certified BOM quantities.
 ```
 
-The source checkout also reads the observed little-endian V7L7 part layout:
+The reader supports the observed little-endian V7L7 part layout:
 hierarchy, names, comments, extended text and saved external reference names.
 Qualified V7L7 part frames use millimetres and are evaluated relative to the
-saved root frame. Standalone box/cylinder owners also expose geometry and saved
+saved root frame. Qualified standalone primitive owners also expose geometry and saved
 entity appearance. The separate [CSG API](docs/csg.md) and
 `uv run --extra preview icadkit view model.icd --csg` evaluate qualified
 box/cylinder unions, differences and intersections. Unknown programs retain
 diagnostics without substitute geometry.
 The [saved final body mode](docs/saved-bodies.md), `view --saved-brep`, also
-displays qualified saved results using an explicit schema catalog when required.
-These additions are not in the 0.2.0 package.
+displays qualified V7L7/V8L3 final bodies and imported solids, including bounded
+spherical, conical and toroidal surfaces. V8L3 resource sharing preserves each
+occurrence's saved placement. An explicit schema catalog is needed when the
+exact built-in profile lacks a required type. Counted metadata framing also
+extends part inventories while preserving unknown records and diagnostics.
+Version 0.3.0 also preserves bounded binary attributes as raw owned records,
+reads V8L1/V8L2 part inventories without assigning units or geometry, and displays
+native cones/frusta and full ring tori. The updated exact V34 profile in
+`parasolid-core 0.3.1` removes the catalog requirement for qualified toroidal
+resources.
 
 Qualified V8L3 part frames use millimetres. Mirrored frames and external-file
 loading remain unsupported. Extended information is stored text, not interpreted

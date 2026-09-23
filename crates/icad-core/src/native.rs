@@ -8,6 +8,8 @@ pub struct NativePrimitiveRecord {
     /// V7L7 requires inverse(saved root frame) before exposing global placement.
     pub frame: [f64; 9],
     /// Box: height, xmin, ymin, xmax, ymax. Cylinder: radius, height.
+    /// Full sphere: radius, repeated radius, pi. Cone: height, four zero offsets,
+    /// base radius, top radius. Torus: full sweep, major radius, minor radius, zero.
     pub parameters: Vec<f64>,
 }
 
@@ -68,6 +70,17 @@ pub(crate) fn read_opaque_entity(bytes: &[u8], byte_range: ByteRange) -> NativeE
     result
 }
 
+pub(crate) fn read_inventory_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
+    let mut result = undecoded_entity(bytes, byte_range);
+    result.issue(
+        ErrorKind::Unsupported,
+        "native.inventory_profile",
+        0,
+        "V8L1/V8L2 inventory retains entities without evaluating geometry or appearance",
+    );
+    result
+}
+
 pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
     let mut result = undecoded_entity(bytes, byte_range);
     // Layer, saved visibility and palette index are qualified only for these
@@ -76,6 +89,8 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
         Some(75) => Some((160, 0x56440088, "box")),
         Some(71) => Some((136, 0x50440070, "cylinder")),
         Some(72) => Some((144, 0x53440078, "sphere")),
+        Some(68) => Some((176, 0x57440098, "cone")),
+        Some(74) => Some((152, 0x54440080, "torus")),
         _ => None,
     };
     let layout = shape.is_some_and(|(length, marker, _)| {
@@ -122,7 +137,7 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
         result.color_index = Some(color);
         result.appearance_status = Status::Complete;
     }
-    if kind == "sphere" || result.is_mirror == Some(true) {
+    if result.is_mirror == Some(true) {
         result.issue(
             ErrorKind::Unsupported,
             "native.primitive",
@@ -150,6 +165,12 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
             && values[13] > values[11]
             && (values[12] - values[10]).is_finite()
             && (values[13] - values[11]).is_finite()
+    } else if kind == "sphere" {
+        values[9] > 0.0
+    } else if kind == "cone" {
+        values[9] > 0.0 && values[14] > 0.0 && values[15] >= 0.0
+    } else if kind == "torus" {
+        values[10] > 0.0 && values[11] > 0.0 && (values[10] + values[11]).is_finite()
     } else {
         values[9] > 0.0 && values[10] > 0.0
     };
@@ -160,6 +181,29 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
             "native.parameters",
             48,
             "Nonfinite parameters, non-rigid frame or invalid primitive dimensions",
+        );
+        return result;
+    }
+    if kind == "sphere" && (values[10] != values[9] || values[11] != std::f64::consts::PI) {
+        result.issue(
+            ErrorKind::Unsupported,
+            "native.sphere_extent",
+            128,
+            "Only the qualified full-sphere extent is supported",
+        );
+        return result;
+    }
+    if (kind == "cone" && values[10..14].iter().any(|v| *v != 0.0))
+        || (kind == "torus"
+            && (values[9] != std::f64::consts::TAU
+                || values[12] != 0.0
+                || values[10] <= values[11]))
+    {
+        result.issue(
+            ErrorKind::Unsupported,
+            "native.primitive_extent",
+            120,
+            "Only coaxial circular cones and full ring tori are qualified",
         );
         return result;
     }

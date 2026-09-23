@@ -1,28 +1,28 @@
 # Native file viewer
 
-The native viewer is available in the source checkout after 0.2.0. It renders
-qualified native **boxes and cylinders**, using their saved global frames in
+Added in version 0.3.0. The native viewer renders
+qualified native **boxes, cylinders, full spheres, cones/frusta and full ring tori**, using their saved global frames in
 millimetres. It includes a part tree, stored properties, selection and visibility
 controls. By default, no preview extra, OCCT, iCAD, Wine, internet connection or schema catalog
 is required. The browser needs WebGL for 3D display; without it, the part/property
 inventory remains available.
 
-The qualified **little-endian V8L3** profile supports native box/cylinder display.
-The source checkout also displays qualified **little-endian V7L7** standalone
-box/cylinder owners, using root-relative placement and millimetres. Add `--csg`
+The qualified **little-endian V8L3** profile supports qualified native analytic display.
+The viewer also displays qualified **little-endian V7L7** standalone
+analytic primitive owners, using root-relative placement and millimetres. Add `--csg`
 with the `preview` extra for [qualified boolean results](csg.md). Unknown
 records/programs keep the affected body undisplayed; their part properties
 remain selectable. Unqualified root contexts open as inventory only. If the part inventory cannot be
 read, the command reports the reader diagnostic and exits without opening an
 empty viewer. Saving in a newer iCAD version does not qualify unsupported geometry.
 
-From a source checkout:
+After installation:
 
 ```sh
-uv run icadkit view model.icd
+icadkit view model.icd
 ```
 
-After installing the updated package, use `icadkit view model.icd`. The command
+From a source checkout, use `uv run icadkit view model.icd`. The command
 opens the default browser and serves only the generated viewer files on
 `127.0.0.1` with an automatically selected port. Ctrl-C stops the server and
 removes temporary files. Use `--no-open` to print the URL without opening a browser,
@@ -41,7 +41,8 @@ opening HTML with `file://` is not supported. There are no remote asset requests
 The exported JSON includes part names, stored text and source byte metadata;
 share it only when you intend to share those attributes too.
 Qualified V7L7 exports use `scope="qualified_native_primitives"`, like V8L3.
-If V7L7 root context/units are unavailable, exports use
+V8L1/V8L2 provide inventory only. If V7L7 root context/units are unavailable,
+exports also use
 `scope="native_part_inventory"`, null `length_unit` and `coordinate_system`, and
 an empty `meshes` object. The tree remains selectable in both cases.
 
@@ -79,12 +80,21 @@ reports represented and omitted indexed entities; these counts do not account
 for entities hidden inside unparsed ranges. Reader statuses, diagnostics and
 unparsed ranges appear in the model properties.
 
-Mirrors, spheres, cones, unqualified CSG programs, drawings and automatic external-file
+Mirrors, partial spheres/tori, offset cones, unqualified CSG programs, drawings and automatic external-file
 loading remain unsupported. With the default primitive mode, embedded Parasolid resources are counted but
 not placed. `--saved-brep` places only uniquely bound, qualified final resources.
 Use the separate [resource preview](preview.md) to view a selected supported
 embedded resource. Unknown hierarchy links are retained; cycle-safe traversal
 lists each part once. This does not repair or certify the hierarchy.
+
+Full spheres use the same segment control as cylinders, with half as many
+latitude bands. Cones/frusta share the circumferential control; full tori use it
+for the major ring with half as many minor-ring segments (at least eight).
+Cone properties show both radii and height; torus properties show both radii. The mesh is a display approximation; the sphere's radius and
+centre frame remain exact saved parameters. `--saved-brep` also accepts qualified
+V8L3 final markers and shared resources, with independent global placement per
+occurrence. Spherical, conical and toroidal saved surfaces are subject to the
+[saved body conversion limits](saved-bodies.md).
 
 ## Python
 

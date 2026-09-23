@@ -24,11 +24,19 @@ rows = index.to_rows()  # One row per saved part, excluding the document root.
 # Optional, if pandas is installed: pandas.DataFrame(rows)
 ```
 
-The source checkout after 0.2.0 also reads the observed little-endian V7L7
+Version 0.3.0 also reads the observed little-endian V7L7
 `3DGLOBAL` part layout. V7L7 supports the saved inventory, hierarchy, snapshot
 definitions, names, comments, extended text and unresolved external names.
 Both profiles provide qualified millimetre part frames and bounded native
 parameters, subject to the profile-specific restrictions below.
+V8L1/V8L2 additionally support bounded inventory access: saved hierarchy,
+snapshot definitions, names/comments, extended text and external names. These
+profiles retain raw coordinate blocks but expose no evaluated frames, units,
+native geometry or appearance. `parts.inventory_profile` explains this boundary;
+the viewer opens their part/property inventory without meshes. Observed extended
+part records are length-checked and retained as `part_metadata_extension` ranges.
+Files without a qualified 3DGLOBAL view remain unsupported, including 2D-only
+files. No file header is rewritten to select a newer reader.
 Other byte orders, view headers and part record layouts remain unsupported.
 A product-version label alone does not establish support: the record tags must
 match the profile. An empty document has a root record and zero non-root rows;
@@ -74,7 +82,10 @@ unsupported. Nonfinite, non-rigid or overflowing evaluated frames are invalid.
 Both raw coordinate blocks and their exact source ranges remain unchanged.
 
 For V8L3, the stored part frame is already the qualified world frame. The
-following matrix convention applies to both profiles.
+following matrix convention applies to both profiles. This saved-global frame
+can differ from iCAD SDK observations relative to the document root: comparing
+those observations requires applying the saved root frame once. V8L3 does not
+normalize the saved root to identity.
 
 `placement.world_transform` is the saved **part coordinate frame** in the
 `3DGLOBAL` work frame. It is a 4-by-4 tuple of rows acting on column vectors:
@@ -103,6 +114,14 @@ transforms. Mirrored records retain `is_mirror=True` and their raw coordinates;
 their transform matrices remain unsupported.
 
 ## Stored attributes
+
+The observed binary attribute envelopes are traversable without interpreting
+their contents. `Part.opaque_attributes` contains `PartOpaqueAttribute` entries
+with `source_id`, `subtype`, `owner_id`, `byte_range`, exact `raw_bytes` and
+`status="unsupported"`. Rows include these bytes as hex. Qualified framing can
+leave `status.index="complete"`, while `stored_attributes="partial"` and
+`parts.attribute_semantics` report unknown attribute meaning. Unknown attribute layouts retain a partial index and opaque bytes; unknown
+record framing stops traversal. `max_property_bytes` applies to these payloads.
 
 Names and comments use strict CP932 decoding. General extended information
 (`SxInfEx` in the validation SDK) is exposed as `extra_info`, decoded strictly
@@ -136,9 +155,9 @@ dimensions; unsupported entities remain with diagnostics. `Part.resource_ids`
 is still unresolved, and native parameter support does not evaluate a B-Rep.
 
 V7L7 decodes a complete internal owner's entity list only when every entity
-matches a qualified standalone box, cylinder or sphere header and none is
-mirrored. Box/cylinder parameters and saved appearance are exposed; spheres
-retain appearance but no evaluated primitive. Unknown/CSG records keep the
+matches a qualified standalone box, cylinder, sphere, cone or torus header and none is
+mirrored. Qualified analytic parameters and saved appearance are exposed.
+Unknown/CSG records keep the
 entire owner's list opaque, including any primitive-shaped operands. Incomplete
 indexes and mirrored/external owners also stay opaque. Independent qualified
 owners can still be displayed. See [native access](native.md).
@@ -165,8 +184,11 @@ Unsupported native shapes and embedded geometry do not remove part rows.
 Unknown entity framing stops view traversal; the parser does not search later
 bytes for plausible part signatures. Length-framed geometry contents stay
 opaque. Recovered records, diagnostics and `opaque_ranges` remain available.
-Preceding metadata blocks require a qualified profile-specific length/count pair;
-unknown variants stop traversal, and truncated or out-of-bounds lengths are invalid.
+Preceding metadata blocks use a qualified fixed header followed by counted,
+length-framed `0x79`–`0x7c` subrecords. Their lengths must consume the block
+exactly; their contents remain opaque. Unknown tags or inconsistent framing
+stop traversal. Truncated or out-of-bounds outer lengths are invalid. Metadata
+subrecords count toward `PartLimits.max_entities`.
 The document's `unparsed_ranges` still apply to the rest of the container.
 Use `doc.source_bytes(byte_range)` for exact source bytes.
 

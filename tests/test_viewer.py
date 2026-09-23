@@ -112,7 +112,10 @@ def test_cylinder_closed_winding_radius_height_and_rotation(tmp_path):
 
 def test_partial_unknown_and_hidden_entities_remain_owned(tmp_path):
     _, scene = load(
-        document(native(visible=False, color=18), native("sphere", first=False)),
+        document(
+            native(visible=False, color=18),
+            native("sphere", parameters=(9, 0, 0), first=False),
+        ),
         tmp_path,
     )
     entities = scene["parts"][1]["entities"]
@@ -127,7 +130,7 @@ def test_partial_unknown_and_hidden_entities_remain_owned(tmp_path):
 
 
 def test_root_owned_geometry_empty_and_unsupported_models(tmp_path):
-    for i, record in enumerate((native(), native("sphere"), b"")):
+    for i, record in enumerate((native(), native("sphere", parameters=(9, 0, 0)), b"")):
         doc = icadkit.read(view_parts([part(ROOT, root=True), record]))
         result = write_native_viewer(doc, tmp_path / str(i))
         assert result.rendered_entities == (1 if i == 0 else 0)
@@ -170,7 +173,7 @@ def test_view_cli_reports_profile_failure_without_starting_browser(
     assert main(["view", str(path), "--no-open"]) == 3
     captured = capsys.readouterr()
     assert captured.out == "" and "V7L7" in captured.err
-    assert "V8L3" in captured.err
+    assert "part record tag" in captured.err
     destination = tmp_path / "view"
     assert (
         main(
@@ -308,3 +311,37 @@ def test_simple_cli_temporary_output_is_cleaned_on_shutdown(
     assert main(["view", str(path), "--no-open"]) == 0
     assert "http://127.0.0.1:" in capsys.readouterr().out
     assert len(directories) == 1 and not directories[0].exists()
+
+
+def test_sphere_mesh_is_closed_outward_and_bounded(tmp_path):
+    result, scene = load(document(native("sphere", axes=(0, 0, 1, 1, 0, 0))), tmp_path)
+    mesh = next(iter(scene["meshes"].values()))
+    # Exported coordinates are normalized; restore millimetres before checking.
+    origin, scale = scene["render_origin_mm"], scene["render_scale_mm"]
+    vertices = [
+        tuple(mesh["positions"][i + k] * scale + origin[k] for k in range(3))
+        for i in range(0, len(mesh["positions"]), 3)
+    ]
+    centre = (7, -11, 19)
+    assert all(math.dist(v, centre) == pytest.approx(9) for v in vertices)
+    edges = {}
+    for i in range(0, len(mesh["triangles"]), 3):
+        a, b, c = mesh["triangles"][i : i + 3]
+        u = tuple(vertices[b][k] - vertices[a][k] for k in range(3))
+        v = tuple(vertices[c][k] - vertices[a][k] for k in range(3))
+        normal = (
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        )
+        assert sum(normal[k] * (vertices[a][k] - centre[k]) for k in range(3)) > 0
+        for x, y in ((a, b), (b, c), (c, a)):
+            edges.setdefault(tuple(sorted((x, y))), []).append((x, y))
+    assert all(len(uses) == 2 and uses[0] == uses[1][::-1] for uses in edges.values())
+    assert result.triangle_count == len(mesh["triangles"]) // 3
+    with pytest.raises(icadkit.LimitExceededError):
+        write_native_viewer(
+            document(native("sphere")),
+            tmp_path / "limited",
+            limits=ViewerLimits(max_triangles=100),
+        )

@@ -28,6 +28,8 @@ def native(
         "box": (160, 75, 0x56440088),
         "cylinder": (136, 71, 0x50440070),
         "sphere": (144, 72, 0x53440078),
+        "cone": (176, 68, 0x57440098),
+        "torus": (152, 74, 0x54440080),
     }[kind]
     b = bytearray(size)
     struct.pack_into(
@@ -51,7 +53,9 @@ def native(
         parameters = {
             "box": (23, -3, -5, 10, 12),
             "cylinder": (7, 29),
-            "sphere": (9, 0, 0),
+            "sphere": (9, 9, math.pi),
+            "cone": (27, 0, 0, 0, 0, 9, 3),
+            "torus": (math.tau, 13, 2.5, 0),
         }[kind]
     struct.pack_into("<" + str(len(parameters)) + "d", b, 120, *parameters)
     return (struct.pack("<I", 0x30010000) if first else b"") + b
@@ -136,7 +140,7 @@ def test_opaque_high_metadata_word_does_not_change_dimensions():
 
 
 @pytest.mark.parametrize(
-    "kind,mirror", [("sphere", False), ("box", True), ("cylinder", True)]
+    "kind,mirror", [("sphere", True), ("box", True), ("cylinder", True)]
 )
 def test_unsupported_shapes_and_mirrors_keep_appearance_and_ownership(kind, mirror):
     _, index = read(native(kind, mirror=mirror, color=18, visible=False))
@@ -196,11 +200,16 @@ def test_unknown_header_keeps_range_without_reinterpreting_parameters(offset, va
     assert doc.source_bytes(e.byte_range) == bytes(b[4:])
 
 
-def metadata(length=440):
+def metadata(length=440, count=2, *, unknown=False):
     b = bytearray(length + 4)
-    struct.pack_into("<5I", b, 0, 0x21000000, length, 2, 0, 0xC9500088)
+    struct.pack_into("<5I", b, 0, 0x21000000, length, count, 0, 0xC9500088)
     # A plausible part signature inside opaque metadata must never be read.
-    b[24 : 24 + 356] = part(B, parent=A)
+    b[24:32] = part(B, parent=A)[:8]
+    at = 160
+    for i in range(count):
+        size = 16 if i < count - 1 else len(b) - at
+        struct.pack_into("<I", b, at, (0x7D if unknown else 0x79 + i % 4) << 24 | size)
+        at += size
     return b
 
 
@@ -217,7 +226,7 @@ def test_qualified_metadata_is_bounded_and_not_scanned(length):
 
 def test_unknown_and_truncated_metadata_do_not_resynchronize():
     for b, status in (
-        (metadata(444) + native(), "partial"),
+        (metadata(444, unknown=True) + native(), "partial"),
         (metadata()[:100] + native(), "invalid"),
     ):
         _, index = read(b)
@@ -263,7 +272,7 @@ def test_every_aligned_primitive_truncation_fails_closed_without_losing_owner():
     "record,code",
     [
         (native(), 0),
-        (native("sphere"), 3),
+        (native("sphere", parameters=(9, 0, 0)), 3),
         (native(parameters=(-1, -3, -5, 10, 12)), 1),
     ],
 )
@@ -278,3 +287,32 @@ def test_cli_native_requirement_is_explicit(record, code, tmp_path, capsys):
     )
     result = json.loads(capsys.readouterr().out)
     assert len(result["parts"][0]["entities"]) == 1
+
+
+def test_full_sphere_radius_centre_and_provenance():
+    doc, index = read(native("sphere", origin=(17, -23, 9), parameters=(7, 7, math.pi)))
+    sphere = index.parts[1].entities[0].primitive
+    assert sphere.kind == "sphere" and sphere.radius == 7
+    assert sphere.height is None and sphere.box_dimensions is None
+    assert tuple(row[3] for row in sphere.world_transform[:3]) == (17, -23, 9)
+    assert sphere.raw_bytes == doc.source_bytes(sphere.byte_range)
+    assert index.status.native_geometry == "complete"
+
+
+@pytest.mark.parametrize(
+    "parameters,status",
+    [
+        ((7, 0, 0), "unsupported"),
+        ((7, 7, math.pi / 2), "unsupported"),
+        ((0, 0, math.pi), "invalid"),
+        ((-7, -7, math.pi), "invalid"),
+        ((7, math.nan, math.pi), "invalid"),
+    ],
+)
+def test_unknown_sphere_extents_and_invalid_dimensions_are_not_full_spheres(
+    parameters, status
+):
+    _, index = read(native("sphere", parameters=parameters))
+    entity = index.parts[1].entities[0]
+    assert entity.primitive is None and entity.geometry_status == status
+    assert entity.appearance.status == "complete"

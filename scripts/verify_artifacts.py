@@ -213,8 +213,11 @@ def sdist(path):
             "tests/test_v7_parts.py",
             "tests/test_part_semantics.py",
             "tests/test_native.py",
+            "tests/test_native_round.py",
+            "tests/test_followup_parts.py",
             "tests/test_csg.py",
             "tests/test_saved.py",
+            "tests/saved_fixtures.py",
             "tests/preview_fixtures.py",
             "tests/test_preview.py",
             "tests/test_viewer.py",
@@ -253,16 +256,16 @@ def sdist(path):
         lock = tomllib.loads(read("Cargo.lock").decode())
         dep = next(p for p in lock["package"] if p["name"] == "parasolid-core")
         require(
-            dep["version"] == "0.3.0" and dep["source"].startswith("registry+"),
-            "backend must be registry 0.3.0",
+            dep["version"] == "0.3.1" and dep["source"].startswith("registry+"),
+            "backend must be registry 0.3.1",
         )
         manifest = tomllib.loads(read("Cargo.toml").decode())
         require(
-            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.3.0",
+            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.3.1",
             "backend manifest pin changed",
         )
         require(
-            b'PARASOLID_CORE_VERSION: &str = "0.3.0"'
+            b'PARASOLID_CORE_VERSION: &str = "0.3.1"'
             in read("crates/icad-core/src/lib.rs"),
             "reported backend version changed",
         )

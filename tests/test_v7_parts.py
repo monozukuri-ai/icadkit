@@ -6,6 +6,7 @@ import struct
 
 import pytest
 from part_fixtures import ROOT, A, B, extra_info, part, view_parts
+from test_native import metadata as framed_metadata
 from test_native import native
 
 import icadkit
@@ -21,13 +22,8 @@ def document(*records):
     return icadkit.read(view_parts(records, profile="v7l7"))
 
 
-def metadata(length=392, count=2):
-    data = bytearray(length + 4)
-    struct.pack_into("<5I", data, 0, 0x21000000, length, count, 0, 0xC9500088)
-    # A complete, misleading part record inside metadata must never be indexed.
-    if length >= 376:
-        data[20:376] = v7part(B, parent=ROOT, name="fake")
-    return bytes(data)
+def metadata(length=392, count=2, *, unknown=False):
+    return bytes(framed_metadata(length, count, unknown=unknown))
 
 
 def assembly():
@@ -110,8 +106,8 @@ def test_v7_invalid_metadata_lengths_stop_before_later_records(offset, value):
 @pytest.mark.parametrize(
     "raw,code,status",
     [
-        (metadata(180, 1), "parts.metadata_layout", "partial"),
-        (metadata(184, 2), "parts.metadata_layout", "partial"),
+        (metadata(180, 1, unknown=True), "parts.metadata_layout", "partial"),
+        (metadata(184, 2, unknown=True), "parts.metadata_layout", "partial"),
         (metadata()[:16], "parts.metadata_length", "invalid"),
         (metadata()[:100], "parts.metadata_length", "invalid"),
     ],
@@ -276,7 +272,7 @@ def test_v7_unqualified_root_or_index_keeps_geometry_unavailable(case, tmp_path)
         struct.pack_into("<d", root, 228, 2.0)
     records = [root, v7part(A, parent=ROOT), native()]
     if case == "partial":
-        records.extend([v7part(B, parent=ROOT), metadata(180, 1)])
+        records.extend([v7part(B, parent=ROOT), metadata(180, 1, unknown=True)])
     elif case == "duplicate":
         records.append(v7part(A, parent=ROOT))
     doc = document(*records)
@@ -321,3 +317,50 @@ def test_v7_invalid_parameters_remain_invalid_in_a_recognized_owner():
     ).read_parts()
     assert ix.parts[0].entities[0].geometry_status == "invalid"
     assert ix.parts[0].entities[0].diagnostics[0].code == "native.parameters"
+
+
+@pytest.mark.parametrize("profile", ["v7l7", "v8l3"])
+@pytest.mark.parametrize("marker", [0xC9500088, 0xC9510088, 0xC9580088])
+def test_counted_metadata_new_sizes_and_record_kinds(profile, marker):
+    raw = bytearray(metadata(900, 4))
+    struct.pack_into("<I", raw, 16, marker)
+    doc = icadkit.read(
+        view_parts([part(ROOT, root=True, profile=profile), raw], profile=profile)
+    )
+    index = doc.read_parts()
+    assert index.status.index == "complete"
+    assert len(index.parts) == 1
+    with pytest.raises(icadkit.LimitExceededError):
+        doc.read_parts(limits=icadkit.PartLimits(max_entities=5))
+
+
+@pytest.mark.parametrize(
+    "offset,value",
+    [
+        (8, 0),
+        (8, 3),
+        (8, 0xFFFFFFFF),
+        (160, 0x79000000),
+        (160, 0x79000015),
+        (160, 0x79FFFFFC),
+        (160, 0x7D000010),
+    ],
+)
+def test_corrupt_inner_metadata_framing_stops_before_following_parts(offset, value):
+    raw = bytearray(metadata())
+    struct.pack_into("<I", raw, offset, value)
+    index = document(
+        v7part(ROOT, root=True, child=A), raw, v7part(A, parent=ROOT)
+    ).read_parts()
+    assert index.status.index == "partial" and len(index.parts) == 1
+    assert any(d.code == "parts.metadata_layout" for d in index.diagnostics)
+
+
+def test_v7_sphere_uses_root_relative_centre():
+    doc = document(
+        v7part(ROOT, root=True, position=(100, 200, 300)),
+        native("sphere", origin=(107, 211, 313)),
+    )
+    primitive = doc.read_parts().parts[0].entities[0].primitive
+    assert primitive.kind == "sphere" and primitive.height is None
+    assert tuple(row[3] for row in primitive.world_transform[:3]) == (7, 11, 13)

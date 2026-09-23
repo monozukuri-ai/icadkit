@@ -55,6 +55,18 @@ Matrix4 = tuple[tuple[float, ...], ...]
 
 
 @dataclass(frozen=True)
+class PartOpaqueAttribute:
+    """A bounded binary attribute with qualified ownership, unknown semantics."""
+
+    source_id: int
+    subtype: int
+    owner_id: str
+    byte_range: ByteRange
+    raw_bytes: bytes
+    status: Literal["unsupported"] = "unsupported"
+
+
+@dataclass(frozen=True)
 class PartReference:
     """Saved external model name. No filesystem search or loading is performed."""
 
@@ -90,7 +102,8 @@ class PartPlacement:
     times world. The original first block (values/raw_bytes) is retained, but
     is not used as the part frame or as a geometry transform.
     V7L7 global frames use inverse(saved root frame) times the stored frame.
-    Both profiles retain the original coordinate blocks unchanged.
+    All profiles retain the original coordinate blocks unchanged. V8L1/V8L2
+    expose inventory only: units and evaluated frames remain unqualified.
     """
 
     values: tuple[float | None, ...]
@@ -137,6 +150,7 @@ class Part:
     entities: tuple[NativeEntity, ...] = ()
     native_geometry_status: Status = "not_checked"
     appearance_status: Status = "not_checked"
+    opaque_attributes: tuple[PartOpaqueAttribute, ...] = ()
 
     @property
     def comment(self) -> str | None:
@@ -262,6 +276,17 @@ class PartIndex:
                     for v in p.properties
                 ],
                 "byte_range": asdict(p.byte_range),
+                "opaque_attributes": [
+                    {
+                        "source_id": a.source_id,
+                        "subtype": a.subtype,
+                        "owner_id": a.owner_id,
+                        "byte_range": asdict(a.byte_range),
+                        "raw_bytes_hex": a.raw_bytes.hex(),
+                        "status": a.status,
+                    }
+                    for a in p.opaque_attributes
+                ],
                 "definition_id": p.definition_id,
                 "resource_ids": p.resource_ids,
                 "source_length_unit": self.source_length_unit,
@@ -406,6 +431,7 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
     reference_ids: dict[bytes, str] = {}
     diagnostics = [Diagnostic(**d) for d in data["diagnostics"]]
     v7 = doc.header.raw_version == b"\x00\x07\x00\x07"
+    inventory_only = doc.header.raw_version in (b"\0\10\0\1", b"\0\10\0\2")
     roots = [p for p in data["parts"] if p["is_root"]]
     root_frame = None
     if v7 and len(roots) == 1 and data["hierarchy_status"] == "complete":
@@ -422,7 +448,21 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                 "saved root frame; raw coordinates retained",
             )
         )
-    units_qualified = bool(data["parts"]) and (not v7 or root_frame is not None)
+    units_qualified = (
+        bool(data["parts"])
+        and not inventory_only
+        and (not v7 or root_frame is not None)
+    )
+    if inventory_only and data["parts"]:
+        diagnostics.append(
+            Diagnostic(
+                "unsupported",
+                "parts.inventory_profile",
+                12,
+                "V8L1/V8L2 inventory does not qualify units, placement, geometry "
+                "or appearance; raw values retained",
+            )
+        )
     blocked_placements: set[int] = set()
     if v7 and root_frame is not None:
         children_by_source: dict[int, list[_core.RawPart]] = defaultdict(list)
@@ -443,6 +483,21 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
     for p in data["parts"]:
         at, end = p["byte_range"]
         part_id = f"part:{at:x}"
+        opaque_attributes = tuple(
+            PartOpaqueAttribute(sid, subtype, part_id, ByteRange(*span), raw)
+            for span, sid, subtype, raw in p["opaque_attributes"]
+        )
+        if opaque_attributes:
+            stored_attributes = "partial"
+            diagnostics.append(
+                Diagnostic(
+                    "unsupported",
+                    "parts.attribute_semantics",
+                    opaque_attributes[0].byte_range.start,
+                    "Binary attributes retain ownership and raw bytes; "
+                    "their values are not interpreted",
+                )
+            )
         name, comment = _decode(p["raw_name"]), _decode(p["raw_comment"])
         if name is None or comment is None:
             text_status = "partial"
@@ -608,6 +663,10 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                             "global frame unavailable",
                         )
                     )
+        if inventory_only:
+            world = None
+            if placement_status != "invalid":
+                placement_status = "unsupported"
         parent = (p["view_offset"], p["parent_source_id"])
         entities = tuple(_read_entity(doc, e, part_id) for e in p["entities"])
         if v7:
@@ -649,12 +708,17 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                 is_external=external,
                 is_mirror=mirror,
                 entities=entities,
-                native_geometry_status=_scope(
-                    [e.geometry_status for e in entities], entity_scope
+                native_geometry_status=(
+                    "unsupported"
+                    if inventory_only
+                    else _scope([e.geometry_status for e in entities], entity_scope)
                 ),
-                appearance_status=_scope(
-                    [e.appearance.status for e in entities], entity_scope
+                appearance_status=(
+                    "unsupported"
+                    if inventory_only
+                    else _scope([e.appearance.status for e in entities], entity_scope)
                 ),
+                opaque_attributes=opaque_attributes,
             )
         )
     by_id = {p.part_id: p for p in parts}

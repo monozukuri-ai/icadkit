@@ -8,14 +8,14 @@ Version **0.2.0** adds saved native entities to `Document.read_parts()`.
 It reads qualified V8L3 boxes and cylinders, and selected stored appearance
 fields. It does not evaluate native B-Rep, CSG, tessellation or a complete scene.
 
-The source checkout's [native viewer](viewer.md) can tessellate the supported
-box/cylinder parameters for an explicitly partial display with a part tree.
-The source checkout also decodes qualified V7L7 standalone box/cylinder owners
+The 0.3.0 [native viewer](viewer.md) can tessellate the supported
+box/cylinder/full-sphere/cone/torus parameters for an explicitly partial display with a part tree.
+Version 0.3.0 also decodes qualified V7L7 standalone primitive owners
 and saved entity appearance. V7L7 requires a complete saved hierarchy/index and
-an entire internal owner's list of qualified nonmirrored box/cylinder/sphere
+an entire internal owner's list of qualified nonmirrored box/cylinder/sphere/cone/torus
 headers. An unknown or CSG record keeps the whole owner's list opaque; primitive
-operands are never drawn as a completed boolean result. Sphere parameters,
-mirrored/external owners and unsupported layouts remain unavailable.
+operands are never drawn as a completed boolean result. Mirrored/external
+owners and unsupported layouts remain unavailable.
 
 ```python
 import icadkit
@@ -43,7 +43,7 @@ entity header is qualified; it is not a persistent ID across saves.
 
 Ownership follows the length-framed entity list after a part record, independently
 of supported geometry. Attribute records are handled separately in
-`Part.properties`. Unknown entity framing stops traversal without searching for
+`Part.properties` or as raw `Part.opaque_attributes`. Unknown entity framing stops traversal without searching for
 plausible signatures. Some opaque metadata before Parasolid entity lists is
 qualified for traversal; its contents are not treated as primitive parameters.
 A saved Parasolid wrapper remains an unsupported entity in this API. No mapping
@@ -51,7 +51,9 @@ from that entity to `Document.resources` is inferred.
 
 ## Primitive contract
 
-`NativePrimitive.kind` is `box` or `cylinder`. The qualified layout retains:
+In version 0.3.0, `NativePrimitive.kind` is `box`, `cylinder`, `sphere`,
+`cone` or `torus`.
+The qualified layout retains:
 
 | Field | Box | Cylinder |
 | --- | --- | --- |
@@ -60,6 +62,21 @@ from that entity to `Document.resources` is inferred.
 | `box_dimensions` | `(xmax-xmin, ymax-ymin, height)` | `None` |
 | `radius` | `None` | Positive radius |
 | `world_transform` | Saved cross-section frame | Bottom-centre frame |
+
+For a full sphere, `radius` is positive and `world_transform` is the centre
+frame. `height`, `x_bounds`, `y_bounds` and `box_dimensions` are `None`. Only the
+observed full-sphere extent is evaluated; other saved extents retain diagnostics.
+
+A coaxial circular cone/frustum uses `radius` for its positive base radius,
+`top_radius` for its nonnegative top radius, and positive `height`. Its frame is
+at the bottom centre. `top_radius=0` represents an apex. Saved nonzero lateral
+offsets remain unsupported.
+
+A full ring torus exposes `major_radius` and `minor_radius`, with
+`major_radius > minor_radius > 0`. Its frame is at the centre; the Z axis is the
+axis of revolution. `radius` and `height` are `None`. Partial sweeps, horn/spindle
+tori and unknown extents remain unsupported. These added fields are `None` for
+other primitive kinds. Boxes remain the only kind with non-null box bounds.
 
 Matrices contain four rows and act on column vectors. The first three columns
 are the X, Y and Z axes; the fourth is the origin. A box spans the saved X/Y
@@ -82,7 +99,7 @@ these native parameter layouts. They do not establish embedded Parasolid units.
 unsupported or invalid parameters, the containing entity's range still allows
 `doc.source_bytes(entity.byte_range)` to recover the entire original record.
 
-Mirrored primitive evaluation, spheres, cones, boolean results and other native
+Mirrored primitive evaluation, partial spheres/tori, offset cones, boolean results and other native
 layouts remain unsupported. In particular, an iCAD face-colour change or boolean
 operation can convert a primitive into a Parasolid representation: its former
 box or cylinder parameters must not be reported as the current shape. Qualified
@@ -103,7 +120,7 @@ parent's colour or visibility updated descendant entities; a child could then
 store a different colour or visibility. These are read directly, without an
 inheritance algorithm. Multiple entities under one part can differ.
 
-Appearance is qualified for the observed box, cylinder and sphere headers,
+Appearance is qualified for the observed box, cylinder, sphere, cone and torus headers,
 including their mirror flag variants. Geometry can therefore be unsupported
 while appearance is complete. Other headers, per-face colour, RGB mapping,
 transparency, view-level hiding and effective appearance remain unqualified.
@@ -140,3 +157,8 @@ radii/surface points are checked alongside SDK centroids, area and volume.
 Incorrect unit scaling, repeated part transforms and transposed rotation are
 negative controls. CAD files, SDK binaries and vendor catalogs are not distributed;
 public tests use independently authored synthetic records and malformed inputs.
+
+The v0.3 additions have offline checks against saved/reopened SDK
+observations for ten cone/frustum/torus files, including oblique and dimension
+holdouts in V7L7/V8L3. Analytic volume, surface area, centroid and stored appearance
+match; this is not a fresh SDK run or native older-product qualification.

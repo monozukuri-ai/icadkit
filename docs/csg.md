@@ -1,6 +1,6 @@
 # Bounded V7L7 CSG
 
-The source checkout after 0.2.0 reads selected saved V7L7 final-body programs.
+Version 0.3.0 reads selected saved V7L7 final-body programs.
 `read_csg()` is dependency-free. `evaluate_csg()` uses the optional `preview`
 extra to evaluate analytic solids with OCCT and generate a display mesh.
 This is partial model support; it does not reconstruct feature history or

@@ -1,5 +1,5 @@
 // Optional browser regression: node tests/viewer_browser.mjs URL SCENARIO OUTDIR
-// Requires Playwright and Chromium. SCENARIO: mixed, holdout, csg, saved, unsupported or inventory.
+// Requires Playwright and Chromium. SCENARIO: mixed, holdout, sphere, torus, csg, saved, saved-v8, unsupported or inventory.
 // mixed: box visible, cylinder hidden, unsupported entity; part comment below.
 import assert from 'node:assert/strict';
 import {mkdir, writeFile} from 'node:fs/promises';
@@ -57,14 +57,23 @@ try {
     assert.equal(await page.evaluate(()=>nativeView.visible.size),2);
     report.checks.push('saved hidden/restored; parent visibility; unsupported selectable; search; stored text rendered literally');
   }
-  if (scenario === 'saved') {
+  if (['saved','saved-v8'].includes(scenario)) {
     assert.equal(await page.evaluate(()=>nativeView.scene.saved_brep.evaluated),1);
     assert.equal(await page.evaluate(()=>nativeView.drawables.length),1);
-    await page.getByRole('button',{name:/^Saved component/}).first().click();
-    assert.match(await page.locator('#details').innerText(),/not drawn separately/);
+    if (scenario === 'saved') {
+      await page.getByRole('button',{name:/^Saved component/}).first().click();
+      assert.match(await page.locator('#details').innerText(),/not drawn separately/);
+      report.checks.push('saved components not drawn separately');
+    } else {
+      assert.deepEqual(await page.evaluate(()=>{
+        const body=nativeView.scene.parts.flatMap(p=>p.entities).find(e=>e.saved_body).saved_body;
+        return [body.binding_kind,body.frame_source];
+      }),['saved_resource_key','native_global']);
+      report.checks.push('V8L3 final body uses explicit resource key and native global frame');
+    }
     await page.getByRole('button',{name:/^Saved final body/}).click();
     assert.match(await page.locator('#details').innerText(),/Volume \(mm³\)/);
-    report.checks.push('saved final body selectable; components not drawn separately; mass properties visible');
+    report.checks.push('saved final body selectable; mass properties visible');
   }
   if (scenario === 'csg') {
     assert.equal(await page.evaluate(()=>nativeView.scene.csg.evaluated),1);
@@ -98,7 +107,7 @@ try {
     });
     await page.mouse.click(point.x,point.y);
     assert.equal(await page.evaluate(()=>nativeView.selectionId),point.id);
-    assert.match(await page.locator('#details').innerText(),['csg','saved'].includes(scenario) ? /Volume \(mm³\)/ : /Height \(mm\)/);
+    assert.match(await page.locator('#details').innerText(),['csg','saved','saved-v8'].includes(scenario) ? /Volume \(mm³\)/ : scenario === 'sphere' ? /Radius \(mm\)/ : scenario === 'torus' ? /Major radius \(mm\)/ : /Height \(mm\)/);
     const before=await page.evaluate(()=>({yaw:nativeView.yaw,target:[...nativeView.target],radius:nativeView.radius}));
     await page.mouse.move(point.x,point.y);await page.mouse.down();await page.mouse.move(point.x+45,point.y+25,{steps:4});await page.mouse.up();
     assert.notEqual(await page.evaluate(()=>nativeView.yaw),before.yaw);
@@ -116,7 +125,7 @@ try {
     report.checks.push('empty geometry retains selectable inventory and diagnostic');
   }
   if (scenario === 'inventory') {
-    const name=await page.evaluate(()=>nativeView.scene.parts.find(p=>!p.is_root).name);
+    const name=await page.evaluate(()=>(nativeView.scene.parts.find(p=>!p.is_root) || nativeView.scene.parts[0]).name);
     await page.locator('#search').fill(name);
     await page.getByRole('button',{name,exact:true}).first().click();
     assert.match(await page.locator('#details').innerText(),/Stored attributes/);
