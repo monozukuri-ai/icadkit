@@ -1,6 +1,6 @@
 # Python API and CLI
 
-icadkit 0.2.0 provides header inspection, owner-based resource indexing, lazy
+icadkit 0.3.0 provides header inspection, owner-based resource indexing, lazy
 extraction and resource-level raw geometry and B-Rep. For supported platforms
 and model boundaries, see [supported capabilities](support.md).
 
@@ -8,8 +8,8 @@ and model boundaries, see [supported capabilities](support.md).
 
 The public Python interface consists of the names in `icadkit.__all__` and
 the documented names in the optional [icadkit.preview module](preview.md).
-The source checkout also exposes [icadkit.viewer](viewer.md) for native
-box/cylinder display and part/property inspection without optional dependencies.
+Version 0.3.0 also exposes [icadkit.viewer](viewer.md) for native
+qualified analytic primitive display and part/property inspection without optional dependencies.
 `icadkit._core`, native handles and attributes beginning with `_` are private.
 Within a minor release series, existing arguments, result fields, diagnostic codes, coordinate
 semantics and CLI exit codes are preserved. Message wording and human-readable
@@ -22,7 +22,8 @@ ICD model.
 
 Version 0.2.0 adds [native part access](parts.md) through
 `Document.read_parts()`, returning `PartIndex`, `Part`, `PartDefinition`,
-`PartReference`, `PartPlacement` and `PartProperty`. It exposes qualified part
+`PartReference`, `PartPlacement` and `PartProperty`. Version 0.3.0 adds
+`PartOpaqueAttribute` for retained binary attribute records. It exposes qualified part
 frames and selected stored attributes. Its scope statuses are independent of
 the resource geometry API described below. Saved entities expose
 `NativeEntity`, `NativeAppearance` and `NativePrimitive`; see

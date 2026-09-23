@@ -4,7 +4,7 @@ icadkit project material is offered under PolyForm Noncommercial 1.0.0, with sep
 commercial licensing available from UnRobotics Inc.
 See `LICENSE` and `COMMERCIAL-LICENSE.md`.
 
-Binary distributions also contain `parasolid-core 0.3.0` (MIT AND Apache-2.0)
+Binary distributions also contain `parasolid-core 0.3.1` (MIT AND Apache-2.0)
 and PyO3 (MIT OR Apache-2.0, MIT selected). The source metadata declares
 `PolyForm-Noncommercial-1.0.0`; the combined Python distribution declares
 `PolyForm-Noncommercial-1.0.0 AND MIT AND Apache-2.0`. These expressions describe

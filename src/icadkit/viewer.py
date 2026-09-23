@@ -83,6 +83,7 @@ def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
     edges: list[int] = []
     if primitive.kind == "box":
         assert primitive.x_bounds is not None and primitive.y_bounds is not None
+        assert primitive.height is not None
         x0, x1 = primitive.x_bounds
         y0, y1 = primitive.y_bounds
         vertices = [
@@ -105,8 +106,117 @@ def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
         ):
             triangles.extend((a, b, c, a, c, d))
         edges = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]
+    elif primitive.kind == "sphere":
+        assert primitive.radius is not None
+        radius = primitive.radius
+        rings = segments // 2
+        vertices.append((0, 0, radius))
+        for ring in range(1, rings):
+            latitude = math.pi * ring / rings
+            for i in range(segments):
+                longitude = math.tau * i / segments
+                vertices.append(
+                    (
+                        radius * math.sin(latitude) * math.cos(longitude),
+                        radius * math.sin(latitude) * math.sin(longitude),
+                        radius * math.cos(latitude),
+                    )
+                )
+        bottom = len(vertices)
+        vertices.append((0, 0, -radius))
+        for i in range(segments):
+            j = (i + 1) % segments
+            triangles.extend((0, 1 + i, 1 + j))
+            for ring in range(rings - 2):
+                a, b = 1 + ring * segments + i, 1 + ring * segments + j
+                c, d = a + segments, b + segments
+                triangles.extend((a, c, b, b, c, d))
+            last = 1 + (rings - 2) * segments
+            triangles.extend((last + i, bottom, last + j))
+            middle = 1 + (rings // 2 - 1) * segments
+            edges.extend((middle + i, middle + j))
+        for i in range(0, segments, max(1, segments // 4)):
+            line = [0, *(1 + ring * segments + i for ring in range(rings - 1)), bottom]
+            for a, b in zip(line, line[1:], strict=False):
+                edges.extend((a, b))
+    elif primitive.kind == "cone":
+        assert primitive.radius is not None and primitive.top_radius is not None
+        assert primitive.height is not None
+        for i in range(segments):
+            angle = math.tau * i / segments
+            vertices.append(
+                (
+                    primitive.radius * math.cos(angle),
+                    primitive.radius * math.sin(angle),
+                    0.0,
+                )
+            )
+        pointed = primitive.top_radius == 0
+        if not pointed:
+            for i in range(segments):
+                angle = math.tau * i / segments
+                vertices.append(
+                    (
+                        primitive.top_radius * math.cos(angle),
+                        primitive.top_radius * math.sin(angle),
+                        primitive.height,
+                    )
+                )
+        bottom = len(vertices)
+        vertices.extend(((0.0, 0.0, 0.0), (0.0, 0.0, primitive.height)))
+        top = bottom + 1
+        for i in range(segments):
+            j = (i + 1) % segments
+            triangles.extend((bottom, j, i))
+            edges.extend((i, j))
+            if pointed:
+                triangles.extend((i, j, top))
+            else:
+                triangles.extend(
+                    (
+                        i,
+                        j,
+                        i + segments,
+                        j,
+                        j + segments,
+                        i + segments,
+                        top,
+                        i + segments,
+                        j + segments,
+                    )
+                )
+                edges.extend((i + segments, j + segments))
+            if i % max(1, segments // 4) == 0:
+                edges.extend((i, top if pointed else i + segments))
+    elif primitive.kind == "torus":
+        assert primitive.major_radius is not None and primitive.minor_radius is not None
+        bands = max(8, segments // 2)
+        for i in range(segments):
+            u = math.tau * i / segments
+            for j in range(bands):
+                v = math.tau * j / bands
+                radial = primitive.major_radius + primitive.minor_radius * math.cos(v)
+                vertices.append(
+                    (
+                        radial * math.cos(u),
+                        radial * math.sin(u),
+                        primitive.minor_radius * math.sin(v),
+                    )
+                )
+        for i in range(segments):
+            for j in range(bands):
+                a = i * bands + j
+                b = ((i + 1) % segments) * bands + j
+                c = i * bands + (j + 1) % bands
+                d = ((i + 1) % segments) * bands + (j + 1) % bands
+                triangles.extend((a, b, c, b, d, c))
+                if j in (0, bands // 2):
+                    edges.extend((a, b))
+                if i % max(1, segments // 4) == 0:
+                    edges.extend((a, c))
     else:
         assert primitive.kind == "cylinder" and primitive.radius is not None
+        assert primitive.height is not None
         for z in (0.0, primitive.height):
             for i in range(segments):
                 angle = i * math.tau / segments
@@ -143,6 +253,18 @@ def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
             )
         )
     return {"positions": positions, "triangles": triangles, "edges": edges}
+
+
+def _mesh_triangle_count(primitive: NativePrimitive, segments: int) -> int:
+    if primitive.kind == "box":
+        return 12
+    if primitive.kind == "sphere":
+        return 2 * segments * (segments // 2 - 1)
+    if primitive.kind == "torus":
+        return 2 * segments * max(8, segments // 2)
+    if primitive.kind == "cone" and primitive.top_radius == 0:
+        return 2 * segments
+    return 4 * segments
 
 
 def write_native_viewer(
@@ -212,7 +334,12 @@ def write_native_viewer(
             "parts.record_profile",
         ):
             raw = document.header.raw_version
-            known_profiles = {b"\x00\x07\x00\x07": "V7L7", b"\x00\x08\x00\x03": "V8L3"}
+            known_profiles = {
+                b"\x00\x07\x00\x07": "V7L7",
+                b"\x00\x08\x00\x01": "V8L1",
+                b"\x00\x08\x00\x02": "V8L2",
+                b"\x00\x08\x00\x03": "V8L3",
+            }
             profile = known_profiles.get(raw, "0x" + raw.hex())
             message = f"File profile {profile}: {message}"
         message += ". No native parts were read; this is not an empty model."
@@ -227,7 +354,7 @@ def write_native_viewer(
         )
     count = sum(len(p.entities) for p in index.parts)
     triangles = sum(
-        12 if e.primitive.kind == "box" else 4 * cylinder_segments
+        _mesh_triangle_count(e.primitive, cylinder_segments)
         for p in index.parts
         for e in p.entities
         if e.primitive is not None
@@ -308,8 +435,15 @@ def write_native_viewer(
                     entities[operand.entity_id]["csg_role"] = "operand"
                     entities[operand.entity_id]["csg_body_id"] = body.body_id
         csg_summary["omitted"] = len(programs.bodies) - csg_summary["evaluated"]
-    saved_summary = {"enabled": saved_brep, "bodies": 0, "evaluated": 0, "omitted": 0}
+    saved_summary = {
+        "enabled": saved_brep,
+        "bodies": 0,
+        "evaluated": 0,
+        "omitted": 0,
+        "resources_evaluated": 0,
+    }
     if saved_brep:
+        evaluated_resources: set[str] = set()
         saved = _read_saved_bodies(document, index, saved_limits)
         csg_diagnostics.extend(asdict(d) for d in saved.diagnostics)
         saved_summary["bodies"] = len(saved.bodies)
@@ -319,6 +453,9 @@ def write_native_viewer(
             detail = {
                 "status": saved_body.status,
                 "resource_id": saved_body.resource_id,
+                "resource_source_id": saved_body.resource_source_id,
+                "binding_kind": saved_body.binding_kind,
+                "frame_source": saved_body.frame_source,
                 "diagnostics": [asdict(d) for d in saved_body.diagnostics],
             }
             row["saved_body"] = detail
@@ -355,6 +492,7 @@ def write_native_viewer(
             }
             triangles += len(result.triangles) // 3
             saved_summary["evaluated"] += 1
+            evaluated_resources.add(result.resource_id)
             detail.update(
                 volume_mm3=result.volume_mm3,
                 area_mm2=result.area_mm2,
@@ -373,6 +511,7 @@ def write_native_viewer(
                 "status": saved_body.appearance.status,
             }
         saved_summary["omitted"] = len(saved.bodies) - saved_summary["evaluated"]
+        saved_summary["resources_evaluated"] = len(evaluated_resources)
         for part in index.parts:
             for entity in part.entities:
                 raw = document.source_bytes(entity.byte_range)

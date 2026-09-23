@@ -209,7 +209,7 @@ class NativeView {
     const summary = this.scene.summary;
     $('scope').textContent = this.scene.scope === 'native_part_inventory'
       ? `Part inventory · ${summary.entities} saved entity records retained. Geometry, placement and appearance are unavailable for this profile. Embedded resources are not displayed.`
-      : `${this.scene.saved_brep?.enabled ? "Native primitives & saved final bodies" : this.scene.csg?.enabled ? "Native primitives & CSG results" : "Native boxes & cylinders"} · ${summary.rendered} / ${summary.entities} indexed entities represented · ${summary.omitted} saved records not drawn · ${this.scene.resource_count - (this.scene.saved_brep?.evaluated || 0)} embedded resources not displayed. Colors are illustrative; full-model coverage is unverified.`;
+      : `${this.scene.saved_brep?.enabled ? "Native primitives & saved final bodies" : this.scene.csg?.enabled ? "Native primitives & CSG results" : "Native primitives"} · ${summary.rendered} / ${summary.entities} indexed entities represented · ${summary.omitted} saved records not drawn · ${this.scene.resource_count - (this.scene.saved_brep?.resources_evaluated || 0)} embedded resources not displayed. Colors are illustrative; full-model coverage is unverified.`;
     const seen = new Set();
     const addRow = (parent, id, label, tag, unsupported) => {
       const row = node('div', undefined, `tree-row${unsupported ? ' unsupported' : ''}`);
@@ -263,7 +263,7 @@ class NativeView {
     this.selectionId = null;
     $('details').replaceChildren(node('h3','Native model'), node('p','Select a part in the tree or click a shape to inspect its saved properties.'));
     const inventoryOnly = this.scene.scope === 'native_part_inventory';
-    $('details').append(node('p',inventoryOnly ? 'Saved parts and attributes are available. Geometry and placement are not yet supported for this profile.' : 'This view renders qualified native boxes and cylinders. Unsupported shapes and unloaded external references stay in the tree.', 'notice'));
+    $('details').append(node('p',inventoryOnly ? 'Saved parts and attributes are available. Geometry and placement are not yet supported for this profile.' : 'This view renders supported shapes. Unsupported shapes and unloaded external references stay in the tree.', 'notice'));
     this.fields([['Units',this.scene.length_unit ? 'mm · 3DGLOBAL' : 'Unqualified'],['Represented entities',this.scene.summary.rendered],['Saved records not drawn',this.scene.summary.omitted],['Appearance',inventoryOnly ? 'Unavailable' : 'Illustrative colors; saved entity visibility']]);
     const details = node('details'); details.append(node('summary','Read diagnostics & source'));
     this.fields([['Source SHA-256',this.scene.source_sha256],['Read status',this.scene.part_status],['Diagnostics',this.scene.diagnostics],['Unparsed native ranges',this.scene.opaque_ranges]], details);
@@ -279,10 +279,17 @@ class NativeView {
       this.fields([['Part ID',part.part_id],['Parent ID',part.parent_id],['Source ID',part.source_id],['External reference',part.external_reference],['Placement status',part.placement_status],[this.scene.length_unit ? 'Part world frame (mm)' : 'Part world frame',part.world_transform],['Native geometry status',part.native_geometry_status]]);
       $('details').append(node('h3','Stored attributes'));
       this.fields(part.properties.map(p => [p.name,p.value]));
+      if (part.opaque_attributes?.length) $('details').append(node('p', `${part.opaque_attributes.length} binary attributes are retained but not interpreted.`));
       $('details').append(node('p',this.scene.length_unit ? 'Part frames are shown for inspection. Native shapes already use their saved global frame.' : 'Raw coordinate values are retained by the reader; evaluated placement is unavailable.'));
     } else {
       this.fields([['Entity ID',id],['Owner',this.parts.get(entity.owner_id)?.name ?? entity.owner_id],['Geometry status',entity.geometry_status],['Source byte range',entity.byte_range],['Saved visibility',entity.appearance.visible],['Palette index (not RGB)',entity.appearance.color_index],['Layer',entity.appearance.layer],['Appearance status',entity.appearance.status]]);
-      if (entity.primitive) this.fields([['Dimensions (mm)',entity.primitive.box_dimensions],['Radius (mm)',entity.primitive.radius],['Height (mm)',entity.primitive.height],['Global frame (mm)',entity.primitive.world_transform]]);
+      if (entity.primitive) this.fields(entity.primitive.kind === 'sphere'
+        ? [['Radius (mm)',entity.primitive.radius],['Centre frame (mm)',entity.primitive.world_transform]]
+        : entity.primitive.kind === 'torus'
+        ? [['Major radius (mm)',entity.primitive.major_radius],['Minor radius (mm)',entity.primitive.minor_radius],['Centre frame (mm)',entity.primitive.world_transform]]
+        : entity.primitive.kind === 'cone'
+        ? [['Base radius (mm)',entity.primitive.radius],['Top radius (mm)',entity.primitive.top_radius],['Height (mm)',entity.primitive.height],['Bottom-centre frame (mm)',entity.primitive.world_transform]]
+        : [['Dimensions (mm)',entity.primitive.box_dimensions],['Radius (mm)',entity.primitive.radius],['Height (mm)',entity.primitive.height],['Global frame (mm)',entity.primitive.world_transform]]);
       else if (entity.saved_body?.volume_mm3) this.fields([['Volume (mm³)',entity.saved_body.volume_mm3],['Area (mm²)',entity.saved_body.area_mm2],['Centroid (mm)',entity.saved_body.centroid_mm],['Faces',entity.saved_body.face_count],['Solids',entity.saved_body.solid_count],['Mesh deflection (mm)',entity.saved_body.linear_deflection_mm]]);
       else if (entity.saved_role === 'component') $('details').append(node('p','This saved component is not drawn separately from the final body.'));
       else if (entity.csg?.volume_mm3) this.fields([['Volume (mm³)',entity.csg.volume_mm3],['Area (mm²)',entity.csg.area_mm2],['Centroid (mm)',entity.csg.centroid_mm],['Solids',entity.csg.solid_count],['Mesh deflection (mm)',entity.csg.linear_deflection_mm]]);

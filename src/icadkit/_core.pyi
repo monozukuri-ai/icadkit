@@ -92,7 +92,7 @@ class DocumentHandle:
     def source_bytes(self, start: int, end: int) -> bytes: ...
 
 class RawNativePrimitive(TypedDict):
-    kind: Literal["box", "cylinder"]
+    kind: Literal["box", "cylinder", "sphere", "cone", "torus"]
     frame: list[float]
     parameters: list[float]
 
@@ -122,6 +122,7 @@ class RawPart(TypedDict):
     coordinate_values: list[float]
     raw_reference_name: bytes
     extra_fields: list[tuple[tuple[int, int], bytes]]
+    opaque_attributes: list[tuple[tuple[int, int], int, int, bytes]]
     parent_source_id: int
     first_child_source_id: int
     previous_source_id: int

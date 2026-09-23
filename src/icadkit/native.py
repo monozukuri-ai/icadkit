@@ -1,4 +1,4 @@
-"""Saved native entity appearance and bounded box/cylinder parameters."""
+"""Saved native entity appearance and bounded analytic primitive parameters."""
 
 from __future__ import annotations
 
@@ -30,17 +30,19 @@ class NativeAppearance:
 
 @dataclass(frozen=True)
 class NativePrimitive:
-    """Positive box/cylinder parameters in qualified V7L7/V8L3 native layouts.
+    """Bounded analytic primitive parameters in qualified native layouts.
 
     world_transform acts on column vectors in the 3DGLOBAL frame. Its origin is
     the cylinder's bottom centre or the box's saved cross-section reference.
     Box X/Y bounds are in this frame, and Z spans [0, height]. No part transform
     should be applied again. This describes parameters, not an evaluated B-Rep.
+    Spheres and tori use a centre frame and height=None. Cones/frusta use
+    a bottom-centre frame, radius for the base and top_radius for the top.
     """
 
-    kind: Literal["box", "cylinder"]
+    kind: Literal["box", "cylinder", "sphere", "cone", "torus"]
     world_transform: tuple[tuple[float, ...], ...]
-    height: float
+    height: float | None
     radius: float | None
     x_bounds: tuple[float, float] | None
     y_bounds: tuple[float, float] | None
@@ -49,10 +51,13 @@ class NativePrimitive:
     length_unit: Literal["mm"] = "mm"
     length_unit_source: Literal["qualified_native_profile"] = "qualified_native_profile"
     coordinate_system: Literal["3DGLOBAL"] = "3DGLOBAL"
+    top_radius: float | None = None
+    major_radius: float | None = None
+    minor_radius: float | None = None
 
     @property
     def box_dimensions(self) -> tuple[float, float, float] | None:
-        if self.x_bounds is None or self.y_bounds is None:
+        if self.x_bounds is None or self.y_bounds is None or self.height is None:
             return None
         return (
             self.x_bounds[1] - self.x_bounds[0],
@@ -97,16 +102,24 @@ def _read_entity(doc: Document, raw: _core.RawNativeEntity, owner: str) -> Nativ
         )
         p = value["parameters"]
         box = value["kind"] == "box"
+        kind = value["kind"]
         source = ByteRange(start + 48, end)
         primitive = NativePrimitive(
             value["kind"],
             matrix,
-            p[0] if box else p[1],
-            None if box else p[0],
+            p[0] if kind in ("box", "cone") else p[1] if kind == "cylinder" else None,
+            p[5]
+            if kind == "cone"
+            else p[0]
+            if kind in ("sphere", "cylinder")
+            else None,
             (p[1], p[3]) if box else None,
             (p[2], p[4]) if box else None,
             source,
             doc.source_bytes(source),
+            top_radius=p[6] if kind == "cone" else None,
+            major_radius=p[1] if kind == "torus" else None,
+            minor_radius=p[2] if kind == "torus" else None,
         )
     return NativeEntity(
         f"entity:{start:x}",

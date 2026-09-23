@@ -1,4 +1,43 @@
-# v0.2 scope and follow-up work
+# Release scope and follow-up work
+
+## v0.3.0 scope
+
+Version 0.3.0 preserves qualified binary attribute envelopes without
+interrupting inventories, adds bounded V8L1/V8L2 inventories, and exposes native
+cone/frustum/full-ring-torus parameters and display meshes. Old inventories keep
+units, evaluated frames, appearance and geometry unavailable. Binary attribute
+ownership is qualified; attribute meaning is not inferred.
+
+The published `parasolid-core 0.3.1` dependency adds TORUS (54) to the exact V34
+profile revision 2. Qualified saved toroidal resources no longer require an
+external catalog; unknown types and nearby keys retain explicit diagnostics.
+
+Mirrored geometry, automatic external loading,
+typed attribute/BOM semantics, whole-scene GLB and general surface/feature
+coverage remain outside this bounded release scope.
+
+## v0.3.0 metadata and saved geometry
+
+Version 0.3.0 extends qualified V7L7/V8L3 metadata traversal using counted
+subrecord boundaries, adds full native spheres, and places qualified V8L3 saved
+final bodies/imported solids through explicit resource keys. Shared resource
+payloads retain distinct occurrence frames. The saved-body converter now accepts
+bounded spherical, conical and toroidal surfaces, including trimmed examples.
+Unknown framing, ambiguous ownership, unsupported schemas/topology and
+mirrored/external ancestry remain explicit failures.
+
+Public synthetic tests cover metadata boundaries/limits, sphere parameters and
+closed outward display meshes, shared/reordered/missing resource bindings,
+independent unit/frame expectations and periodic shared seams. Offline private
+checks compare the saved SDK observations to part inventories and evaluated
+geometry. Catalog-dependent resources remain catalog-dependent; no vendor
+catalog or native sample is part of the distribution. Package/CI qualification
+and publication remain separate from these local implementation checks.
+
+The inventory and analytic display additions share these bounded ownership
+and validation rules; broader model semantics remain future work.
+
+## v0.2 delivered scope
 
 P0, P1 and bounded P2 are implemented in version 0.2.0. See
 [part structure and frames](parts.md), [native parameters and appearance](native.md)
@@ -126,7 +165,7 @@ source picking; remote platform CI and release publication are separate gates.
 
 ## V7L7 stage 2: bounded part inventory
 
-The source checkout adds the verified little-endian V7L7 record profile to the
+Version 0.3.0 adds the verified little-endian V7L7 record profile to the
 part API, CLI and viewer. It reads saved part hierarchy, names, comments, general
 extended text and external reference names. Profile-specific metadata framing
 is accepted only for observed layouts; unknown layouts stop traversal and retain
@@ -138,7 +177,7 @@ primitive regressions remain separate checks. Public tests use synthetic data.
 
 ## V7L7 stage 3: placement and standalone primitive owners
 
-The source checkout now qualifies millimetre placement relative to the saved
+Version 0.3.0 qualifies millimetre placement relative to the saved
 root frame. Raw coordinate blocks retain their bytes and ranges. Reopened SDK
 checks include translated/rotated roots, nested placements, an independent
 compound-rotation holdout and an original legacy model.

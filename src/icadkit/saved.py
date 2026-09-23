@@ -1,4 +1,4 @@
-"""Explicitly bound V7L7 saved final bodies, independent of feature replay."""
+"""Explicitly bound V7L7/V8L3 saved bodies, independent of feature replay."""
 
 from __future__ import annotations
 
@@ -67,6 +67,9 @@ class SavedBody:
     appearance: NativeAppearance
     status: Status
     diagnostics: tuple[Diagnostic, ...]
+    resource_source_id: int | None = None
+    binding_kind: str | None = None
+    frame_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -97,10 +100,12 @@ def _error(
 def _read_saved_bodies(
     doc: Document, parts: PartIndex, limits: SavedBodyLimits
 ) -> SavedBodyIndex:
+    v7 = doc.header.raw_version == b"\0\7\0\7"
     if (
-        doc.header.raw_version != b"\0\7\0\7"
+        doc.header.raw_version not in (b"\0\7\0\7", b"\0\10\0\3")
         or parts.status.index != "complete"
         or parts.source_length_unit != "mm"
+        or parts.status.hierarchy not in ("complete", "partial")
         or doc.resource_index_status != "complete"
     ):
         return SavedBodyIndex(
@@ -110,14 +115,42 @@ def _read_saved_bodies(
             (
                 _error(
                     "profile",
-                    "Saved bodies require complete V7L7 indexes and a rigid root frame",
+                    "Saved bodies require complete V7L7/V8L3 indexes "
+                    "and qualified units",
                 ).diagnostic,
             ),
         )
     root = next(p for p in parts.parts if p.is_root)
     root_frame = _frame(list(struct.unpack("<9d", root.placement.raw_coordinate_bytes)))
-    assert root_frame is not None
+    if root_frame is None:
+        return SavedBodyIndex(
+            doc.source_sha256,
+            (),
+            "unsupported",
+            (_error("frame", "Saved root frame is not rigid").diagnostic,),
+        )
     source_counts: Counter[int] = Counter()
+    owners = {p.part_id: p for p in parts.parts}
+
+    def qualified_owner(owner_id: str) -> bool:
+        seen: set[str] = set()
+        while owner_id not in seen:
+            seen.add(owner_id)
+            owner = owners.get(owner_id)
+            if (
+                owner is None
+                or owner.is_external
+                or owner.is_mirror
+                or owner.placement.world_transform is None
+            ):
+                return False
+            if owner.is_root:
+                return True
+            if owner.parent_id is None:
+                return False
+            owner_id = owner.parent_id
+        return False
+
     for part in parts.parts:
         for entity in part.entities:
             b = doc.source_bytes(entity.byte_range)
@@ -144,6 +177,9 @@ def _read_saved_bodies(
             frame_range = None
             raw_frame = b""
             world = None
+            resource_source_id = None
+            binding_kind = None
+            frame_source = None
             appearance = entity.appearance
             status: Status = "complete"
             diagnostics: tuple[Diagnostic, ...] = ()
@@ -157,33 +193,38 @@ def _read_saved_bodies(
                     )
                 )
             try:
-                if (
-                    part.is_external
-                    or part.is_mirror
-                    or part.placement.world_transform is None
-                ):
+                if not qualified_owner(part.part_id):
                     raise _error(
                         "owner", "Unqualified saved body owner", part.byte_range.start
                     )
                 if (
-                    len(b) != 48
-                    or words[0] != 48
+                    len(b) != (48 if v7 else 152)
+                    or words[0] != len(b)
                     or not words[1]
                     or words[2]
                     or words[3] not in (0x550108C1, 0x55010881)
                     or sid & 0xF0000000 != 0x80000000
                     or words[5]
-                    or words[6] != 0xFD000018
+                    or words[6] != (0xFD000018 if v7 else 0xFD000080)
                     or words[7] != 0x01000000
+                    or not words[8]
                     or words[9]
-                    or words[11] != (0x01800004 | (words[3] & 0x40))
+                    or words[11]
+                    not in (
+                        0x01800004 | (words[3] & 0x40),
+                        0x01000004 | (words[3] & 0x40),
+                    )
                 ):
                     raise _error(
                         "result_layout",
                         "Unqualified saved final-body marker",
                         entity.byte_range.start,
                     )
-                matches = resources.get(sid, [])
+                # V8L3 stores an explicit resource key at +32. Repeated
+                # occurrences may share that key, while their native IDs and
+                # frames remain independent. Never use resource enumeration order.
+                resource_source_id = sid if v7 else words[8]
+                matches = resources.get(resource_source_id, [])
                 if source_counts[sid] != 1 or len(matches) != 1:
                     raise _error(
                         "binding",
@@ -192,26 +233,32 @@ def _read_saved_bodies(
                     )
                 resource_id = matches[0]
                 resource = by_id[resource_id]
-                if resource.owner_type != 134 or resource.layout_version != 5:
+                expected_layout = (134, 5) if v7 else (135, 6)
+                if (resource.owner_type, resource.layout_version) != expected_layout:
                     raise _error(
                         "resource_layout",
-                        "Saved placement requires a type-134/version-5 resource header",
+                        "Resource layout does not match the saved body profile",
                         resource.owner_range.start,
                     )
-                frame_range = ByteRange(
-                    resource.owner_range.start + 32, resource.owner_range.start + 104
+                frame_start = (
+                    resource.owner_range.start + 32
+                    if v7
+                    else entity.byte_range.start + 48
                 )
+                frame_range = ByteRange(frame_start, frame_start + 72)
                 raw_frame = doc.source_bytes(frame_range)
                 frame = _frame(list(struct.unpack("<9d", raw_frame)))
                 if frame is None:
                     raise _error(
                         "frame", "Non-rigid saved resource frame", frame_range.start
                     )
-                world = _relative(root_frame, frame)
+                world = _relative(root_frame, frame) if v7 else frame
                 if world is None:
                     raise _error(
                         "frame", "Saved global frame overflow", frame_range.start
                     )
+                binding_kind = "native_source_id" if v7 else "saved_resource_key"
+                frame_source = "root_relative_resource" if v7 else "native_global"
                 color = (b[41] & 15) | (b[40] & 16)
                 appearance = NativeAppearance(
                     color or None,
@@ -238,6 +285,9 @@ def _read_saved_bodies(
                     appearance,
                     status,
                     diagnostics,
+                    resource_source_id,
+                    binding_kind,
+                    frame_source,
                 )
             )
     return SavedBodyIndex(

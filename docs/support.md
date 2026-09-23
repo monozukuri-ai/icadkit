@@ -1,35 +1,29 @@
 # Supported capabilities
 
-For qualified V7L7 final boolean bodies, use the separate [CSG API](csg.md)
-or `view --csg` with the `preview` extra. The native-primitive scope described
-here keeps operands opaque.
+icadkit 0.3.0 is an experimental reader for selected iCAD SX ICD structures and
+embedded Parasolid X_B resources. Support follows the actual record layout and
+exact schema key, not a product-version label alone.
 
-icadkit 0.2.0 is an experimental reader for selected iCAD SX ICD structures and
-embedded Parasolid X_B resources. Support is determined by the actual layout and
-exact schema key, not a product-version label or filename extension alone.
+The [part API](parts.md) reads qualified little-endian V7L7/V8L3 inventories,
+hierarchy, snapshot definitions, names/comments, extended text and saved external
+names. Counted metadata framing and retained binary attributes improve traversal
+without inventing attribute semantics. V7L7 has root-relative millimetre frames;
+V8L3 retains saved-global frames. V8L1/V8L2 provide bounded inventories only:
+units, evaluated frames, appearance and native geometry remain unavailable.
 
-The source checkout after 0.2.0 additionally reads qualified little-endian V7L7
-part inventories, hierarchy, names/comments, extended text and saved external
-reference names, plus root-relative millimetre frames and standalone native
-box/cylinder owners with saved entity appearance. Unknown or CSG records keep
-their entire owner's geometry opaque. Invalid/unresolved root contexts keep
-placement unavailable. The viewer displays only qualified primitives. See
-[part access](parts.md) for scoped statuses and CLI exit behavior.
+[Native parameter access](native.md) supports qualified boxes, cylinders, full
+spheres, circular cones/frusta and full ring tori with saved appearance. V7L7
+requires complete standalone primitive owners; unknown/CSG records keep the
+owner's list opaque. The [native viewer](viewer.md) displays these parameters
+without optional dependencies and labels every view as a partial model.
 
-Version 0.2.0 additionally supports a bounded
-[native part API](parts.md): hierarchy, millimetre part frames, snapshot
-definitions, saved names/comments/extended text and unresolved external names.
-Mirrored frames, custom attributes and geometry ownership remain unsupported.
-[Native parameter access](native.md) adds qualified boxes/cylinders and stored
-entity palette indices, visibility and layers. Native B-Rep and effective
-appearance remain unsupported. The resource geometry boundaries below apply.
-The optional [preview extra](preview.md) adds bounded solid resource
-tessellation, metre-based GLB output and a local browser viewer. It requires an
-explicit source unit and does not apply part placements or saved appearance.
-
-After 0.2.0, the source checkout also offers a [native file viewer](viewer.md)
-for qualified boxes/cylinders in their saved global frames, with part/property
-inspection. It is always an explicitly partial view and uses no optional backend.
+With the `preview` extra, [V7L7 CSG](csg.md) evaluates bounded box/cylinder
+programs, while [saved final bodies](saved-bodies.md) place qualified V7L7/V8L3
+solids through explicit resource bindings. Saved spherical, conical and toroidal
+surfaces have bounded conversion support. Unsupported programs, ambiguous
+ownership and mirrored/external ancestry retain diagnostics instead of meshes.
+The separate [resource preview](preview.md) exports one supported solid to GLB
+with caller-declared units and no assembly placement.
 
 | Operation | Supported behavior | Scope boundary |
 | --- | --- | --- |
@@ -64,10 +58,12 @@ for display without producing B-Rep or GLB.
 
 ## Schemas
 
-Version 0.2.0 uses `parasolid-core 0.3.0`.
-`icadkit.build_info()` lists its compiled profiles, including the exact
-`SCH_3401212_34101_13006` key (`icad-sch34101-13006-r1`). This key no longer
-requires a catalog when using icadkit 0.2.0.
+Version 0.3.0 uses `parasolid-core 0.3.1` and the exact
+`SCH_3401212_34101_13006` profile `icad-sch34101-13006-r2` (revision 2).
+`icadkit.build_info()` reports its identity and hash. Revision 2 adds the reviewed
+TORUS (54) declaration, so qualified trimmed-torus/swept-arc resources no longer
+need an external catalog. Version 0.2.0 used core 0.3.0 and profile revision 1.
+An explicit compatible catalog remains authoritative.
 Profile availability does not mean that every geometry type or every ICD file
 using that schema is supported. A missing exact profile produces a diagnostic;
 icadkit does not substitute a nearby schema version.

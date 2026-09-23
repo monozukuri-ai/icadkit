@@ -1,35 +1,59 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
-- V7L7 saved final bodies through `read_saved_bodies()`, `evaluate_saved_body()`
-  and `view --saved-brep`: unique source-ID resource binding, metre-to-mm
-  conversion and root-relative resource frames, with explicit schema selection.
-  Bounded analytic solid conversion includes trimmed curves and saved tolerances.
-- Distinguish CSG component markers from final results and accept the qualified
-  saved-hidden final-marker flag.
+### Added
 
-- Bounded V7L7 CSG programs through `read_csg()` and optional
-  `evaluate_csg()`: box/cylinder union, difference and intersection, with explicit
-  ownership, root-relative mm frames and scoped rejection of unknown programs.
-  `view --csg` uses the preview extra to display final bodies and their mass
-  properties, retaining operands as undrawn records. See [scope/limits](csg.md).
+- `icadkit view` and `icadkit.viewer` for offline native display, part/property
+  inspection, selection and saved visibility. Unsupported entities retain their
+  diagnostics; unreadable inventories fail before opening an empty viewer.
+- Bounded V7L7 part access with root-relative millimetre frames and standalone
+  primitive ownership. Counted metadata framing extends V7L7/V8L3 traversal;
+  unknown framing preserves the unparsed tail and scoped status.
+- V8L1/V8L2 inventories with names, hierarchy, stored text and external names.
+  Units, evaluated frames, native geometry and appearance remain unavailable.
+- `Part.opaque_attributes` retains qualified binary attribute records, source
+  ranges and ownership. Values are not interpreted as typed properties or BOM.
+- Full native spheres, circular cones/frusta and full ring tori in V7L7/V8L3,
+  with dimensions, frames, saved appearance and bounded viewer meshes.
+- `read_csg()`, optional `evaluate_csg()` and `view --csg` for qualified V7L7
+  box/cylinder unions, differences and intersections. Operands remain undrawn.
+- `read_saved_bodies()`, optional `evaluate_saved_body()` and `view --saved-brep`
+  for qualified V7L7/V8L3 saved final solids. V8L3 uses explicit resource keys;
+  shared resources retain each occurrence's placement. Spherical, conical and
+  toroidal saved surfaces have bounded conversion support.
+- Published `parasolid-core 0.3.1` supplies exact V34 profile revision 2 with
+  TORUS (54), removing the catalog requirement for qualified toroidal resources.
 
-- Bounded little-endian V7L7 part inventories: hierarchy, names, comments,
-  stored extended text and unresolved external references through the part API,
-  CLI and viewer. Root-relative millimetre part frames, standalone box/cylinder
-  owners and saved entity appearance are now qualified. Raw blocks retain their
-  provenance. Unknown/CSG records keep the entire owner's geometry opaque;
-  unqualified metadata layouts stop traversal with a partial result.
-- The native viewer now rejects unreadable native part inventories with the
-  reader's diagnostic. Unsupported file profiles no longer open a misleading
-  empty model; qualified empty roots and unsupported-shape inventories still open.
+### Upgrade from 0.2.0
 
-- `icadkit view model.icd` and `icadkit.viewer` for native box/cylinder viewing,
-  saved global placement, part hierarchy, stored attributes, selection and
-  visibility controls. Works without the preview extra or iCAD.
-- Offline viewer export with source hashes, bounded tessellation/output,
-  explicit partial-model status and retained unsupported entities.
+The package still has no mandatory Python runtime dependencies. The `preview`
+extra remains pinned to `parasolid-kit[occt]==0.2.0`; the compiled Rust reader
+uses `parasolid-core 0.3.1`. Install the extra for CSG, saved-body evaluation or
+resource preview/GLB. Native parameter viewing needs only the base package.
+
+`NativePrimitive.kind` now also includes `sphere`, `cone` and `torus`.
+`height` can be `None` for spheres/tori. Cones use `radius`, `top_radius` and
+`height`; tori use `major_radius` and `minor_radius`. The new radius fields are
+`None` for other kinds. JSON consumers must allow additional fields, including
+`opaque_attributes`, while continuing to check each scope's status.
+
+The exact V34 built-in profile is `icad-sch34101-13006-r2`, revision 2, with
+SHA-256 `eaebc3477246b7a6b56d1b5dc500029beba46f54e9226973883bc444684f26eb`.
+Consumers pinning the old profile ID/hash must update their expectations.
+Nearby schema keys and unknown base types do not gain implicit support.
+
+Part and primitive frame conventions remain profile-specific. V7L7 is relative
+to the saved root; V8L3 retains saved-global frames. Do not apply part placement
+again to an already placed primitive or evaluated saved body.
+
+### Scope
+
+Every viewer is a partial model. V8L1/V8L2 provide inventory only. Binary
+attribute values, mirrors, automatic external loading, whole-scene GLB,
+drawings and general feature/history evaluation remain unsupported. Partial
+native spheres/tori, offset cones and horn/spindle tori do not gain substitute
+meshes. See [support boundaries](support.md).
 
 ## 0.2.0
 

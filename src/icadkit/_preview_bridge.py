@@ -14,7 +14,7 @@ from .geometry import Brep, BrepCollection, BrepEntity, NodeSource
 from .models import Diagnostic
 
 
-def bridge(brep: Brep) -> Any:
+def bridge(brep: Brep, *, saved_surfaces: bool = False) -> Any:
     from .preview import PreviewError
 
     top = import_module("parasolid_kit.brep.topology")
@@ -53,6 +53,8 @@ def bridge(brep: Brep) -> Any:
         "cylinder": geom.CylinderSurface,
         "sphere": geom.SphereSurface,
     }
+    if saved_surfaces:
+        surfaces.update(cone=geom.ConeSurface, torus=geom.TorusSurface)
 
     def entity(collection: str, value: BrepEntity) -> Any:
         attrs = dict(value.attributes)

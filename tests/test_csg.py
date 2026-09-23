@@ -207,7 +207,9 @@ def test_bad_program_never_exposes_a_partial_result(tokens, status, code):
 def test_program_framing_never_searches_for_a_replacement(offset, value):
     meta = bytearray(program((LEFT, RIGHT, 2)))
     struct.pack_into("<I", meta, offset, value)
-    assert body(metadata=bytes(meta)).status != "complete"
+    index = icadkit.read_csg(document(metadata=bytes(meta)))
+    assert index.status != "complete"
+    assert all(b.status != "complete" for b in index.bodies)
 
 
 @pytest.mark.parametrize(

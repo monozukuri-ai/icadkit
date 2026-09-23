@@ -25,7 +25,7 @@ pub use native::{NativeEntityRecord, NativePrimitiveRecord};
 pub use parasolid::{
     GeometryDiagnostic, GeometryError, GeometryResult, GeometryStatus, SchemaSelection,
 };
-pub use parts::{PartIndex, PartLimits, PartOpaqueRange, PartRecord};
+pub use parts::{PartAttributeRecord, PartIndex, PartLimits, PartOpaqueRange, PartRecord};
 pub use provenance::{Extraction, SourceRef};
 pub use reader::ByteOrder;
 pub use record::{ByteRange, RecordInfo};
@@ -38,7 +38,7 @@ use parasolid_core::{BuiltinProfileRegistry, ParseError};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Exact registry dependency; checked against the manifest and lock in CI.
-pub const PARASOLID_CORE_VERSION: &str = "0.3.0";
+pub const PARASOLID_CORE_VERSION: &str = "0.3.1";
 
 /// Metadata of the compiled Parasolid backend, not ICD format coverage.
 #[derive(Debug, Clone, PartialEq, Eq)]
