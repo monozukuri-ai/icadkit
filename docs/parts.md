@@ -1,5 +1,25 @@
 # Native parts
 
+The unreleased big-endian V6L1/V6L2/V7L1 `61000001` profiles add internal
+part inventories, names/comments and bounded hierarchy links. Both coordinate
+blocks are retained as raw values; `entity_policy=inventory_only`,
+`coordinate_convention=unqualified` and `source_length_unit=None` prevent
+evaluated placement or geometry claims. Old metadata keeps traversal partial.
+Mirror/external layouts stop the qualified inventory. This adds no big-endian
+assembly resolver, saved-body binding or 3D viewer geometry. Use
+[read_views() / read_drawing()](drawing.md) for older owners, registered parts
+and 2D documents, including V1L9/V3/V5 originals.
+
+V8L1 parametric standard-part templates and their V8L3 resaves now retain their
+real document root and its owned entity list. The counted preamble and extended
+part records are traversed without inventing child parts. Use
+`index.to_rows(include_root=True)` or `icadkit parts template.icd --include-root`
+to include a root-only template. Saved parameter definitions are available
+through [Document.read_parameters()](parameters.md). Final body markers,
+dimensions and hidden parameter tables remain separate opaque geometry records.
+Qualified template entity headers retain saved IDs, layer and visibility, while
+their complete appearance and evaluated geometry remain unsupported.
+
 For qualified V7L7 final boolean bodies, use the separate [CSG API](csg.md)
 or `view --csg` with the `preview` extra. The native-primitive scope described
 here keeps operands opaque.
@@ -24,23 +44,44 @@ rows = index.to_rows()  # One row per saved part, excluding the document root.
 # Optional, if pandas is installed: pandas.DataFrame(rows)
 ```
 
-Version 0.3.0 also reads the observed little-endian V7L7
-`3DGLOBAL` part layout. V7L7 supports the saved inventory, hierarchy, snapshot
-definitions, names, comments, extended text and unresolved external names.
-Both profiles provide qualified millimetre part frames and bounded native
-parameters, subject to the profile-specific restrictions below.
-V8L1/V8L2 additionally support bounded inventory access: saved hierarchy,
-snapshot definitions, names/comments, extended text and external names. These
-profiles retain raw coordinate blocks but expose no evaluated frames, units,
-native geometry or appearance. `parts.inventory_profile` explains this boundary;
-the viewer opens their part/property inventory without meshes. Observed extended
-part records are length-checked and retained as `part_metadata_extension` ranges.
-Files without a qualified 3DGLOBAL view remain unsupported, including 2D-only
-files. No file header is rewritten to select a newer reader.
-Other byte orders, view headers and part record layouts remain unsupported.
-A product-version label alone does not establish support: the record tags must
-match the profile. An empty document has a root record and zero non-root rows;
-unknown content is not an empty assembly.
+`index.profile` describes the matched native record profile. It is `None` until
+the reader validates both a known view header and a part record layout. A version
+label alone does not select an executable profile. `profile.view_byte_range` and
+`profile.part_byte_range` identify that evidence; the rest of the input may still
+be partial, invalid or unsupported.
+
+The immutable `PartProfile` includes `profile_id`, `raw_version`, `byte_order`,
+`part_tag`, `coordinate_convention`, `entity_policy`, `source_length_unit`,
+`saved_body_layout`, `csg_layout` and `mirror_policy`. These describe decoder policies, not the
+completeness of an individual part or body. Continue to check `index.status` and
+the per-part/geometry diagnostics. Inventory-only profiles do not expose
+qualified units or evaluated coordinates. The `opaque_entities` policy used by
+V7L2–V7L5 permits qualified part frames but leaves entity geometry and appearance
+unsupported. It does not grant saved-body or CSG decoding.
+
+`index.views` retains `PartView` entries with source byte ranges. The currently
+recognized kind is `3d_global`; all other layouts remain `unknown`. Absence of a
+recognized 3D view does not prove a 2D-only file. `index.document_kind` currently
+remains `unknown`: no saved discriminator between a normal document and a
+registered library part has been qualified. Names and filename suffixes are not
+used to infer this distinction.
+
+The current source reads observed little-endian V7L2–V7L7 and V8L1–V8L3
+`3DGLOBAL` layouts. Each version has an explicit profile and tag check:
+V7L2–V7L5 require `0x61000001`, V7L6/V7L7 require `0x61000002`, and V8 profiles
+require `0x61000003`. Unknown layouts stop with source ranges and diagnostics.
+
+V7L2–V7L5 expose inventory, hierarchy, names, comments, stored attributes and
+root-relative millimetre frames, with opaque entity geometry. V7L6/V7L7 and
+V8L1/V8L2 additionally qualify native primitives and saved appearance only for
+complete standalone owners. Unknown or CSG siblings keep the owner's geometry
+opaque. Saved final bodies use the separate [binding API](saved-bodies.md).
+
+Old V7 owners require the observed 356-byte record; V8 extended owners are not
+accepted by header substitution. Counted metadata includes a bounded 80-byte
+`0x81000050` envelope for V7L2–V7L6. Payloads remain opaque, and metadata count,
+length, nested headers and end offsets must agree. Registered-part/2D views
+without the qualified 3D layout remain unsupported.
 
 ## Structure and identity
 
@@ -69,23 +110,27 @@ children are not stored in the host and are not invented: hierarchy and
 reference status remain partial, even if the saved host graph is consistent.
 Read-only and unloaded runtime states are not inferred from saved flags.
 
+The separate [assembly API](references.md) explicitly resolves caller-selected
+files, retaining host occurrences and referenced documents with separate IDs.
+Its resolved tree and transforms do not mutate this single-file `PartIndex`.
+
 ## Coordinate frames and units
 
-V7L7 evaluates `world_transform = inverse(saved_root_frame) * saved_part_frame`.
+All qualified V7L2–V7L7/V8L1–V8L3 profiles evaluate `world_transform = inverse(saved_root_frame) * saved_part_frame`.
 The root becomes identity; each child local frame is inverse(parent world) times
 child world. This normalization is independently checked against reopened SDK
 frames, including translated and rotated roots. It applies only with a complete
 saved hierarchy and a finite rigid root frame. Otherwise transforms and units
 remain unavailable, with `parts.root_frame` and the underlying diagnostics.
-Mirrored placements and descendants of mirrored/external ancestors remain
-unsupported. Nonfinite, non-rigid or overflowing evaluated frames are invalid.
+V7L6/V7L7 revision 2 and V8L1/V8L2/V8L3 revision 3 qualify internal mirror
+placements with `mirror_policy="stored_parity"`. V7L2–V7L5 mirrors and
+descendants of external ancestors remain unsupported. Nonfinite, non-rigid or overflowing evaluated frames are invalid.
 Both raw coordinate blocks and their exact source ranges remain unchanged.
 
-For V8L3, the stored part frame is already the qualified world frame. The
-following matrix convention applies to both profiles. This saved-global frame
-can differ from iCAD SDK observations relative to the document root: comparing
-those observations requires applying the saved root frame once. V8L3 does not
-normalize the saved root to identity.
+V8L1/V8L2/V8L3 profile revision 2 uses this same normalization. This changes
+V8L3 `world_transform` for nonidentity saved roots from the previous saved-frame
+convention. Newly authored, saved and reopened SDK cases verify the document-root
+coordinate convention for both parts and geometry. Raw coordinates are unchanged.
 
 `placement.world_transform` is the saved **part coordinate frame** in the
 `3DGLOBAL` work frame. It is a 4-by-4 tuple of rows acting on column vectors:
@@ -110,8 +155,19 @@ as `values`, `raw_bytes` and `byte_range`, with no geometry-transform meaning
 assigned. No axis normalization or coordinate repair is performed. Nonfinite
 numbers become `None` in JSON-compatible values, while raw bits are preserved.
 Non-orthonormal frames and overflow produce diagnostics and unavailable
-transforms. Mirrored records retain `is_mirror=True` and their raw coordinates;
-their transform matrices remain unsupported.
+transforms. Mirrored records retain `is_mirror=True` and their raw coordinates.
+
+For `mirror_policy="stored_parity"`, the SDK-compatible `world_transform` stays
+right-handed. `orientation_world_transform = world_transform * diag(1,-1,1,1)`
+for a mirrored occurrence, and equals `world_transform` otherwise. The saved
+flag is absolute parity; it is not XORed with the parent again.
+`orientation_local_transform = inverse(parent.orientation_world_transform) *
+orientation_world_transform` exposes relative parity. A mirrored child below a
+mirrored parent has positive local determinant, while an unmirrored child below
+a mirrored parent has negative local determinant. Both orientation fields are
+`None` for unqualified mirror profiles/placements and are included in JSON rows.
+These orientation matrices describe occurrence handedness; they must not be
+applied to already placed native or saved geometry.
 
 ## Stored attributes
 
@@ -154,12 +210,12 @@ appearance](native.md). Qualified boxes and cylinders retain global frames and
 dimensions; unsupported entities remain with diagnostics. `Part.resource_ids`
 is still unresolved, and native parameter support does not evaluate a B-Rep.
 
-V7L7 decodes a complete internal owner's entity list only when every entity
-matches a qualified standalone box, cylinder, sphere, cone or torus header and none is
-mirrored. Qualified analytic parameters and saved appearance are exposed.
+V7L6/V7L7 decode a complete internal owner's entity list only when every entity
+matches a qualified standalone box, cylinder, sphere, cone or torus header,
+including qualified entity mirrors. Qualified analytic parameters and saved appearance are exposed.
 Unknown/CSG records keep the
 entire owner's list opaque, including any primitive-shaped operands. Incomplete
-indexes and mirrored/external owners also stay opaque. Independent qualified
+indexes and external owners also stay opaque. Independent qualified
 owners can still be displayed. See [native access](native.md).
 
 ## Completeness and limits
@@ -171,7 +227,7 @@ owners can still be displayed. See [native access](native.md).
 | `text` | Recovered part names and comments decode as CP932 |
 | `stored_attributes` | Qualified comments and extended text decode without ambiguity |
 | `attributes` | Always partial: arbitrary attributes are not interpreted |
-| `placements` | World and relative part frames available; mirrors remain unsupported |
+| `placements` | World and relative part frames available; signed orientation for qualified internal mirrors |
 | `definitions` | Internal snapshot definitions; partial for unresolved external definitions |
 | `units` | Millimetres established for the qualified part coordinate profile |
 | `references` | Partial when external references remain unloaded |
@@ -223,12 +279,12 @@ attributes, part frames, snapshot definitions, units and references are complete
 in the qualified scope; `1` means invalid data or I/O failure; `2` means invalid
 arguments; `3` means unsupported or partial content; `4` means a resource limit
 was exceeded. `--require-native` also requires complete native parameter and
-appearance scopes; see [native access](native.md). External references and mirrored frames return `3` with retained
+appearance scopes; see [native access](native.md). External references and unqualified mirror profiles return `3` with retained
 rows. Exit `0` does not certify arbitrary attributes, geometry ownership or a
 complete model. `check --target model` continues to reject model completeness.
 
 A qualified V7L7 inventory can now return exit `0` for the default metadata
-and placement scopes. Unqualified roots, mirrors or incomplete indexes still
+and placement scopes. Unqualified roots, mirror layouts or incomplete indexes still
 return exit `3` (invalid data returns `1`). Requesting native geometry adds that
 scope to the exit decision; CSG owners remain unsupported. Each result retains
 independent `index`, `hierarchy` and `stored_attributes` statuses.
@@ -238,3 +294,7 @@ including nested rotations, independent holdouts, repeated internal/external
 parts, Japanese text changes and mixed native/Parasolid representations.
 Public tests use independently authored synthetic framing and malformed data;
 CAD files, vendor DLLs and schema catalogs are excluded from distributions.
+
+The qualified V7L5 originals contain an unlinked document root only. A child
+record or nonzero hierarchy link yields `parts.legacy_root_only`; V7L5 child
+assemblies are not inferred from the other V7 profiles.

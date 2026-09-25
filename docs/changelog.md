@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- Version-support P6 adds direct old-format view/registered-part inventories,
+  bounded big-endian V6L1/V6L2/V7L1 internal part inventories, and separate
+  `read_views()` / `read_drawing()` APIs with `views` / `drawing` CLI commands.
+  Saved 2D points, lines, circles and arcs use view-local millimetres. UTF-16LE
+  text content is exposed separately from unsupported text layout. See
+  [views and 2D entities](drawing.md) for exact profiles and limits.
+
+- Version-support P5 adds explicit `read_assembly()` resolution and
+  `assembly` / `view --reference-root` CLI support for qualified
+  V7L6/V7L7/V8L1/V8L2/V8L3 external assemblies, including mirrored references.
+  Separate document/occurrence identities, dependency hashes, bounded per-call
+  caches and explicit missing/ambiguous/cycle/limit states preserve provenance.
+  Single-file reads keep their existing behavior. See [external references](references.md).
+- Version-support P4 qualifies internal mirror occurrence orientation in
+  V7L6/V7L7 and V8L1/V8L2/V8L3. SDK-compatible part frames remain separate from
+  signed orientation; stored raw coordinates and parameters are preserved.
+- Qualified native mirrors and saved final B-Reps display without applying
+  reflection twice. Reflected box/cone meshes preserve outward triangle winding.
+- V8 owners with multiple distinct saved-body resource keys now retain
+  `saved.owner_resource_keys` diagnostics: observed within-owner mirror copies
+  make the former numeric-key association unreliable. Mirrored CSG history
+  remains unsupported. See the [source roadmap](roadmap.md)
+  for the preceding version-support stages and local validation scope.
+
 ## 0.3.0
 
 ### Added

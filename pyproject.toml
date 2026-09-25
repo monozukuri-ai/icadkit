@@ -60,6 +60,7 @@ include = [
   { path = "tests/*.mjs", format = "sdist" },
   { path = "scripts/verify_artifacts.py", format = "sdist" },
   { path = "scripts/verify_corpus.py", format = "sdist" },
+  { path = "scripts/verify_native_corpus.py", format = "sdist" },
   { path = "scripts/verify_install.py", format = "sdist" },
   { path = "scripts/check_license.py", format = "sdist" },
   { path = "scripts/check_public_tree.py", format = "sdist" },

@@ -4,8 +4,8 @@ use crate::{ByteRange, Diagnostic, ErrorKind, Status};
 #[derive(Debug, Clone)]
 pub struct NativePrimitiveRecord {
     pub kind: &'static str,
-    /// Stored frame: origin, Z axis, X axis, in millimetres. V8L3 is global;
-    /// V7L7 requires inverse(saved root frame) before exposing global placement.
+    /// Stored frame: origin, Z axis, X axis, in millimetres. all qualified versions
+    /// require inverse(saved root frame) before exposing global placement.
     pub frame: [f64; 9],
     /// Box: height, xmin, ymin, xmax, ymax. Cylinder: radius, height.
     /// Full sphere: radius, repeated radius, pi. Cone: height, four zero offsets,
@@ -70,13 +70,66 @@ pub(crate) fn read_opaque_entity(bytes: &[u8], byte_range: ByteRange) -> NativeE
     result
 }
 
-pub(crate) fn read_inventory_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
+pub(crate) fn read_legacy_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
     let mut result = undecoded_entity(bytes, byte_range);
     result.issue(
         ErrorKind::Unsupported,
-        "native.inventory_profile",
+        "native.legacy_inventory",
         0,
-        "V8L1/V8L2 inventory retains entities without evaluating geometry or appearance",
+        "Legacy entity layout or owner is not qualified; source range retained",
+    );
+    result
+}
+
+pub(crate) fn read_unqualified_owner_entity(
+    bytes: &[u8],
+    byte_range: ByteRange,
+) -> NativeEntityRecord {
+    let mut result = undecoded_entity(bytes, byte_range);
+    result.issue(
+        ErrorKind::Unsupported,
+        "native.v8_owner",
+        0,
+        "V8L1/V8L2 owner is not a complete standalone primitive list; entities remain opaque",
+    );
+    result
+}
+
+/// Inventory of the observed parametric owner's saved entities. The body
+/// marker (raw type 85), dimensions and hidden tables are never primitives.
+pub(crate) fn read_parametric_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
+    let mut result = undecoded_entity(bytes, byte_range);
+    if bytes.len() >= 24
+        && word(bytes, 4) > 0
+        && word(bytes, 8) == 0
+        && word(bytes, 16) & 0xf0000000 == 0x80000000
+        && word(bytes, 20) == 0
+        && matches!(
+            word(bytes, 12),
+            0x550108c0
+                | 0x550108c1
+                | 0x190d80c0
+                | 0x190c80c0
+                | 0x1b0c80c0
+                | 0x1b0d80c0
+                | 0x1a1080c0
+                | 0x4d022081
+                | 0x4d032081
+                | 0x4d042081
+                | 0x4d020081
+                | 0x4d030081
+                | 0x4d040081
+        )
+    {
+        result.source_id = Some(word(bytes, 16));
+        result.layer = Some(word(bytes, 4));
+        result.visible = Some(word(bytes, 12) & 0x40 != 0);
+    }
+    result.issue(
+        ErrorKind::Unsupported,
+        "native.parametric_geometry",
+        0,
+        "parametric entity inventory does not evaluate final bodies, dimensions or condition tables",
     );
     result
 }
@@ -137,15 +190,7 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
         result.color_index = Some(color);
         result.appearance_status = Status::Complete;
     }
-    if result.is_mirror == Some(true) {
-        result.issue(
-            ErrorKind::Unsupported,
-            "native.primitive",
-            12,
-            "Primitive parameters for this shape or mirror are not qualified",
-        );
-        return result;
-    }
+    let mirrored = result.is_mirror == Some(true);
     let mut values = Vec::new();
     for raw in bytes[48..].chunks_exact(8) {
         let mut value = [0; 8];
@@ -159,8 +204,13 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     let orthonormal = (dot(z, z) - 1.0).abs() <= 1e-8
         && (dot(x, x) - 1.0).abs() <= 1e-8
         && dot(z, x).abs() <= 1e-8;
-    let dimensions = if kind == "box" {
+    let signed_height = if mirrored {
+        values[9] < 0.0
+    } else {
         values[9] > 0.0
+    };
+    let dimensions = if kind == "box" {
+        signed_height
             && values[12] > values[10]
             && values[13] > values[11]
             && (values[12] - values[10]).is_finite()
@@ -168,7 +218,7 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     } else if kind == "sphere" {
         values[9] > 0.0
     } else if kind == "cone" {
-        values[9] > 0.0 && values[14] > 0.0 && values[15] >= 0.0
+        signed_height && values[14] > 0.0 && values[15] >= 0.0
     } else if kind == "torus" {
         values[10] > 0.0 && values[11] > 0.0 && (values[10] + values[11]).is_finite()
     } else {
@@ -195,7 +245,12 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     }
     if (kind == "cone" && values[10..14].iter().any(|v| *v != 0.0))
         || (kind == "torus"
-            && (values[9] != std::f64::consts::TAU
+            && (values[9]
+                != if mirrored {
+                    -std::f64::consts::TAU
+                } else {
+                    std::f64::consts::TAU
+                }
                 || values[12] != 0.0
                 || values[10] <= values[11]))
     {

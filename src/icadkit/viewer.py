@@ -6,6 +6,7 @@ Unknown entities and unloaded references remain in the inventory.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -27,7 +28,8 @@ from .errors import (
 from .geometry import GeometryLimits
 from .models import Diagnostic, ErrorCategory
 from .native import NativePrimitive
-from .parts import PartLimits
+from .parts import PartIndex, PartLimits, _determinant, _relative
+from .references import AssemblyIndex, _point, _reference_dict
 from .saved import SavedBodyLimits, _read_saved_bodies, evaluate_saved_body
 from .schema import SchemaCatalog
 
@@ -36,6 +38,7 @@ __all__ = [
     "ViewerResult",
     "ViewerServer",
     "write_native_viewer",
+    "write_assembly_viewer",
     "serve_viewer",
 ]
 
@@ -237,7 +240,12 @@ def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
             edges.extend((i, j, a, b))
         for i in range(0, segments, max(1, segments // 4)):
             edges.extend((i, i + segments))
+    from .parts import _determinant
+
     m = primitive.world_transform
+    if _determinant(m) < 0:
+        for at in range(0, len(triangles), 3):
+            triangles[at + 1], triangles[at + 2] = triangles[at + 2], triangles[at + 1]
     positions = [
         sum(m[row][k] * vertex[k] for k in range(3)) + m[row][3]
         for vertex in vertices
@@ -267,9 +275,8 @@ def _mesh_triangle_count(primitive: NativePrimitive, segments: int) -> int:
     return 4 * segments
 
 
-def write_native_viewer(
+def _native_scene(
     document: Document,
-    destination: str | Path,
     *,
     part_limits: PartLimits | None = None,
     limits: ViewerLimits | None = None,
@@ -280,8 +287,9 @@ def write_native_viewer(
     saved_limits: SavedBodyLimits | None = None,
     schema: SchemaCatalog | None = None,
     geometry_limits: GeometryLimits | None = None,
-) -> ViewerResult:
-    """Write scene.json and an offline viewer into a new directory.
+    _index: PartIndex | None = None,
+) -> dict[str, Any]:
+    """Build an unnormalized single-file scene without opening references.
 
     Native global frames are applied exactly once. Saved-hidden entities start
     hidden; unknown visibility is shown and labelled unknown. Colors are
@@ -305,8 +313,6 @@ def write_native_viewer(
     csg_limits = CsgLimits() if csg_limits is None else csg_limits
     if not isinstance(csg_limits, CsgLimits):
         raise TypeError("csg_limits must be CsgLimits")
-    if not isinstance(destination, (str, Path)):
-        raise TypeError("destination must be a path")
     if isinstance(cylinder_segments, bool) or not isinstance(cylinder_segments, int):
         raise TypeError("cylinder_segments must be an integer")
     if not 8 <= cylinder_segments <= 256:
@@ -314,10 +320,7 @@ def write_native_viewer(
     limits = ViewerLimits() if limits is None else limits
     if not isinstance(limits, ViewerLimits):
         raise TypeError("limits must be ViewerLimits")
-    output = Path(destination)
-    if output.exists() or output.is_symlink():
-        raise FileExistsError(f"Viewer destination already exists: {output}")
-    index = document.read_parts(limits=part_limits)
+    index = document.read_parts(limits=part_limits) if _index is None else _index
     if not index.parts:
         # No indexed entities can mean the native reader could not enter this
         # format at all. Keep that distinct from a qualified, empty root part.
@@ -517,6 +520,64 @@ def write_native_viewer(
                 raw = document.source_bytes(entity.byte_range)
                 if len(raw) >= 16 and raw[13] & 1:
                     entities[entity.entity_id]["saved_role"] = "component"
+    metadata_only = index.source_length_unit is None
+    scene = {
+        "schema_version": 1,
+        "source_sha256": document.source_sha256,
+        "model_status": "partial",
+        "scope": "native_part_inventory"
+        if metadata_only
+        else "qualified_saved_brep"
+        if saved_brep
+        else "qualified_native_csg"
+        if csg
+        else "qualified_native_primitives",
+        "coordinate_system": None if metadata_only else "3DGLOBAL",
+        "length_unit": None if metadata_only else "mm",
+        "render_origin_mm": [0.0] * 3,
+        "render_scale_mm": 1.0,
+        "bounds_mm": None,
+        "appearance": (
+            "unavailable"
+            if metadata_only
+            else "illustrative_colors_saved_entity_visibility"
+        ),
+        "part_status": asdict(index.status),
+        "resource_count": len(document.resources),
+        "resource_index_status": document.resource_index_status,
+        "diagnostics": [asdict(d) for d in (*document.diagnostics, *index.diagnostics)]
+        + csg_diagnostics,
+        "opaque_ranges": [asdict(r) for r in index.opaque_ranges],
+        "parts": rows,
+        "csg": csg_summary,
+        "saved_brep": saved_summary,
+        "meshes": meshes,
+        "summary": {
+            "parts": len(index.parts),
+            "entities": count,
+            "rendered": len(meshes),
+            "omitted": count - len(meshes),
+            "triangles": triangles,
+            "cylinder_segments": cylinder_segments,
+        },
+    }
+    return scene
+
+
+def _destination(destination: str | Path) -> Path:
+    if not isinstance(destination, (str, Path)):
+        raise TypeError("destination must be a path")
+    output = Path(destination)
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(f"Viewer destination already exists: {output}")
+    return output
+
+
+def _write_scene(
+    scene: dict[str, Any], destination: str | Path, limits: ViewerLimits
+) -> ViewerResult:
+    output = _destination(destination)
+    meshes = scene["meshes"]
     lower, upper = [math.inf] * 3, [-math.inf] * 3
     for mesh in meshes.values():
         for axis in range(3):
@@ -545,47 +606,11 @@ def write_native_viewer(
             else (value - origin[i % 3]) / scale
             for i, value in enumerate(mesh["positions"])
         ]
-    metadata_only = index.source_length_unit is None
-    scene = {
-        "schema_version": 1,
-        "source_sha256": document.source_sha256,
-        "model_status": "partial",
-        "scope": "native_part_inventory"
-        if metadata_only
-        else "qualified_saved_brep"
-        if saved_brep
-        else "qualified_native_csg"
-        if csg
-        else "qualified_native_primitives",
-        "coordinate_system": None if metadata_only else "3DGLOBAL",
-        "length_unit": None if metadata_only else "mm",
-        "render_origin_mm": origin,
-        "render_scale_mm": scale,
-        "bounds_mm": [lower, upper] if meshes else None,
-        "appearance": (
-            "unavailable"
-            if metadata_only
-            else "illustrative_colors_saved_entity_visibility"
-        ),
-        "part_status": asdict(index.status),
-        "resource_count": len(document.resources),
-        "resource_index_status": document.resource_index_status,
-        "diagnostics": [asdict(d) for d in (*document.diagnostics, *index.diagnostics)]
-        + csg_diagnostics,
-        "opaque_ranges": [asdict(r) for r in index.opaque_ranges],
-        "parts": rows,
-        "csg": csg_summary,
-        "saved_brep": saved_summary,
-        "meshes": meshes,
-        "summary": {
-            "parts": len(index.parts),
-            "entities": count,
-            "rendered": len(meshes),
-            "omitted": count - len(meshes),
-            "triangles": triangles,
-            "cylinder_segments": cylinder_segments,
-        },
-    }
+    scene.update(
+        render_origin_mm=origin,
+        render_scale_mm=scale,
+        bounds_mm=[lower, upper] if meshes else None,
+    )
     # iterencode enforces the byte limit while writing, before publishing output.
     with tempfile.TemporaryDirectory(prefix="icadkit-native-viewer-") as temporary:
         staged = Path(temporary)
@@ -611,17 +636,308 @@ def write_native_viewer(
         publish(staged, output)
     return ViewerResult(
         output,
-        document.source_sha256,
+        scene["source_sha256"],
         digest.hexdigest(),
-        len(index.parts),
-        count,
+        scene["summary"]["parts"],
+        scene["summary"]["entities"],
         len(meshes),
-        count - len(meshes),
-        triangles,
+        scene["summary"]["omitted"],
+        scene["summary"]["triangles"],
         total,
-        evaluated_csg_bodies=int(csg_summary["evaluated"]),
-        evaluated_saved_bodies=int(saved_summary["evaluated"]),
+        evaluated_csg_bodies=int(scene["csg"]["evaluated"]),
+        evaluated_saved_bodies=int(scene["saved_brep"]["evaluated"]),
     )
+
+
+def write_native_viewer(
+    document: Document,
+    destination: str | Path,
+    *,
+    part_limits: PartLimits | None = None,
+    limits: ViewerLimits | None = None,
+    cylinder_segments: int = 64,
+    csg: bool = False,
+    csg_limits: CsgLimits | None = None,
+    saved_brep: bool = False,
+    saved_limits: SavedBodyLimits | None = None,
+    schema: SchemaCatalog | None = None,
+    geometry_limits: GeometryLimits | None = None,
+) -> ViewerResult:
+    """Write a single-file partial viewer; external files are never opened."""
+    _destination(destination)
+    scene = _native_scene(
+        document,
+        part_limits=part_limits,
+        limits=limits,
+        cylinder_segments=cylinder_segments,
+        csg=csg,
+        csg_limits=csg_limits,
+        saved_brep=saved_brep,
+        saved_limits=saved_limits,
+        schema=schema,
+        geometry_limits=geometry_limits,
+    )
+    return _write_scene(
+        scene, destination, ViewerLimits() if limits is None else limits
+    )
+
+
+def write_assembly_viewer(
+    assembly: AssemblyIndex,
+    destination: str | Path,
+    *,
+    limits: ViewerLimits | None = None,
+    cylinder_segments: int = 64,
+    csg: bool = False,
+    csg_limits: CsgLimits | None = None,
+    saved_brep: bool = False,
+    saved_limits: SavedBodyLimits | None = None,
+    schema: SchemaCatalog | None = None,
+    geometry_limits: GeometryLimits | None = None,
+) -> ViewerResult:
+    """Render a resolved snapshot without reopening any reference files.
+
+    Geometry is evaluated once per source document, then placed per occurrence.
+    Saved B-Reps and CSG results keep analytic metrics under rigid reflection.
+    The usual triangle/output limits apply to all placed occurrences together.
+    """
+    if not isinstance(assembly, AssemblyIndex):
+        raise TypeError("assembly must be AssemblyIndex")
+    _destination(destination)
+    limits = ViewerLimits() if limits is None else limits
+    if not isinstance(limits, ViewerLimits):
+        raise TypeError("limits must be ViewerLimits")
+    sources: dict[str, dict[str, Any]] = {}
+    source_rows: dict[tuple[str, str], dict[str, Any]] = {}
+    source_entities: dict[tuple[str, str], dict[str, Any]] = {}
+    unique_triangles = 0
+    for doc in assembly.documents:
+        # Every loaded document contributes at least one placed definition.
+        remaining = limits.max_triangles - unique_triangles
+        if remaining <= 0 and any(p.entities for p in doc.parts.parts):
+            raise _limit("Assembly source tessellation exceeds max_triangles")
+        source = _native_scene(
+            doc.document,
+            limits=replace(limits, max_triangles=max(1, remaining)),
+            cylinder_segments=cylinder_segments,
+            csg=csg,
+            csg_limits=csg_limits,
+            saved_brep=saved_brep,
+            saved_limits=saved_limits,
+            schema=schema,
+            geometry_limits=geometry_limits,
+            _index=doc.parts,
+        )
+        unique_triangles += source["summary"]["triangles"]
+        sources[doc.document_id] = source
+        for part in source["parts"]:
+            source_rows[doc.document_id, part["part_id"]] = part
+            for entity in part["entities"]:
+                source_entities[doc.document_id, entity["entity_id"]] = entity
+    meshes: dict[str, Any] = {}
+    rows: list[dict[str, Any]] = []
+    triangles = count = 0
+    cs = {"enabled": csg, "bodies": 0, "evaluated": 0, "omitted": 0}
+    ss = {
+        "enabled": saved_brep,
+        "bodies": 0,
+        "evaluated": 0,
+        "omitted": 0,
+        "resources_evaluated": 0,
+    }
+    resources: set[tuple[str, str]] = set()
+    owners = {o.occurrence_id: o for o in assembly.occurrences}
+    for occurrence in assembly.occurrences:
+        oid = occurrence.occurrence_id
+        row = copy.deepcopy(
+            source_rows[occurrence.source_document_id, occurrence.source_part.part_id]
+        )
+        row.update(
+            part_id=oid,
+            parent_id=occurrence.parent_id,
+            is_root=occurrence.parent_id is None,
+            source_document_id=occurrence.source_document_id,
+            source_part_id=occurrence.source_part.part_id,
+            source_is_mirror=occurrence.source_part.is_mirror,
+            definition_document_id=occurrence.definition_document_id,
+            definition_id=(
+                f"{occurrence.definition_document_id}/{occurrence.content_part_id}"
+                if occurrence.definition_document_id
+                else None
+            ),
+            world_transform=occurrence.world_transform,
+            orientation_world_transform=occurrence.orientation_world_transform,
+            placement_status="complete"
+            if occurrence.world_transform is not None
+            else "unsupported",
+            hierarchy_status=assembly.status,
+            is_mirror=_determinant(occurrence.orientation_world_transform) < 0
+            if occurrence.orientation_world_transform
+            else None,
+            assembly_reference=_reference_dict(occurrence.reference)
+            if occurrence.reference
+            else None,
+            entities=[],
+        )
+        parent = owners.get(occurrence.parent_id or "")
+        row["local_transform"] = (
+            _relative(parent.world_transform, occurrence.world_transform)
+            if parent and parent.world_transform and occurrence.world_transform
+            else occurrence.world_transform
+            if parent is None
+            else None
+        )
+        row["orientation_local_transform"] = (
+            _relative(
+                parent.orientation_world_transform,
+                occurrence.orientation_world_transform,
+            )
+            if parent
+            and parent.orientation_world_transform
+            and occurrence.orientation_world_transform
+            else occurrence.orientation_world_transform
+            if parent is None
+            else None
+        )
+        for attribute in [*row["properties"], *row["opaque_attributes"]]:
+            attribute["source_owner_id"] = attribute["owner_id"]
+            attribute["source_document_id"] = occurrence.source_document_id
+            attribute["owner_id"] = oid
+        if occurrence.reference and row["external_reference"]:
+            row["external_reference"].update(
+                status=occurrence.reference.status,
+                path=str(occurrence.reference.resolved_path)
+                if occurrence.reference.resolved_path
+                else None,
+            )
+        for placed in occurrence.entities:
+            count += 1
+            source_id = placed.source_entity.entity_id
+            entity = copy.deepcopy(
+                source_entities[placed.source_document_id, source_id]
+            )
+            entity.update(
+                entity_id=placed.entity_id,
+                owner_id=oid,
+                source_entity_id=source_id,
+                source_document_id=placed.source_document_id,
+                source_owner_id=placed.source_entity.owner_id,
+            )
+            if placed.primitive:
+                entity["primitive"]["world_transform"] = (
+                    placed.primitive.world_transform
+                )
+            for key in ("csg_body_id", "saved_body_id"):
+                if key in entity:
+                    entity[key] = f"{oid}/{entity[key]}"
+            src = sources[placed.source_document_id]
+            mesh = src["meshes"].get(source_id)
+            if mesh:
+                triangles += len(mesh["triangles"]) // 3
+                if triangles > limits.max_triangles:
+                    raise _limit("Assembly occurrences exceed max_triangles")
+                coords = mesh["positions"]
+                positions = [
+                    v
+                    for i in range(0, len(coords), 3)
+                    for v in _point(placed.document_transform, coords[i : i + 3])
+                ]
+                if not all(math.isfinite(v) for v in positions):
+                    raise InvalidFormatError(
+                        Diagnostic(
+                            "invalid",
+                            "references.placement",
+                            None,
+                            "Placed mesh overflowed",
+                        )
+                    )
+                indices = list(mesh["triangles"])
+                if _determinant(placed.document_transform) < 0:
+                    for i in range(0, len(indices), 3):
+                        indices[i + 1], indices[i + 2] = indices[i + 2], indices[i + 1]
+                meshes[placed.entity_id] = {
+                    "positions": positions,
+                    "triangles": indices,
+                    "edges": mesh["edges"],
+                }
+            for key, summary in (("saved_body", ss), ("csg", cs)):
+                detail = entity.get(key)
+                if detail is None:
+                    continue
+                summary["bodies"] += 1
+                if mesh:
+                    summary["evaluated"] += 1
+                    detail["centroid_mm"] = _point(
+                        placed.document_transform, detail["centroid_mm"]
+                    )
+                    if key == "saved_body":
+                        resources.add(
+                            (placed.source_document_id, detail["resource_id"])
+                        )
+                        detail["representation_operations"] = [
+                            *detail["representation_operations"],
+                            "rigid external occurrence placement; "
+                            "reverse winding for reflection",
+                        ]
+            row["entities"].append(entity)
+        rows.append(row)
+    cs["omitted"] = cs["bodies"] - cs["evaluated"]
+    ss["omitted"] = ss["bodies"] - ss["evaluated"]
+    ss["resources_evaluated"] = len(resources)
+    scene = copy.copy(sources[assembly.documents[0].document_id])
+    statuses = {}
+    for key in scene["part_status"]:
+        values = {source["part_status"][key] for source in sources.values()}
+        statuses[key] = (
+            next(iter(values))
+            if len(values) == 1
+            else "invalid"
+            if "invalid" in values
+            else "partial"
+        )
+    scene.update(
+        scope="qualified_assembly",
+        assembly=assembly.to_dict(),
+        parts=rows,
+        meshes=meshes,
+        csg=cs,
+        saved_brep=ss,
+        resource_count=sum(len(d.document.resources) for d in assembly.documents),
+        resource_index_status="complete"
+        if all(
+            d.document.resource_index_status == "complete" for d in assembly.documents
+        )
+        else "partial",
+        diagnostics=[
+            {**d, "source_document_id": docid}
+            for docid, source in sources.items()
+            for d in source["diagnostics"]
+        ]
+        + [asdict(d) for d in assembly.diagnostics],
+        opaque_ranges=[
+            {**r, "source_document_id": docid}
+            for docid, source in sources.items()
+            for r in source["opaque_ranges"]
+        ],
+        part_status={
+            **statuses,
+            "references": assembly.status,
+            "hierarchy": assembly.status,
+            "definitions": assembly.status,
+            "placements": "complete"
+            if all(o.world_transform is not None for o in assembly.occurrences)
+            else "partial",
+        },
+        summary={
+            "parts": len(rows),
+            "entities": count,
+            "rendered": len(meshes),
+            "omitted": count - len(meshes),
+            "triangles": triangles,
+            "cylinder_segments": cylinder_segments,
+        },
+    )
+    return _write_scene(scene, destination, limits)
 
 
 def serve_viewer(directory: str | Path, *, port: int = 0) -> ViewerServer:

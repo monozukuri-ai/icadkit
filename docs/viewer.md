@@ -1,20 +1,30 @@
 # Native file viewer
 
 Added in version 0.3.0. The native viewer renders
-qualified native **boxes, cylinders, full spheres, cones/frusta and full ring tori**, using their saved global frames in
+qualified native **boxes, cylinders, full spheres, cones/frusta and full ring tori**, using their qualified root-relative frames in
 millimetres. It includes a part tree, stored properties, selection and visibility
 controls. By default, no preview extra, OCCT, iCAD, Wine, internet connection or schema catalog
 is required. The browser needs WebGL for 3D display; without it, the part/property
 inventory remains available.
 
-The qualified **little-endian V8L3** profile supports qualified native analytic display.
-The viewer also displays qualified **little-endian V7L7** standalone
+The current qualified **little-endian V8L1/V8L2/V8L3** profiles support native
+analytic display. V8L1/V8L2 require complete standalone primitive owners.
+The viewer also displays qualified **little-endian V7L6/V7L7** standalone
 analytic primitive owners, using root-relative placement and millimetres. Add `--csg`
 with the `preview` extra for [qualified boolean results](csg.md). Unknown
 records/programs keep the affected body undisplayed; their part properties
 remain selectable. Unqualified root contexts open as inventory only. If the part inventory cannot be
 read, the command reports the reader diagnostic and exits without opening an
 empty viewer. Saving in a newer iCAD version does not qualify unsupported geometry.
+
+Qualified internal mirrors use the saved geometry once. Reflected box/cone meshes
+reverse winding to preserve outward normals; saved final bodies preserve their
+oriented topology. Part properties show the saved mirror flag and signed
+occurrence orientation separately from the SDK-compatible coordinate frame.
+Selection and visibility remain attached to each saved owning occurrence.
+The unreleased [assembly mode](references.md) also composes external mirrors
+when `--reference-root DIR` is supplied. Missing references remain selectable
+occurrences with diagnostics and no invented geometry.
 
 After installation:
 
@@ -41,7 +51,7 @@ opening HTML with `file://` is not supported. There are no remote asset requests
 The exported JSON includes part names, stored text and source byte metadata;
 share it only when you intend to share those attributes too.
 Qualified V7L7 exports use `scope="qualified_native_primitives"`, like V8L3.
-V8L1/V8L2 provide inventory only. If V7L7 root context/units are unavailable,
+V8L1/V8L2 use the same scope when qualified. If root context/units are unavailable,
 exports also use
 `scope="native_part_inventory"`, null `length_unit` and `coordinate_system`, and
 an empty `meshes` object. The tree remains selectable in both cases.
@@ -50,6 +60,14 @@ For saved final B-Rep solids, use `--saved-brep` with the `preview` extra and,
 when needed, an explicit matching `--schema` / `--schema-id`. This can display
 saved results containing feature operations outside the CSG evaluator. See
 [saved final bodies](saved-bodies.md) for binding, units and conversion limits.
+
+For an external assembly, add `--reference-root DIR` (repeatable). Python uses
+`write_assembly_viewer(icadkit.read_assembly(path, search_roots=[...]), output)`;
+the same native/CSG/saved-body display options and aggregate mesh/output limits
+apply. Scenes use `scope="qualified_assembly"` and retain source document IDs,
+resolved paths and hashes alongside occurrence ownership. Exported assembly JSON
+therefore also discloses these local file paths. `write_native_viewer()` never
+loads references. See [resolution policies and limits](references.md).
 
 ## Controls and scope
 
@@ -80,7 +98,7 @@ reports represented and omitted indexed entities; these counts do not account
 for entities hidden inside unparsed ranges. Reader statuses, diagnostics and
 unparsed ranges appear in the model properties.
 
-Mirrors, partial spheres/tori, offset cones, unqualified CSG programs, drawings and automatic external-file
+Unqualified mirrors, partial spheres/tori, offset cones, unqualified CSG programs, drawings and automatic external-file
 loading remain unsupported. With the default primitive mode, embedded Parasolid resources are counted but
 not placed. `--saved-brep` places only uniquely bound, qualified final resources.
 Use the separate [resource preview](preview.md) to view a selected supported
@@ -92,7 +110,7 @@ latitude bands. Cones/frusta share the circumferential control; full tori use it
 for the major ring with half as many minor-ring segments (at least eight).
 Cone properties show both radii and height; torus properties show both radii. The mesh is a display approximation; the sphere's radius and
 centre frame remain exact saved parameters. `--saved-brep` also accepts qualified
-V8L3 final markers and shared resources, with independent global placement per
+V8L1/V8L2/V8L3 final markers and shared resources, with independent global placement per
 occurrence. Spherical, conical and toroidal saved surfaces are subject to the
 [saved body conversion limits](saved-bodies.md).
 

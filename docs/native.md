@@ -10,12 +10,12 @@ fields. It does not evaluate native B-Rep, CSG, tessellation or a complete scene
 
 The 0.3.0 [native viewer](viewer.md) can tessellate the supported
 box/cylinder/full-sphere/cone/torus parameters for an explicitly partial display with a part tree.
-Version 0.3.0 also decodes qualified V7L7 standalone primitive owners
-and saved entity appearance. V7L7 requires a complete saved hierarchy/index and
-an entire internal owner's list of qualified nonmirrored box/cylinder/sphere/cone/torus
+The current source also decodes qualified V7L6/V7L7/V8L1/V8L2 standalone primitive
+owners and saved entity appearance. These profiles require a complete saved hierarchy/index and
+an entire internal owner's list of qualified box/cylinder/sphere/cone/torus
 headers. An unknown or CSG record keeps the whole owner's list opaque; primitive
-operands are never drawn as a completed boolean result. Mirrored/external
-owners and unsupported layouts remain unavailable.
+operands are never drawn as a completed boolean result. Qualified internal
+mirrors are included; external owners and unsupported layouts remain unavailable.
 
 ```python
 import icadkit
@@ -84,9 +84,10 @@ bounds and Z from zero to `height`. A cylinder's bottom centre is `(0, 0, 0)` an
 its top centre is `(0, 0, height)` in this frame.
 
 The exposed `world_transform` is in **3DGLOBAL coordinates**; do not multiply it
-by the part frame again. V8L3 stores this frame directly. V7L7 uses
+by the part frame again. All qualified V7L6/V7L7/V8L1/V8L2/V8L3 profiles use
 `inverse(saved_root_frame) * stored_primitive_frame`, independently of the owning
-part frame. Raw bytes retain the original stored frame. If the root context is
+part frame. Qualified mirrored box/cone records additionally reverse the stored Z column
+once, as described below. Raw bytes retain the original stored frame. If the root context is
 unavailable or normalization overflows, `primitive=None` with a diagnostic. A box's saved reference origin can be the centre of its
 bottom cross-section instead of the creation corner. The axes are validated as
 orthonormal and are never silently normalized. Nonfinite values, nonpositive
@@ -99,12 +100,34 @@ these native parameter layouts. They do not establish embedded Parasolid units.
 unsupported or invalid parameters, the containing entity's range still allows
 `doc.source_bytes(entity.byte_range)` to recover the entire original record.
 
-Mirrored primitive evaluation, partial spheres/tori, offset cones, boolean results and other native
+Unqualified mirror layouts, partial spheres/tori, offset cones, boolean results and other native
 layouts remain unsupported. In particular, an iCAD face-colour change or boolean
 operation can convert a primitive into a Parasolid representation: its former
 box or cylinder parameters must not be reported as the current shape. Qualified
 primitive parameters do not establish face orientation, watertight B-Rep,
 resource ownership or whole-model geometry completeness.
+
+## Qualified entity mirrors
+
+Internal mirrors are qualified in V7L6/V7L7 and V8L1/V8L2/V8L3. The entity mirror
+flag is independent of its owning part flag; a mirrored entity can belong to an
+unmirrored part. Its saved frame/parameters already incorporate the operation.
+Neither the part frame nor its orientation matrix is applied a second time.
+
+For the observed mirrored box/cone layouts, the saved height is negative.
+`height` exposes its positive magnitude and `world_transform` reverses the
+stored Z column, preserving the same geometry with a negative determinant.
+`mirror_convention="signed_height"` identifies this normalization. The raw
+negative height remains available in `raw_bytes`. A negative nonmirrored height
+or positive mirrored box/cone height is not repaired and remains invalid.
+
+Full cylinders, full spheres and full ring tori use
+`mirror_convention="symmetric_frame"`: their stored frames already place the
+symmetric shape. Qualified mirrored tori require the observed negative full
+sweep; other extent/flag combinations retain diagnostics. Nonmirrored primitives
+have `mirror_convention=None`. The viewer reverses triangle winding for a negative
+geometry determinant so derived normals stay outward. Unsupported extrusions,
+CSG operands and unknown signed layouts remain opaque.
 
 ## Appearance contract
 

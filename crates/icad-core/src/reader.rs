@@ -22,6 +22,20 @@ impl ByteOrder {
             Self::Big => u32::from_be_bytes(bytes),
         }
     }
+
+    pub(crate) fn u16(self, bytes: [u8; 2]) -> u16 {
+        match self {
+            Self::Little => u16::from_le_bytes(bytes),
+            Self::Big => u16::from_be_bytes(bytes),
+        }
+    }
+
+    pub(crate) fn f64(self, bytes: [u8; 8]) -> f64 {
+        match self {
+            Self::Little => f64::from_le_bytes(bytes),
+            Self::Big => f64::from_be_bytes(bytes),
+        }
+    }
 }
 
 pub(crate) struct Reader<R> {

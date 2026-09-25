@@ -76,35 +76,40 @@ def test_invalid_axes_do_not_get_normalized(axes):
 
 def test_relative_transform_overflow_preserves_world_and_reports_invalid():
     index = read(
-        part(ROOT, root=True, child=A, position=(1e308, 0, 0)),
-        part(A, parent=ROOT, position=(-1e308, 0, 0)),
+        part(ROOT, root=True, child=A),
+        part(A, parent=ROOT, child=B, position=(1e308, 0, 0)),
+        part(B, parent=A, position=(-1e308, 0, 0)),
     )
-    p = index.parts[1]
+    p = index.parts[2]
     assert p.placement.world_transform is not None
     assert p.placement.local_transform is None
     assert p.placement.status == "invalid"
     assert any(d.code == "parts.local_nonfinite" for d in index.diagnostics)
 
 
-def test_broken_graph_keeps_world_but_never_guesses_relative_frames():
+def test_broken_graph_keeps_raw_frames_but_never_guesses_normalized_frames():
     index = read(part(ROOT, root=True), part(A, parent=B))
     assert index.status.hierarchy == "invalid"
     assert all(p.placement.local_transform is None for p in index.parts)
-    assert all(p.placement.world_transform is not None for p in index.parts)
+    assert all(p.placement.world_transform is None for p in index.parts)
+    assert all(p.placement.raw_coordinate_bytes for p in index.parts)
+    assert index.source_length_unit is None
 
 
-def test_mirror_keeps_rows_and_blocks_unqualified_relative_transform():
+def test_mirror_keeps_sdk_frame_and_composes_occurrence_parity():
     index = read(
         part(ROOT, root=True, child=A),
         part(A, parent=ROOT, child=B, flags=8),
         part(B, parent=A),
     )
     assert index.parts[1].is_mirror is True
-    assert index.parts[1].placement.world_transform is None
-    assert index.parts[2].placement.world_transform is not None
-    assert index.parts[2].placement.local_transform is None
+    parent, child = index.parts[1:]
+    assert parent.placement.world_transform == child.placement.world_transform
+    assert parent.placement.orientation_world_transform[1][1] == -1
+    assert child.placement.orientation_world_transform[1][1] == 1
+    assert child.placement.orientation_local_transform[1][1] == -1
     assert len(index.to_rows()) == 2
-    assert index.status.placements == "partial"
+    assert index.status.placements == "complete"
 
 
 def test_externalized_model_root_uses_a_prefix_and_still_requires_valid_graph():
@@ -269,7 +274,7 @@ def test_unknown_part_kind_keeps_raw_record_without_inventing_semantics():
     [
         external_pair(),
         external_pair(flags=0x58),
-        [part(ROOT, root=True, child=A), part(A, parent=ROOT, flags=8)],
+        [part(ROOT, root=True, child=A), part(A, parent=ROOT, flags=0x58)],
     ],
 )
 def test_cli_reports_unresolved_semantics_with_rows(records, tmp_path, capsys):

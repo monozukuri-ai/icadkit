@@ -290,7 +290,8 @@ def _operand(
 
 def _read_csg(doc: Document, parts: PartIndex, limits: CsgLimits) -> CsgIndex:
     if (
-        doc.header.raw_version != b"\0\7\0\7"
+        parts.profile is None
+        or parts.profile.csg_layout != "v7_postfix"
         or parts.status.index != "complete"
         or parts.source_length_unit != "mm"
     ):
@@ -305,6 +306,27 @@ def _read_csg(doc: Document, parts: PartIndex, limits: CsgLimits) -> CsgIndex:
     root_frame = _frame(list(struct.unpack("<9d", root.placement.raw_coordinate_bytes)))
     assert root_frame is not None
     bodies: list[CsgBody] = []
+    owners = {p.part_id: p for p in parts.parts}
+
+    def qualified_owner(owner_id: str) -> bool:
+        seen: set[str] = set()
+        while owner_id not in seen:
+            seen.add(owner_id)
+            owner = owners.get(owner_id)
+            if (
+                owner is None
+                or owner.is_external
+                or owner.is_mirror
+                or owner.placement.world_transform is None
+            ):
+                return False
+            if owner.is_root:
+                return True
+            if owner.parent_id is None:
+                return False
+            owner_id = owner.parent_id
+        return False
+
     ordered = sorted(parts.parts, key=lambda p: p.byte_range.start)
     starts = [p.byte_range.start for p in ordered]
     metadata_by_owner: dict[str, list[ByteRange]] = defaultdict(list)
@@ -350,11 +372,7 @@ def _read_csg(doc: Document, parts: PartIndex, limits: CsgLimits) -> CsgIndex:
             status: Status = "complete"
             diagnostics: tuple[Diagnostic, ...] = ()
             try:
-                if (
-                    part.is_external
-                    or part.is_mirror
-                    or part.placement.world_transform is None
-                ):
+                if not qualified_owner(part.part_id):
                     _fail(
                         "csg.owner",
                         "Unqualified CSG owner placement",

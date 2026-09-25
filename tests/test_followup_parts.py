@@ -92,7 +92,7 @@ def test_unknown_attribute_layout_does_not_gain_index_completeness(offset, value
 
 
 @pytest.mark.parametrize("profile", ["v8l1", "v8l2"])
-def test_legacy_inventory_keeps_names_links_raw_coordinates_and_withholds_geometry(
+def test_qualified_legacy_parts_expose_placement_appearance_and_native_geometry(
     profile, tmp_path
 ):
     doc = icadkit.read(
@@ -117,17 +117,18 @@ def test_legacy_inventory_keeps_names_links_raw_coordinates_and_withholds_geomet
     assert ix.status.index == ix.status.hierarchy == "complete"
     assert child.name == "旧部品" and child.comment == "保管値"
     assert child.placement.coordinate_values[:3] == (7, -11, 19)
-    assert child.placement.world_transform is child.placement.local_transform is None
-    assert ix.source_length_unit is None and ix.status.units == "unsupported"
+    assert child.placement.world_transform == child.placement.local_transform
+    assert tuple(row[3] for row in child.placement.world_transform[:3]) == (7, -11, 19)
+    assert ix.source_length_unit == "mm" and ix.status.units == "complete"
     assert (
-        child.entities[0].primitive is None
-        and child.entities[0].appearance.status == "unsupported"
+        child.entities[0].primitive.kind == "cone"
+        and child.entities[0].appearance.status == "complete"
     )
-    assert icadkit.read_saved_bodies(doc).status == "unsupported"
+    assert icadkit.read_saved_bodies(doc).bodies == ()
     result = write_native_viewer(doc, tmp_path / profile)
     scene = json.loads((result.directory / "scene.json").read_bytes())
-    assert scene["scope"] == "native_part_inventory" and not scene["meshes"]
-    assert scene["length_unit"] is scene["coordinate_system"] is None
+    assert scene["scope"] == "qualified_native_primitives" and len(scene["meshes"]) == 1
+    assert scene["length_unit"] == "mm" and scene["coordinate_system"] == "3DGLOBAL"
 
 
 @pytest.mark.parametrize("profile", ["v8l1", "v8l2"])

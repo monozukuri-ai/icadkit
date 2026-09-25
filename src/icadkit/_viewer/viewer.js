@@ -210,6 +210,10 @@ class NativeView {
     $('scope').textContent = this.scene.scope === 'native_part_inventory'
       ? `Part inventory · ${summary.entities} saved entity records retained. Geometry, placement and appearance are unavailable for this profile. Embedded resources are not displayed.`
       : `${this.scene.saved_brep?.enabled ? "Native primitives & saved final bodies" : this.scene.csg?.enabled ? "Native primitives & CSG results" : "Native primitives"} · ${summary.rendered} / ${summary.entities} indexed entities represented · ${summary.omitted} saved records not drawn · ${this.scene.resource_count - (this.scene.saved_brep?.resources_evaluated || 0)} embedded resources not displayed. Colors are illustrative; full-model coverage is unverified.`;
+    if (this.scene.assembly) {
+      const refs = this.scene.assembly.references, resolved = refs.filter(r => r.status === 'resolved').length;
+      $('scope').textContent += ` External references: ${resolved} / ${refs.length} resolved.`;
+    }
     const seen = new Set();
     const addRow = (parent, id, label, tag, unsupported) => {
       const row = node('div', undefined, `tree-row${unsupported ? ' unsupported' : ''}`);
@@ -232,7 +236,8 @@ class NativeView {
       while (stack.length) {
         const [part, parent] = stack.pop();
         if (seen.has(part.part_id)) continue; seen.add(part.part_id);
-        addRow(parent, part.part_id, part.name ?? '(undecoded name)', part.is_external ? 'external' : part.is_root ? 'root' : 'part', false);
+        const unresolved = part.assembly_reference && part.assembly_reference.status !== 'resolved';
+        addRow(parent, part.part_id, part.name ?? '(undecoded name)', unresolved ? part.assembly_reference.status : part.is_external ? 'external' : part.is_root ? 'root' : 'part', unresolved);
         const branch = node('div', undefined, 'branch'); parent.append(branch);
         for (const entity of part.entities) addRow(branch, entity.entity_id, `${entity.saved_body ? 'Saved final body' : entity.saved_role === 'component' ? 'Saved component' : entity.csg ? 'CSG result' : entity.csg_role === 'operand' ? 'CSG operand' : entity.primitive?.kind || 'Unsupported'} · ${entity.entity_id}`, entity.saved_role === 'component' ? 'component' : entity.csg_role === 'operand' ? 'operand' : entity.csg?.status === 'complete' || entity.geometry_status === 'complete' ? '' : entity.csg?.status || entity.geometry_status, !this.scene.meshes[entity.entity_id]);
         const children = this.children.get(part.part_id) || [];
@@ -276,13 +281,15 @@ class NativeView {
     this.selected = new Set(part ? this.entityIds(id) : [id]);
     $('details').replaceChildren(node('h3', part ? part.name ?? '(undecoded name)' : entity.saved_body ? 'Saved final body' : entity.saved_role === 'component' ? 'Saved component' : entity.csg ? 'CSG result' : entity.csg_role === 'operand' ? 'CSG operand' : entity.primitive?.kind || 'Unsupported entity'));
     if (part) {
-      this.fields([['Part ID',part.part_id],['Parent ID',part.parent_id],['Source ID',part.source_id],['External reference',part.external_reference],['Placement status',part.placement_status],[this.scene.length_unit ? 'Part world frame (mm)' : 'Part world frame',part.world_transform],['Native geometry status',part.native_geometry_status]]);
+      this.fields([['Part ID',part.part_id],['Parent ID',part.parent_id],['Source ID',part.source_id],['External reference',part.external_reference],['Placement status',part.placement_status],['Mirrored occurrence',part.is_mirror],['Occurrence orientation',part.orientation_world_transform],[this.scene.length_unit ? 'Part world frame (mm)' : 'Part world frame',part.world_transform],['Native geometry status',part.native_geometry_status]]);
+      if (part.assembly_reference) this.fields([['Reference status',part.assembly_reference.status],['Resolved path',part.assembly_reference.resolved_path],['Referenced SHA-256',part.assembly_reference.target_sha256],['Reference diagnostics',part.assembly_reference.diagnostics]]);
       $('details').append(node('h3','Stored attributes'));
       this.fields(part.properties.map(p => [p.name,p.value]));
       if (part.opaque_attributes?.length) $('details').append(node('p', `${part.opaque_attributes.length} binary attributes are retained but not interpreted.`));
       $('details').append(node('p',this.scene.length_unit ? 'Part frames are shown for inspection. Native shapes already use their saved global frame.' : 'Raw coordinate values are retained by the reader; evaluated placement is unavailable.'));
     } else {
       this.fields([['Entity ID',id],['Owner',this.parts.get(entity.owner_id)?.name ?? entity.owner_id],['Geometry status',entity.geometry_status],['Source byte range',entity.byte_range],['Saved visibility',entity.appearance.visible],['Palette index (not RGB)',entity.appearance.color_index],['Layer',entity.appearance.layer],['Appearance status',entity.appearance.status]]);
+      if (entity.source_document_id) this.fields([['Owner occurrence',entity.owner_id],['Source document',entity.source_document_id],['Source entity',entity.source_entity_id],['Source owner',entity.source_owner_id]]);
       if (entity.primitive) this.fields(entity.primitive.kind === 'sphere'
         ? [['Radius (mm)',entity.primitive.radius],['Centre frame (mm)',entity.primitive.world_transform]]
         : entity.primitive.kind === 'torus'
@@ -345,7 +352,7 @@ export const application = (async () => {
     const response = await fetch('scene.json');
     if (!response.ok) throw Error(`Cannot load scene: HTTP ${response.status}`);
     const scene = await response.json();
-    if (scene.schema_version !== 1 || !['qualified_native_primitives','qualified_native_csg','qualified_saved_brep','native_part_inventory'].includes(scene.scope)) throw Error('Unsupported native scene schema');
+    if (scene.schema_version !== 1 || !['qualified_native_primitives','qualified_native_csg','qualified_saved_brep','native_part_inventory','qualified_assembly'].includes(scene.scope)) throw Error('Unsupported native scene schema');
     return new NativeView(scene);
   } catch (error) {
     $('app').dataset.status = 'error';

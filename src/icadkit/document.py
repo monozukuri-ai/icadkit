@@ -1,11 +1,16 @@
 """Owned ICD documents with immutable indexes and lazy bounded extraction."""
 
+from __future__ import annotations
+
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, NoReturn, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal, NoReturn, cast
 
 from . import _core
 from .api import _inspection
+from .drawing import DrawingIndex, DrawingLimits, _read_drawing
 from .errors import (
     IcadError,
     InvalidFormatError,
@@ -26,8 +31,13 @@ from .models import (
     SourceRef,
     UnparsedRange,
 )
+from .parameters import ParameterIndex, ParameterLimits, _read_parameters
 from .parts import PartIndex, PartLimits, _read_parts
 from .schema import SchemaCatalog
+from .views import ViewIndex, ViewLimits, _read_views
+
+if TYPE_CHECKING:
+    from .references import AssemblyIndex, AssemblyLimits, ReferenceResolver
 
 
 def _raise_native(exc: _core.InspectionError) -> NoReturn:
@@ -61,9 +71,52 @@ class Document:
     status: InspectionStatus
     _handle: _core.DocumentHandle = field(repr=False, compare=False)
 
+    def read_views(self, *, limits: ViewLimits | None = None) -> ViewIndex:
+        """Classify directory-owned views and bound records, including old originals."""
+        return _read_views(self, limits)
+
+    def read_drawing(
+        self,
+        *,
+        limits: DrawingLimits | None = None,
+        view_limits: ViewLimits | None = None,
+    ) -> DrawingIndex:
+        """Read qualified saved 2D entities in view-local coordinates."""
+        return _read_drawing(self, limits, view_limits)
+
     def read_parts(self, *, limits: PartLimits | None = None) -> PartIndex:
         """Read bounded native part records, independently of geometry support."""
         return _read_parts(self, limits)
+
+    def read_assembly(
+        self,
+        *,
+        search_roots: Sequence[str | Path] = (),
+        resolver: ReferenceResolver | None = None,
+        limits: AssemblyLimits | None = None,
+        read_limits: ReadLimits | None = None,
+        part_limits: PartLimits | None = None,
+    ) -> AssemblyIndex:
+        """Resolve explicitly; this document remains an immutable snapshot."""
+        from .references import read_assembly
+
+        return read_assembly(
+            self,
+            search_roots=search_roots,
+            resolver=resolver,
+            limits=limits,
+            read_limits=read_limits,
+            part_limits=part_limits,
+        )
+
+    def read_parameters(
+        self,
+        *,
+        limits: ParameterLimits | None = None,
+        part_limits: PartLimits | None = None,
+    ) -> ParameterIndex:
+        """Read saved 3D parameters without executing formulas or opening references."""
+        return _read_parameters(self, limits, part_limits)
 
     def read_geometry(
         self,

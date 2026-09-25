@@ -1,5 +1,76 @@
 # Release scope and follow-up work
 
+## Current source: version coverage
+
+Qualified V8L1 standard-part templates and V8L3 resaves now expose root-owned
+entity inventories and [saved parameter tables](parameters.md). Parameter
+definitions also retain separate ownership in V7L7/V8L3 internal placements.
+The reader preserves unknown fields and does not execute expressions. Local
+verification covers 76 original/resaved template pairs and additional disabled
+condition and explanation probes.
+
+P2 adds qualified V8L1/V8L2 placement, saved appearance, five native primitive
+kinds and saved-body bindings. V8L3 profile revision 2 also normalizes nonidentity
+saved roots, verified against reopened SDK observations. Original V8L1 templates
+have a separately guarded source-ID binding. Geometry conversion remains bounded;
+a bound resource can still have unsupported curves/surfaces. P3 and P4 below
+extend old inventories and internal mirrors. P5 adds explicit external resolution.
+Actual V8L4 qualification remains separate work. This source change is not a release or remote CI result.
+
+## Version-support P6: old originals and 2D inventory (unreleased)
+
+[View and drawing access](drawing.md) separates document/registered-part
+classification, bounded view framing and saved 2D geometry. Both byte orders have
+individually gated observed versions. Points, lines, circles and arcs use local
+millimetres; UTF-16LE text content does not imply font/layout support. Dimensions,
+hatching, old text encodings and projection evaluation remain opaque.
+Big-endian V6L1/V6L2/V7L1 internal part inventories retain raw coordinate blocks;
+units, evaluated placement, external/mirror geometry and older 3D layouts are
+not qualified. Exact Parasolid schema gaps remain a separate dependency issue.
+
+Classification matches 38 originals (21 raw versions). A 1,018-file big-endian
+scan leaves 54 partial view inventories and three unknown classifications.
+All 45 non-3D V8L1 inputs have complete view framing and partial drawings.
+Local SDK checks cover 108 observations and 1,759 decoded 2D elements, including
+15 additional originals and eight new saved/reopened cases. This evidence
+qualifies bounded records, not every file saved by each historical iCAD version.
+V8L4 remains unsupported until real V8L4 inputs and independent evidence exist.
+
+## Version-support P5: explicit external assemblies (unreleased)
+
+[Assembly resolution](references.md) uses explicit roots or a caller resolver,
+preserving saved names, actual paths, hashes and occurrence ownership separately.
+Per-call snapshots detect dependency changes; missing, ambiguous, unsupported,
+cycle and limit states remain explicit. Default reads do not load references.
+The viewer composes external frames, target saved roots and mirror parity while
+sharing source geometry evaluation and preserving per-occurrence selection.
+
+Local evidence covers 15 existing assemblies plus 19 new saved/reopened bundles
+in V7L6/V7L7/V8L1/V8L2/V8L3: 44 placed saved bodies and 38 native primitives match
+SDK mass properties, centroids and frames. Independent authoring equations cover
+all 82 placements. Missing child/grandchild cases retain two missing occurrences;
+changed roots and compound mirrors have separate SDK/browser checks. Native
+extrusions in the older corpus remain opaque; resolution does not add geometry
+families. V7L2–V7L5, V8L4, general feature history and assembly GLB remain outside
+this scope. Validation is local Linux/Wine evidence, not remote platform CI.
+
+## Version-support P4: internal mirrors (unreleased)
+
+V7L6/V7L7 revision 2 and V8L1/V8L2/V8L3 revision 3 now distinguish saved part
+frames, absolute mirror parity and signed relative orientation. Native
+box/cone signed heights are normalized without changing raw bytes; qualified
+symmetric primitives and saved final B-Reps use their already reflected geometry.
+The viewer preserves outward winding and occurrence selection.
+
+Local evidence covers 45 real files, including 30 newly saved/reopened inputs:
+136 native primitives and 38 converted saved bodies match SDK mass properties
+and centroids. Independent reflection/rotation equations cover 42 cases. Two
+V8 bodies from an entity mirror within one owner remain unsupported because
+multiple distinct resource keys do not establish a reliable association.
+V7L2–V7L5 mirrors and mirrored CSG history remain unsupported; external mirror
+resolution is covered separately by P5. Earlier release/stage descriptions below retain their
+historical boundaries; P4 is a local source change, not a published release.
+
 ## v0.3.0 scope
 
 Version 0.3.0 preserves qualified binary attribute envelopes without
@@ -214,3 +285,19 @@ General CSG evaluation, full feature history, complete 2D drawings and dimension
 ICD writing, and unrestricted whole-model STEP/mesh export are later work.
 Broader resource-to-part mapping and assembly GLB export remain follow-up work.
 Resource-local previews retain explicit coordinate and completeness limits.
+
+## Version-support P3: old little-endian V7 inputs (unreleased)
+
+V7L2–V7L6 now have individually selected part profiles. Original installed
+files establish the view, tag, record, metadata and terminal boundaries;
+V7L2–V7L5 retain opaque entity geometry while exposing structure and part frames.
+V7L6 also uses bounded standalone primitives and saved final-body bindings.
+Saved CSG programs remain unqualified for V7L6.
+
+The private original-file scan covers 120 unique files: 92 qualified 3D indices
+and 28 unsupported registered-part/non-3D layouts. SDK evidence uses actual
+originals and genuine V7L6 saves reopened in iCAD V8L3-09A. V7L2–V7L5 requests
+that fall back to V8L3 are not counted as old-version files. Broader mirror
+geometry, external-reference resolution, non-3D/big-endian inputs and actual
+V8L4 inputs remain later stages. Public tests contain independently authored
+bytes; vendor files, SDK dumps and schema catalogs are not distributed.

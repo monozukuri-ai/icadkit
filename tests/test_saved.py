@@ -25,7 +25,7 @@ def resource(
         count=0,
     )
     b = bytearray(data)
-    if version == 5:
+    if version in (4, 5):
         struct.pack_into("<9d", b, 32, *origin, 0, 0, 1, 2 if bad_frame else 1, 0, 0)
     return bytes(b)
 
@@ -245,6 +245,7 @@ def test_resolution_limit(value):
 
 def v8_document(
     *,
+    profile="v8l3",
     keys=(901,),
     references=(901,),
     origins=((10, 20, 30),),
@@ -294,13 +295,21 @@ def v8_document(
     data = bytearray(
         document_factory()(resources, view_payload=view[504 : 496 + size - 4], tail=b"")
     )
-    data[12:16] = b"\0\10\0\3"
+    data[12:16] = {"v8l1": b"\0\10\0\1", "v8l2": b"\0\10\0\2", "v8l3": b"\0\10\0\3"}[
+        profile
+    ]
     return icadkit.read(bytes(data))
 
 
-def test_v8_explicit_resource_key_supports_shared_instances_and_arbitrary_order():
+@pytest.mark.parametrize("profile", ["v8l1", "v8l2", "v8l3"])
+def test_v8_explicit_resource_key_supports_shared_instances_and_arbitrary_order(
+    profile,
+):
     doc = v8_document(
-        keys=(777, 901), references=(901, 901), origins=((10, 20, 30), (-10, 50, 90))
+        profile=profile,
+        keys=(777, 901),
+        references=(901, 901),
+        origins=((10, 20, 30), (-10, 50, 90)),
     )
     index = icadkit.read_saved_bodies(doc)
     assert index.status == "complete" and len(index.bodies) == 2
@@ -308,16 +317,16 @@ def test_v8_explicit_resource_key_supports_shared_instances_and_arbitrary_order(
         assert body.resource_id == doc.resources[1].resource_id
         assert body.resource_source_id == 901 and body.source_id != 901
         assert body.binding_kind == "saved_resource_key"
-        assert body.frame_source == "native_global"
+        assert body.frame_source == "root_relative_native"
         assert body.resource_frame_range.start == body.byte_range.start + 48
         assert body.raw_resource_frame == doc.source_bytes(body.resource_frame_range)
     assert index.bodies[0].world_transform == (
-        (1, 0, 0, 10),
-        (0, 0, 1, 20),
-        (0, -1, 0, 30),
+        (1, 0, 0, -90),
+        (0, 0, 1, -180),
+        (0, -1, 0, -270),
         (0, 0, 0, 1),
     )
-    assert index.bodies[1].world_transform[1][3] == 50
+    assert index.bodies[1].world_transform[1][3] == -150
 
 
 @pytest.mark.parametrize(
@@ -341,10 +350,35 @@ def test_v8_ambiguous_or_missing_resources_never_fall_back_to_order(kwargs):
     )
 
 
-def test_v8_mirrored_ancestor_prevents_saved_geometry():
+@pytest.mark.parametrize("profile", ["v8l1", "v8l2", "v8l3"])
+def test_v8_distinct_keys_in_one_owner_require_qualified_associations(profile):
+    doc = v8_document(
+        profile=profile,
+        keys=(901, 902),
+        references=(901, 902),
+        origins=((10, 20, 30), (-10, 50, 90)),
+    )
+    index = icadkit.read_saved_bodies(doc)
+    assert index.status == "partial" and len(index.bodies) == 2
+    assert [b.resource_source_id for b in index.bodies] == [901, 902]
+    for body in index.bodies:
+        assert body.status == "unsupported" and body.resource_id is None
+        assert body.diagnostics[0].code == "saved.owner_resource_keys"
+        assert len(doc.source_bytes(body.byte_range)) == 152
+        with pytest.raises(icadkit.UnsupportedFormatError, match="saved.incomplete"):
+            icadkit.evaluate_saved_body(doc, body)
+
+
+def test_v8_mirrored_ancestor_does_not_reflect_saved_geometry_again():
     doc = v8_document(mirrored_ancestor=True)
     body = icadkit.read_saved_bodies(doc).bodies[0]
-    assert body.status == "unsupported" and body.diagnostics[0].code == "saved.owner"
+    assert body.status == "complete"
+    assert body.world_transform == (
+        (1, 0, 0, 10),
+        (0, 0, 1, 20),
+        (0, -1, 0, 30),
+        (0, 0, 0, 1),
+    )
 
 
 @pytest.mark.parametrize("value", [2, math.nan, math.inf])
@@ -359,13 +393,16 @@ def test_v8_nonrigid_or_nonfinite_marker_frame_never_produces_a_mesh(value):
     )
 
 
-def test_v8_saved_global_frame_is_applied_once_and_viewer_retains_ownership(tmp_path):
+@pytest.mark.parametrize("profile", ["v8l1", "v8l2", "v8l3"])
+def test_v8_saved_root_frame_is_applied_once_and_viewer_retains_ownership(
+    tmp_path, profile
+):
     backend()
-    doc = v8_document()
+    doc = v8_document(profile=profile)
     body = icadkit.read_saved_bodies(doc).bodies[0]
     mesh = icadkit.evaluate_saved_body(doc, body)
     assert mesh.volume_mm3 == pytest.approx(6000 * 1e9)
-    assert mesh.centroid_mm == pytest.approx((7010, 18020, -8970))
+    assert mesh.centroid_mm == pytest.approx((6910, 17820, -9270))
     result = write_native_viewer(doc, tmp_path / "v8", saved_brep=True)
     assert result.evaluated_saved_bodies == 1
     scene = json.loads((result.directory / "scene.json").read_bytes())

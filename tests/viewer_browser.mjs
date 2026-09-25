@@ -1,5 +1,5 @@
 // Optional browser regression: node tests/viewer_browser.mjs URL SCENARIO OUTDIR
-// Requires Playwright and Chromium. SCENARIO: mixed, holdout, sphere, torus, csg, saved, saved-v8, unsupported or inventory.
+// Requires Playwright and Chromium. SCENARIO: mixed, holdout, sphere, torus, csg, saved, saved-v7, saved-v8, unsupported or inventory.
 // mixed: box visible, cylinder hidden, unsupported entity; part comment below.
 import assert from 'node:assert/strict';
 import {mkdir, writeFile} from 'node:fs/promises';
@@ -57,21 +57,28 @@ try {
     assert.equal(await page.evaluate(()=>nativeView.visible.size),2);
     report.checks.push('saved hidden/restored; parent visibility; unsupported selectable; search; stored text rendered literally');
   }
-  if (['saved','saved-v8'].includes(scenario)) {
+  if (['saved','saved-v7','saved-v8'].includes(scenario)) {
     assert.equal(await page.evaluate(()=>nativeView.scene.saved_brep.evaluated),1);
     assert.equal(await page.evaluate(()=>nativeView.drawables.length),1);
     if (scenario === 'saved') {
       await page.getByRole('button',{name:/^Saved component/}).first().click();
       assert.match(await page.locator('#details').innerText(),/not drawn separately/);
       report.checks.push('saved components not drawn separately');
+    } else if (scenario === 'saved-v8') {
+      assert.deepEqual(await page.evaluate(()=>{
+        const body=nativeView.scene.parts.flatMap(p=>p.entities).find(e=>e.saved_body).saved_body;
+        return [body.binding_kind,body.frame_source];
+      }),['saved_resource_key','root_relative_native']);
+      report.checks.push('V8 final body uses explicit resource key and root-relative native frame');
     } else {
       assert.deepEqual(await page.evaluate(()=>{
         const body=nativeView.scene.parts.flatMap(p=>p.entities).find(e=>e.saved_body).saved_body;
         return [body.binding_kind,body.frame_source];
-      }),['saved_resource_key','native_global']);
-      report.checks.push('V8L3 final body uses explicit resource key and native global frame');
+      }),['native_source_id','root_relative_resource']);
+      report.checks.push('V7 final body uses explicit source ID and root-relative resource frame');
     }
-    await page.getByRole('button',{name:/^Saved final body/}).click();
+    const drawnBody=await page.evaluate(()=>nativeView.drawables[0].id);
+    await page.getByRole('button',{name:`Saved final body · ${drawnBody}`,exact:true}).click();
     assert.match(await page.locator('#details').innerText(),/Volume \(mm³\)/);
     report.checks.push('saved final body selectable; mass properties visible');
   }
@@ -107,7 +114,7 @@ try {
     });
     await page.mouse.click(point.x,point.y);
     assert.equal(await page.evaluate(()=>nativeView.selectionId),point.id);
-    assert.match(await page.locator('#details').innerText(),['csg','saved','saved-v8'].includes(scenario) ? /Volume \(mm³\)/ : scenario === 'sphere' ? /Radius \(mm\)/ : scenario === 'torus' ? /Major radius \(mm\)/ : /Height \(mm\)/);
+    assert.match(await page.locator('#details').innerText(),['csg','saved','saved-v7','saved-v8'].includes(scenario) ? /Volume \(mm³\)/ : scenario === 'sphere' ? /Radius \(mm\)/ : scenario === 'torus' ? /Major radius \(mm\)/ : /Height \(mm\)/);
     const before=await page.evaluate(()=>({yaw:nativeView.yaw,target:[...nativeView.target],radius:nativeView.radius}));
     await page.mouse.move(point.x,point.y);await page.mouse.down();await page.mouse.move(point.x+45,point.y+25,{steps:4});await page.mouse.up();
     assert.notEqual(await page.evaluate(()=>nativeView.yaw),before.yaw);

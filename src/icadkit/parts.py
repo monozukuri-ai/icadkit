@@ -101,9 +101,11 @@ class PartPlacement:
     comes from the saved part frame; local_transform is inverse(parent world)
     times world. The original first block (values/raw_bytes) is retained, but
     is not used as the part frame or as a geometry transform.
-    V7L7 global frames use inverse(saved root frame) times the stored frame.
-    All profiles retain the original coordinate blocks unchanged. V8L1/V8L2
-    expose inventory only: units and evaluated frames remain unqualified.
+    Qualified global frames normalize by inverse(saved root frame). Coordinate
+    transforms remain right-handed, matching the SDK. orientation transforms
+    additionally encode the saved occurrence parity by reversing Y for a mirror.
+    They describe occurrence orientation, never another geometry transform.
+    All original coordinate blocks remain unchanged.
     """
 
     values: tuple[float | None, ...]
@@ -115,6 +117,8 @@ class PartPlacement:
     coordinate_values: tuple[float | None, ...] = ()
     raw_coordinate_bytes: bytes = b""
     coordinate_byte_range: ByteRange | None = None
+    orientation_world_transform: Matrix4 | None = None
+    orientation_local_transform: Matrix4 | None = None
 
 
 @dataclass(frozen=True)
@@ -187,6 +191,35 @@ class PartOpaqueRange:
 
 
 @dataclass(frozen=True)
+class PartProfile:
+    """Matched record policies, not a claim of document or geometry completeness."""
+
+    profile_id: str
+    byte_order: Literal["little", "big"]
+    raw_version: bytes
+    part_tag: int
+    coordinate_convention: Literal["root_relative", "saved_global", "unqualified"]
+    entity_policy: Literal[
+        "standalone_owner", "saved_entities", "inventory_only", "opaque_entities"
+    ]
+    source_length_unit: Literal["mm"] | None
+    saved_body_layout: (
+        Literal["v7l6_source_id", "v7_source_id", "v8_resource_key", "v8l1_saved_body"]
+        | None
+    )
+    csg_layout: Literal["v7_postfix"] | None
+    view_byte_range: ByteRange
+    part_byte_range: ByteRange
+    mirror_policy: Literal["stored_parity"] | None = None
+
+
+@dataclass(frozen=True)
+class PartView:
+    byte_range: ByteRange
+    kind: Literal["3d_global", "unknown"]
+
+
+@dataclass(frozen=True)
 class PartIndex:
     """A bounded part inventory; success does not mean a complete CAD model.
 
@@ -202,6 +235,9 @@ class PartIndex:
     source_length_unit: Literal["mm"] | None = None
     definitions: tuple[PartDefinition, ...] = ()
     length_unit_source: Literal["qualified_part_profile"] | None = None
+    profile: PartProfile | None = None
+    views: tuple[PartView, ...] = ()
+    document_kind: Literal["unknown"] = "unknown"
     _by_id: dict[str, Part] = field(init=False, repr=False, compare=False)
     _children: dict[str | None, tuple[Part, ...]] = field(
         init=False, repr=False, compare=False
@@ -302,6 +338,8 @@ class PartIndex:
                 ),
                 "local_transform": p.placement.local_transform,
                 "world_transform": p.placement.world_transform,
+                "orientation_world_transform": p.placement.orientation_world_transform,
+                "orientation_local_transform": p.placement.orientation_local_transform,
                 "placement_status": p.placement.status,
                 "geometry_status": p.geometry_status,
                 "hierarchy_status": self.status.hierarchy,
@@ -353,6 +391,24 @@ def _frame(values: list[float]) -> Matrix4 | None:
     )
 
 
+def _with_parity(frame: Matrix4, parity: int) -> Matrix4:
+    """Encode occurrence parity without changing the saved X/Z axes or origin."""
+    return tuple(
+        tuple(v * parity if j == 1 else v for j, v in enumerate(row)) for row in frame
+    )
+
+
+def _determinant(frame: Matrix4) -> float:
+    return sum(
+        frame[0][i]
+        * (
+            frame[1][(i + 1) % 3] * frame[2][(i + 2) % 3]
+            - frame[1][(i + 2) % 3] * frame[2][(i + 1) % 3]
+        )
+        for i in range(3)
+    )
+
+
 def _relative(parent: Matrix4, child: Matrix4) -> Matrix4 | None:
     # Both frames are already qualified as rigid: inverse rotation is transpose.
     result = tuple(
@@ -363,7 +419,7 @@ def _relative(parent: Matrix4, child: Matrix4) -> Matrix4 | None:
     return result if all(math.isfinite(v) for row in result for v in row) else None
 
 
-def _v7_global_entity(entity: NativeEntity, root: Matrix4 | None) -> NativeEntity:
+def _global_entity(entity: NativeEntity, root: Matrix4 | None) -> NativeEntity:
     if entity.primitive is None:
         return entity
     world = _relative(root, entity.primitive.world_transform) if root else None
@@ -384,8 +440,7 @@ def _v7_global_entity(entity: NativeEntity, root: Matrix4 | None) -> NativeEntit
                 kind,
                 "native.root_frame",
                 entity.byte_range.start,
-                "V7L7 global primitive frame is unavailable; "
-                "source parameters retained",
+                "Global primitive frame is unavailable; source parameters retained",
             ),
         ),
     )
@@ -430,28 +485,55 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
     occurrences: dict[str, list[str]] = defaultdict(list)
     reference_ids: dict[bytes, str] = {}
     diagnostics = [Diagnostic(**d) for d in data["diagnostics"]]
-    v7 = doc.header.raw_version == b"\x00\x07\x00\x07"
-    inventory_only = doc.header.raw_version in (b"\0\10\0\1", b"\0\10\0\2")
+    raw_profile = data["profile"]
+    profile = (
+        PartProfile(
+            raw_profile["profile_id"],
+            raw_profile["byte_order"],
+            raw_profile["raw_version"],
+            raw_profile["part_tag"],
+            raw_profile["coordinate_convention"],
+            raw_profile["entity_policy"],
+            raw_profile["source_length_unit"],
+            raw_profile["saved_body_layout"],
+            raw_profile["csg_layout"],
+            ByteRange(*raw_profile["view_byte_range"]),
+            ByteRange(*raw_profile["part_byte_range"]),
+            raw_profile["mirror_policy"],
+        )
+        if raw_profile
+        else None
+    )
+    root_relative = (
+        profile is not None and profile.coordinate_convention == "root_relative"
+    )
+    mirrors_qualified = profile is not None and profile.mirror_policy == "stored_parity"
+    inventory_only = profile is not None and profile.entity_policy == "inventory_only"
+    opaque_entities = profile is not None and profile.entity_policy in (
+        "inventory_only",
+        "opaque_entities",
+    )
     roots = [p for p in data["parts"] if p["is_root"]]
     root_frame = None
-    if v7 and len(roots) == 1 and data["hierarchy_status"] == "complete":
+    if root_relative and len(roots) == 1 and data["hierarchy_status"] == "complete":
         root = roots[0]
         if all(math.isfinite(v) for v in root["placement_values"]):
             root_frame = _frame(root["coordinate_values"])
-    if v7 and data["parts"] and root_frame is None:
+    if root_relative and data["parts"] and root_frame is None:
         diagnostics.append(
             Diagnostic(
                 "unsupported",
                 "parts.root_frame",
                 12,
-                "V7L7 global placement requires a complete hierarchy and a rigid "
+                "Global placement requires a complete hierarchy and a rigid "
                 "saved root frame; raw coordinates retained",
             )
         )
     units_qualified = (
         bool(data["parts"])
-        and not inventory_only
-        and (not v7 or root_frame is not None)
+        and profile is not None
+        and profile.source_length_unit == "mm"
+        and (not root_relative or root_frame is not None)
     )
     if inventory_only and data["parts"]:
         diagnostics.append(
@@ -459,12 +541,12 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                 "unsupported",
                 "parts.inventory_profile",
                 12,
-                "V8L1/V8L2 inventory does not qualify units, placement, geometry "
+                "This inventory profile does not qualify units, placement, geometry "
                 "or appearance; raw values retained",
             )
         )
     blocked_placements: set[int] = set()
-    if v7 and root_frame is not None:
+    if root_relative and root_frame is not None:
         children_by_source: dict[int, list[_core.RawPart]] = defaultdict(list)
         for raw_part in data["parts"]:
             children_by_source[raw_part["parent_source_id"]].append(raw_part)
@@ -473,7 +555,9 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
             raw_part, inherited_block = pending.pop()
             if inherited_block:
                 blocked_placements.add(raw_part["source_id"])
-            child_block = inherited_block or bool(raw_part["flags"] & 0x18)
+            child_block = inherited_block or bool(
+                raw_part["flags"] & (0x10 if mirrors_qualified else 0x18)
+            )
             pending.extend(
                 (child, child_block)
                 for child in children_by_source[raw_part["source_id"]]
@@ -603,7 +687,12 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
         finite = all(
             math.isfinite(v) for v in p["placement_values"] + p["coordinate_values"]
         )
-        world = _frame(p["coordinate_values"]) if known and not mirror else None
+        mirror_supported = mirrors_qualified and not external
+        world = (
+            _frame(p["coordinate_values"])
+            if known and (not mirror or mirror_supported)
+            else None
+        )
         placement_status: Status = "complete" if world is not None else "unsupported"
         if not finite:
             placement_status = "invalid"
@@ -616,7 +705,7 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                     "Stored placement contains a nonfinite double; raw bits retained",
                 )
             )
-        elif known and not mirror and world is None:
+        elif known and (not mirror or mirror_supported) and world is None:
             placement_status = "invalid"
             diagnostics.append(
                 Diagnostic(
@@ -626,7 +715,7 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                     "Part frame axes are not orthonormal; no transform supplied",
                 )
             )
-        elif mirror:
+        elif mirror and not mirror_supported:
             diagnostics.append(
                 Diagnostic(
                     "unsupported",
@@ -635,7 +724,7 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                     "Mirrored placement retained; transforms unsupported",
                 )
             )
-        if v7 and world is not None:
+        if root_relative and world is not None:
             if p["source_id"] in blocked_placements:
                 world = None
                 placement_status = "unsupported"
@@ -669,9 +758,16 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                 placement_status = "unsupported"
         parent = (p["view_offset"], p["parent_source_id"])
         entities = tuple(_read_entity(doc, e, part_id) for e in p["entities"])
-        if v7:
-            context = None if p["source_id"] in blocked_placements else root_frame
-            entities = tuple(_v7_global_entity(e, context) for e in entities)
+        if root_relative:
+            context = (
+                root_frame
+                if known
+                and (not mirror or mirror_supported)
+                and not external
+                and p["source_id"] not in blocked_placements
+                else None
+            )
+            entities = tuple(_global_entity(e, context) for e in entities)
         entity_scope = "partial" if external else data["index_status"]
         parts.append(
             Part(
@@ -701,6 +797,11 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                     ),
                     raw_coordinate_bytes=doc.source_bytes(coordinate_range),
                     coordinate_byte_range=coordinate_range,
+                    orientation_world_transform=(
+                        _with_parity(world, -1 if mirror else 1)
+                        if world is not None and mirrors_qualified and not external
+                        else None
+                    ),
                 ),
                 ByteRange(at, end),
                 definition_id=definition_id,
@@ -710,12 +811,12 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                 entities=entities,
                 native_geometry_status=(
                     "unsupported"
-                    if inventory_only
+                    if opaque_entities
                     else _scope([e.geometry_status for e in entities], entity_scope)
                 ),
                 appearance_status=(
                     "unsupported"
-                    if inventory_only
+                    if opaque_entities
                     else _scope([e.appearance.status for e in entities], entity_scope)
                 ),
                 opaque_attributes=opaque_attributes,
@@ -727,7 +828,20 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
         if placement.world_transform is None:
             continue
         local = None
+        orientation_local = None
         if data["hierarchy_status"] == "complete":
+            orientation_world = placement.orientation_world_transform
+            if orientation_world is not None:
+                if part.is_root:
+                    orientation_local = orientation_world
+                elif part.parent_id is not None:
+                    parent_orientation = by_id[
+                        part.parent_id
+                    ].placement.orientation_world_transform
+                    if parent_orientation is not None:
+                        orientation_local = _relative(
+                            parent_orientation, orientation_world
+                        )
             if part.is_root:
                 local = placement.world_transform
             elif part.parent_id is not None:
@@ -747,7 +861,14 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                         placement = replace(placement, status="invalid")
         if local is None and placement.status == "complete":
             placement = replace(placement, status="partial")
-        parts[i] = replace(part, placement=replace(placement, local_transform=local))
+        parts[i] = replace(
+            part,
+            placement=replace(
+                placement,
+                local_transform=local,
+                orientation_local_transform=orientation_local,
+            ),
+        )
     external_found = any(p.is_external for p in parts)
     index_status = data["index_status"]
     hierarchy = data["hierarchy_status"]
@@ -793,4 +914,9 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
             for d in definitions.values()
         ),
         length_unit_source=("qualified_part_profile" if units_qualified else None),
+        profile=profile,
+        views=tuple(
+            PartView(ByteRange(*v["byte_range"]), v["kind"]) for v in data["views"]
+        ),
+        document_kind=data["document_kind"],
     )

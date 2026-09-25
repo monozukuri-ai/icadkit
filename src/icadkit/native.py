@@ -54,6 +54,7 @@ class NativePrimitive:
     top_radius: float | None = None
     major_radius: float | None = None
     minor_radius: float | None = None
+    mirror_convention: Literal["signed_height", "symmetric_frame"] | None = None
 
     @property
     def box_dimensions(self) -> tuple[float, float, float] | None:
@@ -97,17 +98,28 @@ def _read_entity(doc: Document, raw: _core.RawNativeEntity, owner: str) -> Nativ
             z[2] * x[0] - z[0] * x[2],
             z[0] * x[1] - z[1] * x[0],
         )
-        matrix = tuple((x[i], y[i], z[i], origin[i]) for i in range(3)) + (
-            (0.0, 0.0, 0.0, 1.0),
-        )
+        matrix: tuple[tuple[float, ...], ...] = tuple(
+            (x[i], y[i], z[i], origin[i]) for i in range(3)
+        ) + ((0.0, 0.0, 0.0, 1.0),)
         p = value["parameters"]
         box = value["kind"] == "box"
         kind = value["kind"]
+        reflected_height = raw["is_mirror"] and kind in ("box", "cone")
+        if reflected_height:
+            # Negative stored extrusion height already carries the reflection.
+            # Normalize the height and reverse Z once; do not apply part parity.
+            matrix = tuple(
+                tuple(-v if j == 2 else v for j, v in enumerate(row)) for row in matrix
+            )
         source = ByteRange(start + 48, end)
         primitive = NativePrimitive(
             value["kind"],
             matrix,
-            p[0] if kind in ("box", "cone") else p[1] if kind == "cylinder" else None,
+            abs(p[0])
+            if kind in ("box", "cone")
+            else p[1]
+            if kind == "cylinder"
+            else None,
             p[5]
             if kind == "cone"
             else p[0]
@@ -120,6 +132,13 @@ def _read_entity(doc: Document, raw: _core.RawNativeEntity, owner: str) -> Nativ
             top_radius=p[6] if kind == "cone" else None,
             major_radius=p[1] if kind == "torus" else None,
             minor_radius=p[2] if kind == "torus" else None,
+            mirror_convention=(
+                "signed_height"
+                if reflected_height
+                else "symmetric_frame"
+                if raw["is_mirror"]
+                else None
+            ),
         )
     return NativeEntity(
         f"entity:{start:x}",

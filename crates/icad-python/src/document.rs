@@ -44,6 +44,69 @@ pub fn read_path(
 
 #[pymethods]
 impl DocumentHandle {
+    fn read_views<'py>(
+        &self,
+        py: Python<'py>,
+        policy: (usize, usize),
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let index = py
+            .detach(|| {
+                self.inner.read_views(icad_core::ViewLimits {
+                    max_views: policy.0,
+                    max_records: policy.1,
+                })
+            })
+            .map_err(inspection_error)?;
+        let result = PyDict::new(py);
+        result.set_item("status", index.status.as_str())?;
+        result.set_item("document_kind", index.document_kind)?;
+        result.set_item("profile_id", index.profile_id)?;
+        let diagnostics = |items: Vec<icad_core::Diagnostic>| -> PyResult<Bound<'py, PyList>> {
+            let rows = PyList::empty(py);
+            for d in items {
+                let row = PyDict::new(py);
+                row.set_item("category", d.kind.as_str())?;
+                row.set_item("code", d.code)?;
+                row.set_item("byte_offset", d.byte_offset)?;
+                row.set_item("message", d.message)?;
+                rows.append(row)?;
+            }
+            Ok(rows)
+        };
+        result.set_item("diagnostics", diagnostics(index.diagnostics)?)?;
+        let views = PyList::empty(py);
+        for v in index.views {
+            let value = PyDict::new(py);
+            value.set_item("byte_range", (v.byte_range.start, v.byte_range.end))?;
+            value.set_item("header_range", v.header_range.map(|r| (r.start, r.end)))?;
+            value.set_item("raw_name", PyBytes::new(py, &v.raw_name))?;
+            value.set_item("kind", v.kind)?;
+            value.set_item("raw_view_number", v.raw_view_number)?;
+            value.set_item("status", v.status.as_str())?;
+            value.set_item("diagnostics", diagnostics(v.diagnostics)?)?;
+            value.set_item(
+                "opaque_ranges",
+                v.opaque_ranges
+                    .iter()
+                    .map(|r| (r.start, r.end))
+                    .collect::<Vec<_>>(),
+            )?;
+            let entries = PyList::empty(py);
+            for e in v.entries {
+                let entry = PyDict::new(py);
+                entry.set_item("byte_range", (e.byte_range.start, e.byte_range.end))?;
+                entry.set_item("kind", e.kind)?;
+                entry.set_item("tag", e.tag)?;
+                entry.set_item("owner_offset", e.owner_offset)?;
+                entries.append(entry)?;
+            }
+            value.set_item("entries", entries)?;
+            views.append(value)?;
+        }
+        result.set_item("views", views)?;
+        Ok(result)
+    }
+
     fn read_parts<'py>(
         &self,
         py: Python<'py>,
@@ -62,6 +125,40 @@ impl DocumentHandle {
         let result = PyDict::new(py);
         result.set_item("index_status", index.index_status.as_str())?;
         result.set_item("hierarchy_status", index.hierarchy_status.as_str())?;
+        if let Some(profile) = &index.profile {
+            let value = PyDict::new(py);
+            value.set_item("profile_id", profile.profile_id)?;
+            value.set_item("byte_order", profile.byte_order.as_str())?;
+            value.set_item("raw_version", PyBytes::new(py, &profile.raw_version))?;
+            value.set_item("part_tag", profile.part_tag)?;
+            value.set_item("coordinate_convention", profile.coordinate_convention)?;
+            value.set_item("mirror_policy", profile.mirror_policy)?;
+            value.set_item("entity_policy", profile.entity_policy)?;
+            value.set_item("source_length_unit", profile.source_length_unit)?;
+            value.set_item("saved_body_layout", profile.saved_body_layout)?;
+            value.set_item("csg_layout", profile.csg_layout)?;
+            value.set_item(
+                "view_byte_range",
+                (profile.view_byte_range.start, profile.view_byte_range.end),
+            )?;
+            value.set_item(
+                "part_byte_range",
+                (profile.part_byte_range.start, profile.part_byte_range.end),
+            )?;
+            result.set_item("profile", value)?;
+        } else {
+            result.set_item("profile", py.None())?;
+        }
+        let views = PyList::empty(py);
+        for view in index.views {
+            let value = PyDict::new(py);
+            value.set_item("kind", view.kind)?;
+            value.set_item("byte_range", (view.byte_range.start, view.byte_range.end))?;
+            views.append(value)?;
+        }
+        result.set_item("views", views)?;
+        // No MOD field has yet been qualified as a document/library discriminator.
+        result.set_item("document_kind", "unknown")?;
         let parts = PyList::empty(py);
         for part in index.parts {
             let p = PyDict::new(py);

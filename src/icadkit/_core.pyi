@@ -80,6 +80,7 @@ class RawExtraction(TypedDict):
     encoding: Literal["raw", "zlib"]
 
 class DocumentHandle:
+    def read_views(self, policy: tuple[int, int]) -> RawViewIndex: ...
     def read_parts(self, policy: tuple[int, int, int, int]) -> RawPartIndex: ...
     def read_geometry(
         self,
@@ -90,6 +91,30 @@ class DocumentHandle:
     def summary(self) -> RawDocument: ...
     def extract(self, resource_id: str) -> RawExtraction: ...
     def source_bytes(self, start: int, end: int) -> bytes: ...
+
+class RawViewEntry(TypedDict):
+    byte_range: tuple[int, int]
+    kind: Literal["entity", "part", "legacy_owner", "metadata"]
+    tag: int | None
+    owner_offset: int | None
+
+class RawView(TypedDict):
+    byte_range: tuple[int, int]
+    header_range: tuple[int, int] | None
+    raw_name: bytes
+    kind: Literal["unknown", "3d_global", "2d_global", "2d_view", "registered_part"]
+    raw_view_number: int | None
+    entries: list[RawViewEntry]
+    opaque_ranges: list[tuple[int, int]]
+    diagnostics: list[RawDiagnostic]
+    status: Status
+
+class RawViewIndex(TypedDict):
+    document_kind: Literal["unknown", "document", "registered_part"]
+    profile_id: str | None
+    views: list[RawView]
+    diagnostics: list[RawDiagnostic]
+    status: Status
 
 class RawNativePrimitive(TypedDict):
     kind: Literal["box", "cylinder", "sphere", "cone", "torus"]
@@ -128,7 +153,33 @@ class RawPart(TypedDict):
     previous_source_id: int
     next_source_id: int
 
+class RawPartProfile(TypedDict):
+    profile_id: str
+    byte_order: Literal["little", "big"]
+    raw_version: bytes
+    part_tag: int
+    coordinate_convention: Literal["root_relative", "saved_global", "unqualified"]
+    entity_policy: Literal[
+        "standalone_owner", "saved_entities", "inventory_only", "opaque_entities"
+    ]
+    source_length_unit: Literal["mm"] | None
+    saved_body_layout: (
+        Literal["v7l6_source_id", "v7_source_id", "v8_resource_key", "v8l1_saved_body"]
+        | None
+    )
+    csg_layout: Literal["v7_postfix"] | None
+    mirror_policy: Literal["stored_parity"] | None
+    view_byte_range: tuple[int, int]
+    part_byte_range: tuple[int, int]
+
+class RawPartView(TypedDict):
+    byte_range: tuple[int, int]
+    kind: Literal["3d_global", "unknown"]
+
 class RawPartIndex(TypedDict):
+    profile: RawPartProfile | None
+    views: list[RawPartView]
+    document_kind: Literal["unknown"]
     index_status: Status
     hierarchy_status: Status
     parts: list[RawPart]

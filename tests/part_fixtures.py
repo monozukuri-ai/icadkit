@@ -27,6 +27,11 @@ def part(
 ):
     data = bytearray(356)
     tag = {
+        "v7l2": 0x61000001,
+        "v7l3": 0x61000001,
+        "v7l4": 0x61000001,
+        "v7l5": 0x61000001,
+        "v7l6": 0x61000002,
         "v7l7": 0x61000002,
         "v8l1": 0x61000003,
         "v8l2": 0x61000003,
@@ -81,6 +86,11 @@ def view_parts(records, *, end=True, prefix=None, after=b"", profile="v8l3"):
     payload += (b"\0\0\0\xfe" if end else b"") + after
     data = bytearray(document_factory()(view_payload=payload, with_usr=False, tail=b""))
     data[12:16] = {
+        "v7l2": b"\0\x07\0\x02",
+        "v7l3": b"\0\x07\0\x03",
+        "v7l4": b"\0\x07\0\x04",
+        "v7l5": b"\0\x07\0\x05",
+        "v7l6": b"\0\x07\0\x06",
         "v7l7": b"\0\x07\0\x07",
         "v8l1": b"\0\x08\0\x01",
         "v8l2": b"\0\x08\0\x02",

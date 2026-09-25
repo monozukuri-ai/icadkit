@@ -1,4 +1,4 @@
-"""Explicitly bound V7L7/V8L3 saved bodies, independent of feature replay."""
+"""Explicitly bound qualified saved bodies, independent of feature replay."""
 
 from __future__ import annotations
 
@@ -100,9 +100,15 @@ def _error(
 def _read_saved_bodies(
     doc: Document, parts: PartIndex, limits: SavedBodyLimits
 ) -> SavedBodyIndex:
-    v7 = doc.header.raw_version == b"\0\7\0\7"
+    profile = parts.profile
+    v7 = profile is not None and profile.saved_body_layout in (
+        "v7l6_source_id",
+        "v7_source_id",
+    )
     if (
-        doc.header.raw_version not in (b"\0\7\0\7", b"\0\10\0\3")
+        profile is None
+        or profile.saved_body_layout
+        not in ("v7l6_source_id", "v7_source_id", "v8_resource_key", "v8l1_saved_body")
         or parts.status.index != "complete"
         or parts.source_length_unit != "mm"
         or parts.status.hierarchy not in ("complete", "partial")
@@ -115,7 +121,7 @@ def _read_saved_bodies(
             (
                 _error(
                     "profile",
-                    "Saved bodies require complete V7L7/V8L3 indexes "
+                    "Saved bodies require complete qualified indexes "
                     "and qualified units",
                 ).diagnostic,
             ),
@@ -140,7 +146,7 @@ def _read_saved_bodies(
             if (
                 owner is None
                 or owner.is_external
-                or owner.is_mirror
+                or (owner.is_mirror and profile.mirror_policy != "stored_parity")
                 or owner.placement.world_transform is None
             ):
                 return False
@@ -162,6 +168,20 @@ def _read_saved_bodies(
     by_id = {r.resource_id: r for r in doc.resources}
     bodies: list[SavedBody] = []
     for part in parts.parts:
+        # V8 copies within one owner can reorder resource payloads while leaving
+        # distinct marker keys unchanged. A unique numeric key alone does not
+        # qualify that association. Repeated occurrences of one key are bounded.
+        owner_keys: set[int] = set()
+        if not v7:
+            for entity in part.entities:
+                raw = doc.source_bytes(entity.byte_range)
+                if (
+                    entity.raw_type == 85
+                    and len(raw) == 152
+                    and struct.unpack_from("<I", raw, 12)[0] & 0xFFFFFF
+                    not in (0x109E1, 0x109A1)
+                ):
+                    owner_keys.add(struct.unpack_from("<I", raw, 32)[0])
         for entity in part.entities:
             b = doc.source_bytes(entity.byte_range)
             # Component markers (0x109e1/0x109a1) are not final results.
@@ -202,7 +222,14 @@ def _read_saved_bodies(
                     or words[0] != len(b)
                     or not words[1]
                     or words[2]
-                    or words[3] not in (0x550108C1, 0x55010881)
+                    or (
+                        words[3] not in (0x550108C1, 0x55010881)
+                        and not (
+                            not v7
+                            and part.byte_range.length == 704
+                            and words[3] == 0x550108C0
+                        )
+                    )
                     or sid & 0xF0000000 != 0x80000000
                     or words[5]
                     or words[6] != (0xFD000018 if v7 else 0xFD000080)
@@ -220,10 +247,21 @@ def _read_saved_bodies(
                         "Unqualified saved final-body marker",
                         entity.byte_range.start,
                     )
-                # V8L3 stores an explicit resource key at +32. Repeated
+                # V8 layouts can store an explicit resource key at +32. Repeated
                 # occurrences may share that key, while their native IDs and
                 # frames remain independent. Never use resource enumeration order.
-                resource_source_id = sid if v7 else words[8]
+                legacy_template = (
+                    profile.saved_body_layout == "v8l1_saved_body"
+                    and any(by_id[r].owner_type == 134 for r in resources.get(sid, []))
+                )
+                resource_source_id = sid if v7 or legacy_template else words[8]
+                if not v7 and not legacy_template and len(owner_keys) > 1:
+                    raise _error(
+                        "owner_resource_keys",
+                        "Multiple distinct V8 resource keys in one owner require "
+                        "an unqualified association table",
+                        entity.byte_range.start,
+                    )
                 matches = resources.get(resource_source_id, [])
                 if source_counts[sid] != 1 or len(matches) != 1:
                     raise _error(
@@ -233,7 +271,13 @@ def _read_saved_bodies(
                     )
                 resource_id = matches[0]
                 resource = by_id[resource_id]
-                expected_layout = (134, 5) if v7 else (135, 6)
+                expected_layout = (
+                    (134, 4)
+                    if profile.saved_body_layout == "v7l6_source_id"
+                    else (134, 5)
+                    if v7 or legacy_template
+                    else (135, 6)
+                )
                 if (resource.owner_type, resource.layout_version) != expected_layout:
                     raise _error(
                         "resource_layout",
@@ -252,13 +296,51 @@ def _read_saved_bodies(
                     raise _error(
                         "frame", "Non-rigid saved resource frame", frame_range.start
                     )
-                world = _relative(root_frame, frame) if v7 else frame
+                if legacy_template:
+                    # Original V8L1 parametric templates use native IDs for
+                    # layout 134/5. Only the observed root-owned template
+                    # with an identity root and identical marker/resource
+                    # frames is qualified. Do not choose between conflicting frames.
+                    identity = _frame([0, 0, 0, 0, 0, 1, 1, 0, 0])
+                    resource_frame = doc.source_bytes(
+                        ByteRange(
+                            resource.owner_range.start + 32,
+                            resource.owner_range.start + 104,
+                        )
+                    )
+                    if (
+                        not part.is_root
+                        or part.byte_range.length != 704
+                        or root_frame != identity
+                        or resource_frame != raw_frame
+                        or resources.get(words[8])
+                    ):
+                        raise _error(
+                            "legacy_template",
+                            "Unqualified V8L1 source-ID template",
+                            entity.byte_range.start,
+                        )
+                world = (
+                    _relative(root_frame, frame)
+                    if profile.coordinate_convention == "root_relative"
+                    else frame
+                )
                 if world is None:
                     raise _error(
                         "frame", "Saved global frame overflow", frame_range.start
                     )
-                binding_kind = "native_source_id" if v7 else "saved_resource_key"
-                frame_source = "root_relative_resource" if v7 else "native_global"
+                binding_kind = (
+                    "native_source_id"
+                    if v7 or legacy_template
+                    else "saved_resource_key"
+                )
+                frame_source = (
+                    "root_relative_resource"
+                    if v7
+                    else "root_relative_native"
+                    if profile.coordinate_convention == "root_relative"
+                    else "native_global"
+                )
                 color = (b[41] & 15) | (b[40] & 16)
                 appearance = NativeAppearance(
                     color or None,

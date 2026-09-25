@@ -24,3 +24,34 @@ uv run python scripts/verify_corpus.py --manifest corpus/public.jsonl \
 The generators, manifest and tests are in the sdist. Generated ICD files are
 excluded from both wheel and sdist. These synthetic cases verify specific
 behaviors and do not establish general compatibility with vendor-produced files.
+
+## Caller-owned native regression data
+
+`scripts/verify_native_corpus.py` checks an explicit JSON manifest without
+starting iCAD. Each row pins an input SHA-256, its existing API snapshot,
+`family_id` and `development`/`validation` partition. Optional SDK observations,
+required companion files and intentionally absent dependencies have separate
+entries. Supply each named input root explicitly with `--root NAME=PATH` and
+pin the manifest itself with `--manifest-sha256` when recording a baseline.
+
+The runner rejects missing/changed evidence and split families or shared CAD
+payloads across different families. It reports unchanged reader behavior
+separately from SDK comparison. Current SDK checks cover host child-part
+hierarchy, saved names/properties and available world frames, not full geometry.
+Resolved external descendants belong to their own document. An unloaded SDK
+placeholder cannot certify saved comment/reference properties. A library-part
+insertion oracle cannot certify the original file's raw document coordinates.
+These fields remain explicitly partial or not comparable.
+Repeated same-name parent paths remain partial where occurrence ownership cannot
+be independently matched; equal counts and list ordering are not proof.
+
+The manifest and actual CAD/SDK data are not included. Tests construct independent
+synthetic evidence. An unchanged unsupported result passes the regression check
+but does not qualify that file as newly supported.
+
+The explicit [assembly resolver](../docs/references.md) has separate synthetic
+tests in `tests/test_references.py` and optional browser checks in
+`tests/viewer_assembly_browser.mjs`. The single-file corpus snapshot is unchanged
+by resolution. Private P5 SDK bundles additionally check child/grandchild frames,
+dependency updates, missing targets, mirrors and placed geometry; these bundles
+and their proprietary catalogs are not distributed.

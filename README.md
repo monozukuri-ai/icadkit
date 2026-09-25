@@ -20,8 +20,13 @@ Version **0.3.0** adds:
 icadkit is experimental. Unsupported geometry remains in the part inventory;
 unknown values and source ranges are preserved. Part frames, native primitive
 frames and embedded resource coordinates have separate contracts. Complete
-assembly geometry, inherited attributes and drawings remain unsupported.
+assembly geometry, inherited attributes and complete drawing reconstruction remain unsupported.
 Read the [support boundaries](docs/support.md) and [release notes](docs/changelog.md).
+
+The unreleased source adds [view inventories and saved 2D geometry](docs/drawing.md)
+through `read_views()` / `read_drawing()` and the `views` / `drawing` CLI commands.
+Old originals and registered parts are read directly. Qualified 2D primitives
+use view-local coordinates; text content is separate from unsupported layout.
 
 Run `icadkit view model.icd` to open qualified native primitives and their
 part properties. The base viewer works without the preview extra.
@@ -84,8 +89,14 @@ native cones/frusta and full ring tori. The updated exact V34 profile in
 `parasolid-core 0.3.1` removes the catalog requirement for qualified toroidal
 resources.
 
-Qualified V8L3 part frames use millimetres. Mirrored frames and external-file
-loading remain unsupported. Extended information is stored text, not interpreted
+The current unreleased source extends qualified millimetre frames and bounded
+native/saved geometry to V7L6/V7L7 and V8L1/V8L2/V8L3, including internal mirrors.
+Signed occurrence orientation is separate from already placed geometry; see
+[mirror semantics](docs/parts.md#coordinate-frames-and-units). Explicit
+[external-reference resolution](docs/references.md) now composes qualified child
+and grandchild placements, including mirrors, through `read_assembly()` or
+`icadkit view model.icd --reference-root /path/to/bundle`. Saved names, resolved
+paths, hashes and missing/ambiguous references remain separate. Extended information is stored text, not interpreted
 typed engineering properties. Check each scope's status before relying on its values.
 
 ## Embedded geometry

@@ -131,6 +131,28 @@ def test_program_provenance_owner_and_operands_stay_separate():
     assert icadkit.read_csg(doc).model_status == "partial"
 
 
+def test_unmirrored_csg_owner_below_mirrored_parent_stays_unsupported():
+    doc = icadkit.read(
+        view_parts(
+            [
+                part(ROOT, root=True, child=A, profile="v7l7"),
+                part(A, parent=ROOT, child=B, flags=8, profile="v7l7"),
+                part(B, parent=A, profile="v7l7"),
+                program((LEFT, RIGHT, 2)),
+                struct.pack("<I", 0x30010000),
+                component(LEFT, linked=True),
+                component(RIGHT, origin=(5, 0, 0)),
+                result(),
+            ],
+            profile="v7l7",
+        )
+    )
+    owner = doc.read_parts().parts[-1]
+    assert not owner.is_mirror and owner.placement.world_transform is not None
+    assert body(doc).diagnostics[0].code == "csg.owner"
+    assert body(doc).status == "unsupported"
+
+
 def test_hidden_header_and_saved_attributes():
     assert body(hidden=True).appearance.visible is False
     assert body(attributes=True).status == "complete"

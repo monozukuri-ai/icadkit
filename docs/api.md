@@ -28,6 +28,23 @@ frames and selected stored attributes. Its scope statuses are independent of
 the resource geometry API described below. Saved entities expose
 `NativeEntity`, `NativeAppearance` and `NativePrimitive`; see
 [native parameter and appearance access](native.md).
+The current source adds [saved 3D parameter tables](parameters.md) through
+`Document.read_parameters()`, returning `ParameterIndex`, `SavedParameter`,
+`ParameterCondition` and `ParameterTable`, with `ParameterLimits` for bounded
+allocation. These saved formulas and values are independent of primitive geometry.
+The current source adds [views and saved 2D entities](drawing.md):
+`Document.read_views()` returns `ViewIndex`, `View` and `ViewEntry`, bounded by
+`ViewLimits`; `Document.read_drawing()` returns `DrawingIndex`, `DrawingEntity`,
+`DrawingPrimitive` and `DrawingText`, with `DrawingLimits`. The `views` and
+`drawing` CLI commands expose classification, scoped status and source ranges.
+These APIs do not combine 2D geometry with the native 3D part API.
+The current source also adds [explicit assembly resolution](references.md):
+`read_assembly()` / `Document.read_assembly()`, `AssemblyLimits`, `ReferenceRequest`,
+`ReferenceResolver`, `AssemblyReference`, `AssemblyDocument`, `AssemblyOccurrence`,
+`AssemblyEntity` and `AssemblyIndex`. `read_parts()` retains its single-file
+contract. `icadkit assembly --reference-root` reports resolution; `icadkit view
+--reference-root` and `icadkit.viewer.write_assembly_viewer()` display qualified
+placed geometry. These changes are unreleased.
 The optional `icadkit.preview.write_preview()` and `icadkit preview` command
 export one qualified resource to a GLB and local viewer, with explicit source
 units. See the [preview API and CLI](preview.md) for scope and dependencies.
@@ -386,3 +403,14 @@ or B-Rep entity. `--schema-sha256` pins the catalog hash. Geometry limits such a
 Container checks return exit 3 because unparsed ranges remain. Model checks
 return exit 3 with `model.not_implemented`. Resource geometry success does not
 change these outcomes.
+
+### Internal mirror orientation
+
+For qualified V7L6/V7L7/V8L1/V8L2/V8L3 profiles,
+`PartProfile.mirror_policy == "stored_parity"`. `PartPlacement` retains the
+right-handed SDK coordinate frames and adds `orientation_world_transform` and
+`orientation_local_transform` for signed occurrence orientation. These fields
+are additive and default to `None`; see [frame semantics](parts.md#coordinate-frames-and-units).
+`NativePrimitive.mirror_convention` describes signed-height or symmetric-frame
+normalization. Raw parameters remain available. Do not apply part orientation
+to already placed native primitives or saved final bodies.

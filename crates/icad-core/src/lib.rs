@@ -13,6 +13,7 @@ mod reader;
 mod record;
 mod resource;
 mod schema;
+mod views;
 
 pub use document::Document;
 pub use error::{Diagnostic, ErrorKind, InspectError};
@@ -25,12 +26,16 @@ pub use native::{NativeEntityRecord, NativePrimitiveRecord};
 pub use parasolid::{
     GeometryDiagnostic, GeometryError, GeometryResult, GeometryStatus, SchemaSelection,
 };
-pub use parts::{PartAttributeRecord, PartIndex, PartLimits, PartOpaqueRange, PartRecord};
+pub use parts::{
+    PartAttributeRecord, PartIndex, PartLimits, PartOpaqueRange, PartProfileInfo, PartRecord,
+    PartViewRecord,
+};
 pub use provenance::{Extraction, SourceRef};
 pub use reader::ByteOrder;
 pub use record::{ByteRange, RecordInfo};
 pub use resource::{Encoding, ResourceRef};
 pub use schema::SchemaCatalog;
+pub use views::{ViewEntry, ViewIndex, ViewLimits, ViewRecord};
 
 use parasolid_core::{BuiltinProfileRegistry, ParseError};
 

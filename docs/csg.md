@@ -36,6 +36,8 @@ not interpret those feature operations.
 
 - Little-endian V7L7, a complete part index/hierarchy and a qualified rigid root
   frame. Internal, nonmirrored owners with one explicitly framed tree are supported.
+  Mirrored or external ancestors also keep CSG history evaluation unsupported,
+  even when their part coordinate frames are available.
 - Saved postfix union, difference and intersection of positive-height boxes and
   cylinders, including the qualified saved checkpoints between operations.
   Multiple independent owners and disconnected solid results are supported.

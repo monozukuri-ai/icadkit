@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 from threading import Event
+from typing import Any
 
 from . import (
     Diagnostic,
@@ -27,6 +28,79 @@ from . import (
     inspect,
     read,
 )
+from .drawing import DrawingLimits
+from .references import AssemblyLimits, read_assembly
+from .views import ViewIndex, ViewLimits
+
+
+def _drawing_command(args: argparse.Namespace) -> int:
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "operation": args.command,
+        "source": args.path,
+    }
+    try:
+        document = read(
+            args.path, limits=ReadLimits(max_file_bytes=args.max_file_bytes)
+        )
+        policy = ViewLimits(args.max_views, args.max_view_records)
+        index = (
+            document.read_views(limits=policy)
+            if args.command == "views"
+            else document.read_drawing(
+                view_limits=policy,
+                limits=DrawingLimits(args.max_entity_bytes, args.max_text_bytes),
+            )
+        )
+        result["result"] = asdict(index)
+        result["raw_bytes_encoding"] = "hex"
+        code = {"complete": 0, "partial": 3, "unsupported": 3, "invalid": 1}[
+            index.status
+        ]
+    except IcadError as exc:
+        result["error"] = asdict(exc.diagnostic)
+        code = (
+            4
+            if isinstance(exc, LimitExceededError)
+            else 3
+            if isinstance(exc, UnsupportedFormatError)
+            else 1
+        )
+    except OSError as exc:
+        result["error"] = asdict(Diagnostic("io", "io.read_failed", None, str(exc)))
+        code = 1
+    if args.json:
+        print(
+            json.dumps(
+                result,
+                default=lambda v: v.hex() if isinstance(v, bytes) else str(v),
+                sort_keys=True,
+            )
+        )
+    elif "error" in result:
+        print(f"icadkit: {result['error']}", file=sys.stderr)
+    else:
+        print(f"{args.path}: {args.command}={index.status}")
+        views = index if isinstance(index, ViewIndex) else index.views
+        for view in views.views:
+            print(
+                f"{view.view_id}: {view.name!r}; {view.kind}; "
+                f"records={len(view.entries)}; {view.status}"
+            )
+        if not isinstance(index, ViewIndex):
+            for entity in index.entities:
+                kind = (
+                    entity.primitive.kind
+                    if entity.primitive
+                    else "text"
+                    if entity.text
+                    else f"type {entity.raw_type}"
+                )
+                print(
+                    f"{entity.entity_id}: {kind}; "
+                    f"view={entity.view_id}; {entity.status}"
+                )
+    return code
 
 
 def _positive_u64(value: str) -> int:
@@ -509,47 +583,125 @@ def _preview_command(args: argparse.Namespace) -> int:
     return code
 
 
+def _assembly_limits(args: argparse.Namespace) -> AssemblyLimits:
+    return AssemblyLimits(
+        **{
+            name: getattr(args, "reference_" + name)
+            for name in AssemblyLimits.__dataclass_fields__
+        }
+    )
+
+
+def _assembly_command(args: argparse.Namespace) -> int:
+    try:
+        assembly = read_assembly(
+            args.path,
+            search_roots=args.reference_root,
+            limits=_assembly_limits(args),
+            read_limits=ReadLimits(
+                **{n: getattr(args, n) for n in ReadLimits.__dataclass_fields__}
+            ),
+            part_limits=PartLimits(
+                **{n: getattr(args, n) for n in PartLimits.__dataclass_fields__}
+            ),
+        )
+    except (IcadError, OSError) as exc:
+        diagnostic = (
+            exc.diagnostic
+            if isinstance(exc, IcadError)
+            else Diagnostic("io", "io.failed", None, str(exc))
+        )
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "operation": "assembly",
+                        "error": asdict(diagnostic),
+                    }
+                )
+            )
+        else:
+            print(f"icadkit: {diagnostic.message}", file=sys.stderr)
+        return {"unsupported": 3, "limit_exceeded": 4}.get(diagnostic.category, 1)
+    result = {"schema_version": 1, "operation": "assembly", **assembly.to_dict()}
+    if args.json:
+        print(json.dumps(result, sort_keys=True))
+    else:
+        print(
+            f"{len(assembly.documents)} documents; "
+            f"{len(assembly.occurrences)} occurrences; "
+            f"references {assembly.status}; model partial"
+        )
+        for ref in assembly.references:
+            print(
+                f"{ref.occurrence_id}: {ref.request.reference_name} -> "
+                f"{ref.status} {ref.resolved_path or ''}"
+            )
+    statuses = {r.status for r in assembly.references}
+    return (
+        4
+        if "limit" in statuses
+        else 1
+        if statuses & {"invalid", "io_error"}
+        else 3
+        if assembly.status != "complete"
+        else 0
+    )
+
+
 def _view_command(args: argparse.Namespace) -> int:
-    from .viewer import ViewerLimits, serve_viewer, write_native_viewer
+    from .viewer import (
+        ViewerLimits,
+        serve_viewer,
+        write_assembly_viewer,
+        write_native_viewer,
+    )
 
     result: dict[str, object] = {"schema_version": 1, "operation": "view"}
     temporary = None
     try:
-        doc = read(
-            args.path,
-            limits=ReadLimits(
-                **{
-                    name: getattr(args, name)
-                    for name in ReadLimits.__dataclass_fields__
-                }
-            ),
+        read_limits = ReadLimits(
+            **{n: getattr(args, n) for n in ReadLimits.__dataclass_fields__}
+        )
+        part_limits = PartLimits(
+            **{n: getattr(args, n) for n in PartLimits.__dataclass_fields__}
         )
         if args.output is None:
             temporary = tempfile.TemporaryDirectory(prefix="icadkit-view-")
             destination = Path(temporary.name) / "viewer"
         else:
             destination = Path(args.output)
-        written = write_native_viewer(
-            doc,
-            destination,
-            part_limits=PartLimits(
-                **{
-                    name: getattr(args, name)
-                    for name in PartLimits.__dataclass_fields__
-                }
-            ),
-            limits=ViewerLimits(args.max_triangles, args.max_output_bytes),
-            cylinder_segments=args.cylinder_segments,
-            csg=args.csg,
-            saved_brep=args.saved_brep,
-            schema=SchemaCatalog.from_file(
+        options: dict[str, Any] = {
+            "limits": ViewerLimits(args.max_triangles, args.max_output_bytes),
+            "cylinder_segments": args.cylinder_segments,
+            "csg": args.csg,
+            "saved_brep": args.saved_brep,
+            "schema": SchemaCatalog.from_file(
                 args.schema,
                 expected_id=args.schema_id,
                 expected_sha256=args.schema_sha256,
             )
             if args.schema
             else None,
-        )
+        }
+        if args.reference_root:
+            assembly = read_assembly(
+                args.path,
+                search_roots=args.reference_root,
+                limits=_assembly_limits(args),
+                read_limits=read_limits,
+                part_limits=part_limits,
+            )
+            written = write_assembly_viewer(assembly, destination, **options)
+            result["assembly_status"] = assembly.status
+            result["assembly_sha256"] = assembly.assembly_sha256
+            result["references"] = assembly.to_dict()["references"]
+        else:
+            doc = read(args.path, limits=read_limits)
+            written = write_native_viewer(
+                doc, destination, part_limits=part_limits, **options
+            )
         result.update(asdict(written))
         result["directory"] = str(written.directory)
         if args.write_only:
@@ -605,6 +757,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--version", action="version", version=f"icadkit {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
+    for command in ("views", "drawing"):
+        drawing = commands.add_parser(
+            command,
+            help="read view framing"
+            if command == "views"
+            else "read saved 2D geometry in view-local coordinates",
+        )
+        drawing.add_argument("path")
+        drawing.add_argument("--json", action="store_true")
+        drawing.add_argument(
+            "--max-file-bytes", type=_positive_u64, default=ReadLimits().max_file_bytes
+        )
+        drawing.add_argument(
+            "--max-views", type=_positive_u64, default=ViewLimits().max_views
+        )
+        drawing.add_argument(
+            "--max-view-records", type=_positive_u64, default=ViewLimits().max_records
+        )
+        if command == "drawing":
+            for name in DrawingLimits.__dataclass_fields__:
+                drawing.add_argument(
+                    "--" + name.replace("_", "-"),
+                    type=_positive_u64,
+                    default=getattr(DrawingLimits(), name),
+                )
     info = commands.add_parser("info", help="show the compiled backend identity")
     info.add_argument(
         "--json", action="store_true", help="emit a versioned JSON object"
@@ -705,6 +882,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                 type=_positive_u64,
                 default=getattr(view_defaults, name),
             )
+    assembly = commands.add_parser(
+        "assembly", help="resolve external references inside explicit roots"
+    )
+    assembly.add_argument("path")
+    assembly.add_argument("--json", action="store_true")
+    for assembly_defaults in (ReadLimits(), PartLimits()):
+        for name in assembly_defaults.__dataclass_fields__:
+            assembly.add_argument(
+                "--" + name.replace("_", "-"),
+                type=_positive_u64,
+                default=getattr(assembly_defaults, name),
+            )
+    for assembly_parser in (assembly, view):
+        assembly_parser.add_argument(
+            "--reference-root",
+            action="append",
+            default=[],
+            required=assembly_parser is assembly,
+            help="explicit reference search directory; repeat for multiple roots",
+        )
+        for name in AssemblyLimits.__dataclass_fields__:
+            assembly_parser.add_argument(
+                "--reference-" + name.replace("_", "-"),
+                type=_positive_u64,
+                default=getattr(AssemblyLimits(), name),
+            )
     preview = commands.add_parser(
         "preview", help="view one resource and write a metre-based GLB (preview extra)"
     )
@@ -759,6 +962,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 default=getattr(check_defaults, name),
             )
     args = parser.parse_args(argv)
+    if args.command in ("views", "drawing"):
+        for name in (
+            "max_views",
+            "max_view_records",
+            "max_entity_bytes",
+            "max_text_bytes",
+        ):
+            if hasattr(args, name) and getattr(args, name) > (1 << 31) - 1:
+                parser.error(f"--{name.replace('_', '-')} must be at most 2**31 - 1")
+        return _drawing_command(args)
     if args.command in ("check", "preview", "view"):
         if bool(args.schema) != bool(args.schema_id):
             parser.error("--schema and --schema-id must be supplied together")
@@ -775,10 +988,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("--schema-sha256 must contain 64 hexadecimal digits")
         if args.command == "view" and args.schema and not args.saved_brep:
             parser.error("view --schema requires --saved-brep")
-    if args.command in ("parts", "view"):
+    if args.command in ("parts", "view", "assembly"):
         for name in PartLimits.__dataclass_fields__:
             if getattr(args, name) > (1 << 31) - 1:
                 parser.error(f"--{name.replace('_', '-')} must be at most 2**31 - 1")
+        if args.command in ("assembly", "view"):
+            for name in AssemblyLimits.__dataclass_fields__:
+                if getattr(args, "reference_" + name) > (1 << 31) - 1:
+                    parser.error(
+                        f"--reference-{name.replace('_', '-')} "
+                        "must be at most 2**31 - 1"
+                    )
+        if args.command == "assembly":
+            return _assembly_command(args)
         if args.command == "parts":
             return _parts_command(args)
         if not 0 <= args.port <= 65535:

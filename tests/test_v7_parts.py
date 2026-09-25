@@ -287,16 +287,16 @@ def test_v7_unqualified_root_or_index_keeps_geometry_unavailable(case, tmp_path)
         assert scene["length_unit"] is None
 
 
-def test_v7_mirrored_ancestor_does_not_supply_descendant_geometry():
+def test_v7_descendant_geometry_uses_its_saved_frame_below_a_mirror():
     ix = document(
         v7part(ROOT, root=True, child=A),
         v7part(A, parent=ROOT, child=B, flags=8),
         v7part(B, parent=A),
         native(),
     ).read_parts()
-    assert ix.parts[1].placement.status == ix.parts[2].placement.status == "unsupported"
-    assert ix.parts[2].entities[0].primitive is None
-    assert any(d.code == "parts.placement_ancestor" for d in ix.diagnostics)
+    assert ix.parts[1].placement.status == ix.parts[2].placement.status == "complete"
+    assert ix.parts[2].entities[0].primitive is not None
+    assert ix.parts[2].placement.orientation_local_transform[1][1] == -1
 
 
 def test_v7_root_normalization_overflow_is_invalid():

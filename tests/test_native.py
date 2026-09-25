@@ -142,14 +142,18 @@ def test_opaque_high_metadata_word_does_not_change_dimensions():
 @pytest.mark.parametrize(
     "kind,mirror", [("sphere", True), ("box", True), ("cylinder", True)]
 )
-def test_unsupported_shapes_and_mirrors_keep_appearance_and_ownership(kind, mirror):
+def test_mirror_layout_validation_keeps_appearance_and_ownership(kind, mirror):
     _, index = read(native(kind, mirror=mirror, color=18, visible=False))
     owner = index.parts[1]
     e = owner.entities[0]
-    assert e.primitive is None and e.geometry_status == "unsupported"
+    if kind == "box":
+        assert e.primitive is None and e.geometry_status == "invalid"
+    else:
+        assert e.primitive is not None and e.geometry_status == "complete"
     assert e.is_mirror == mirror and e.owner_id == owner.part_id
     assert e.appearance.color_index == 18 and not e.appearance.visible
-    assert len(index.to_rows()) == 1 and index.status.native_geometry == "partial"
+    assert len(index.to_rows()) == 1
+    assert index.status.native_geometry == ("invalid" if kind == "box" else "complete")
 
 
 @pytest.mark.parametrize(
