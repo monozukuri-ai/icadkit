@@ -7,10 +7,13 @@ pub struct NativePrimitiveRecord {
     /// Stored frame: origin, Z axis, X axis, in millimetres. all qualified versions
     /// require inverse(saved root frame) before exposing global placement.
     pub frame: [f64; 9],
-    /// Box: height, xmin, ymin, xmax, ymax. Cylinder: radius, height.
+    /// Box: height, xmin, ymin, xmax, ymax. Cylinder: radius, signed height.
     /// Full sphere: radius, repeated radius, pi. Cone: height, four zero offsets,
     /// base radius, top radius. Torus: full sweep, major radius, minor radius, zero.
     /// Polygon extrusion: signed height, then six distinct XY vertex pairs.
+    /// Profile extrusion: signed height, then seven values per segment: start
+    /// XY, end XY, arc centre XY and signed sweep (zeros for a line).
+    /// Revolution: (radius, axial) pairs of the profile, closed along the axis.
     pub parameters: Vec<f64>,
 }
 
@@ -139,13 +142,26 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     let mut result = undecoded_entity(bytes, byte_range);
     // Layer, saved visibility and palette index are qualified only for these
     // exact native layouts. A Parasolid body has a different attribute layout.
-    let shape = match result.raw_type {
-        Some(75) => Some((160, 0x56440088, "box")),
-        Some(71) => Some((136, 0x50440070, "cylinder")),
-        Some(72) => Some((144, 0x53440078, "sphere")),
-        Some(68) => Some((176, 0x57440098, "cone")),
-        Some(74) => Some((152, 0x54440080, "torus")),
-        Some(76) => Some((368, 0x5a440158, "polygon_extrusion")),
+    // Variable-length layouts carry their own length in the marker word.
+    let variable = |tag: u32, fixed: usize, step: usize, least: usize| {
+        let length = bytes.len();
+        (length >= fixed + step * least
+            && (length - fixed).is_multiple_of(step)
+            && length - 24 <= 0xffff)
+            .then(|| (length, tag << 24 | 0x00440000 | (length - 24) as u32))
+    };
+    let marker_byte = if bytes.len() >= 28 { bytes[27] } else { 0 };
+    let shape = match (result.raw_type, marker_byte) {
+        (Some(75), _) => Some((160, 0x56440088, "box")),
+        (Some(71), _) => Some((136, 0x50440070, "cylinder")),
+        (Some(72), _) => Some((144, 0x53440078, "sphere")),
+        (Some(68), _) => Some((176, 0x57440098, "cone")),
+        (Some(74), _) => Some((152, 0x54440080, "torus")),
+        // Frame, height, at least three profile elements and a flag trailer.
+        (Some(76), 0x59) => variable(0x59, 136, 16, 3).map(|(n, m)| (n, m, "profile_extrusion")),
+        (Some(76), _) => Some((368, 0x5a440158, "polygon_extrusion")),
+        // Frame and at least two (radius, axial) points.
+        (Some(67), _) => variable(0x52, 120, 16, 2).map(|(n, m)| (n, m, "revolution")),
         _ => None,
     };
     let layout = shape.is_some_and(|(length, marker, kind)| {
@@ -193,8 +209,14 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
         result.appearance_status = Status::Complete;
     }
     let mirrored = result.is_mirror == Some(true);
+    // The last eight bytes of a profile extrusion are element flags.
+    let numeric = if kind == "profile_extrusion" {
+        &bytes[48..bytes.len() - 8]
+    } else {
+        &bytes[48..]
+    };
     let mut values = Vec::new();
-    for raw in bytes[48..].chunks_exact(8) {
+    for raw in numeric.chunks_exact(8) {
         let mut value = [0; 8];
         value.copy_from_slice(raw);
         values.push(f64::from_le_bytes(value));
@@ -206,6 +228,49 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     let orthonormal = (dot(z, z) - 1.0).abs() <= 1e-8
         && (dot(x, x) - 1.0).abs() <= 1e-8
         && dot(z, x).abs() <= 1e-8;
+    if matches!(kind, "profile_extrusion" | "revolution") {
+        // A profile checks its own elements: the second value of a sweep
+        // element is arbitrary and must not invalidate the record.
+        let checked = if kind == "revolution" {
+            finite
+        } else {
+            values[..10].iter().all(|v| v.is_finite())
+        };
+        if !checked || !orthonormal {
+            result.geometry_status = Status::Invalid;
+            result.issue(
+                ErrorKind::Invalid,
+                "native.parameters",
+                48,
+                "Nonfinite parameters or non-rigid frame",
+            );
+            return result;
+        }
+        let outcome = if kind == "revolution" {
+            revolution(&values[9..])
+        } else {
+            profile_extrusion(&values[9..], &bytes[bytes.len() - 8..])
+        };
+        match outcome {
+            Ok(parameters) => {
+                let mut frame = [0.0; 9];
+                frame.copy_from_slice(&values[..9]);
+                result.primitive = Some(NativePrimitiveRecord {
+                    kind,
+                    frame,
+                    parameters,
+                });
+                result.geometry_status = Status::Complete;
+            }
+            Err((kind, code, text)) => {
+                if kind == ErrorKind::Invalid {
+                    result.geometry_status = Status::Invalid;
+                }
+                result.issue(kind, code, 120, text);
+            }
+        }
+        return result;
+    }
     let signed_height = if mirrored {
         values[9] < 0.0
     } else if matches!(kind, "box" | "polygon_extrusion") {
@@ -230,7 +295,9 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     } else if kind == "torus" {
         values[10] > 0.0 && values[11] > 0.0 && (values[10] + values[11]).is_finite()
     } else {
-        values[9] > 0.0 && values[10] > 0.0
+        // A cylinder's saved height can be negative with or without the
+        // mirror flag: the solid then extends along the frame's negative Z.
+        values[9] > 0.0 && values[10] != 0.0
     };
     if !finite || !orthonormal || !dimensions {
         result.geometry_status = Status::Invalid;
@@ -306,6 +373,202 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     });
     result.geometry_status = Status::Complete;
     result
+}
+
+type ShapeError = (ErrorKind, &'static str, &'static str);
+
+/// A closed loop with nonzero area whose nonadjacent edges neither cross nor
+/// touch and whose adjacent edges do not fold back. Collinear consecutive
+/// vertices and disjoint collinear edges are accepted.
+fn simple_loop(points: &[[f64; 2]]) -> bool {
+    let n = points.len();
+    if n < 3 {
+        return false;
+    }
+    let scale = points
+        .iter()
+        .flat_map(|p| [(p[0] - points[0][0]).abs(), (p[1] - points[0][1]).abs()])
+        .fold(0.0_f64, f64::max);
+    let epsilon = 1e-12 * scale * scale;
+    let reach = 1e-9 * scale;
+    if !epsilon.is_finite() || epsilon == 0.0 {
+        return false;
+    }
+    let cross = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    };
+    // A point already known to be collinear with a segment lies on it.
+    let within = |a: [f64; 2], b: [f64; 2], p: [f64; 2]| {
+        (0..2).all(|k| p[k] >= a[k].min(b[k]) - reach && p[k] <= a[k].max(b[k]) + reach)
+    };
+    let area: f64 = (1..n - 1)
+        .map(|i| cross(points[0], points[i], points[i + 1]))
+        .sum();
+    if !area.is_finite() || area.abs() <= epsilon {
+        return false;
+    }
+    for i in 0..n {
+        let a = points[i];
+        let b = points[(i + 1) % n];
+        let c = points[(i + 2) % n];
+        let dot = (b[0] - a[0]) * (c[0] - b[0]) + (b[1] - a[1]) * (c[1] - b[1]);
+        if cross(a, b, c).abs() <= epsilon && dot <= 0.0 {
+            return false;
+        }
+        for j in i + 2..n {
+            if i == 0 && j == n - 1 {
+                continue;
+            }
+            let c = points[j];
+            let d = points[(j + 1) % n];
+            let (d1, d2) = (cross(a, b, c), cross(a, b, d));
+            let (d3, d4) = (cross(c, d, a), cross(c, d, b));
+            let opposite =
+                |x: f64, y: f64| (x > epsilon && y < -epsilon) || (x < -epsilon && y > epsilon);
+            if (opposite(d1, d2) && opposite(d3, d4))
+                || (d1.abs() <= epsilon && within(a, b, c))
+                || (d2.abs() <= epsilon && within(a, b, d))
+                || (d3.abs() <= epsilon && within(c, d, a))
+                || (d4.abs() <= epsilon && within(c, d, b))
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Closed profile of straight and circular segments. Elements are XY pairs.
+/// A flagged pair of elements following a vertex describes an arc from that
+/// vertex: its centre, then its signed sweep in the first value. The second
+/// value of the sweep element is unqualified and ignored.
+fn profile_extrusion(values: &[f64], flags: &[u8]) -> Result<Vec<f64>, ShapeError> {
+    const LAYOUT: ShapeError = (
+        ErrorKind::Unsupported,
+        "native.profile_layout",
+        "Unqualified profile element flags; source range retained",
+    );
+    const INVALID: ShapeError = (
+        ErrorKind::Invalid,
+        "native.profile",
+        "Profile is open, degenerate, self-intersecting or has an invalid arc",
+    );
+    let height = values[0];
+    let elements: Vec<[f64; 2]> = values[1..].chunks_exact(2).map(|v| [v[0], v[1]]).collect();
+    let n = elements.len();
+    let flagged = |i: usize| i < 64 && flags[i / 8] >> (7 - i % 8) & 1 == 1;
+    if n > 64 || (n..64).any(flagged) || flagged(0) {
+        return Err(LAYOUT);
+    }
+    // Within a run of flagged elements, centres and sweeps alternate.
+    let sweep_slot = |i: usize| (0..i).rev().take_while(|k| flagged(*k)).count() % 2 == 1;
+    let is_sweep = |i: usize| flagged(i) && sweep_slot(i);
+    if elements
+        .iter()
+        .enumerate()
+        .any(|(i, p)| !p[0].is_finite() || (!is_sweep(i) && !p[1].is_finite()))
+    {
+        return Err((
+            ErrorKind::Invalid,
+            "native.parameters",
+            "Nonfinite profile coordinate or sweep",
+        ));
+    }
+    if height == 0.0 {
+        return Err(INVALID);
+    }
+    // Sweep elements are not coordinates; their second value is arbitrary.
+    let scale = elements
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !is_sweep(*i))
+        .flat_map(|(_, p)| [p[0].abs(), p[1].abs()])
+        .fold(1.0_f64, f64::max);
+    let first = elements[0];
+    let mut current = first;
+    let mut segments = Vec::new();
+    let mut outline = vec![first];
+    let mut i = 1;
+    while i < n {
+        if flagged(i) {
+            if i + 1 >= n || !flagged(i + 1) {
+                return Err(LAYOUT);
+            }
+            let centre = elements[i];
+            let sweep = elements[i + 1][0];
+            let (dx, dy) = (current[0] - centre[0], current[1] - centre[1]);
+            let radius = dx.hypot(dy);
+            if radius <= 1e-9 * scale || sweep == 0.0 || sweep.abs() > std::f64::consts::TAU + 1e-9
+            {
+                return Err(INVALID);
+            }
+            // Chords no longer than a 1/32 turn approximate the arc for the
+            // crossing test only; the exact arc is returned.
+            let steps = (sweep.abs() / (std::f64::consts::TAU / 32.0))
+                .ceil()
+                .max(2.0) as usize;
+            let mut end = current;
+            for k in 1..=steps {
+                let (sin, cos) = (sweep * k as f64 / steps as f64).sin_cos();
+                end = [
+                    centre[0] + dx * cos - dy * sin,
+                    centre[1] + dx * sin + dy * cos,
+                ];
+                outline.push(end);
+            }
+            segments.extend([
+                current[0], current[1], end[0], end[1], centre[0], centre[1], sweep,
+            ]);
+            current = end;
+            i += 2;
+        } else {
+            let next = elements[i];
+            if next != current {
+                segments.extend([current[0], current[1], next[0], next[1], 0.0, 0.0, 0.0]);
+                outline.push(next);
+                current = next;
+            }
+            i += 1;
+        }
+    }
+    // The outline must return to its first vertex, exactly or by a final arc.
+    if (current[0] - first[0]).hypot(current[1] - first[1]) > 1e-7 * scale || outline.len() < 4 {
+        return Err(INVALID);
+    }
+    outline.pop();
+    if !simple_loop(&outline) {
+        return Err(INVALID);
+    }
+    let mut parameters = vec![height];
+    parameters.extend(segments);
+    Ok(parameters)
+}
+
+/// Solid of revolution about the frame Z axis. The (radius, axial) polyline
+/// is closed along the axis; no sweep angle is stored in this layout.
+fn revolution(values: &[f64]) -> Result<Vec<f64>, ShapeError> {
+    const INVALID: ShapeError = (
+        ErrorKind::Invalid,
+        "native.revolution",
+        "Revolution profile has a negative radius, or is degenerate or self-intersecting",
+    );
+    let points: Vec<[f64; 2]> = values.chunks_exact(2).map(|v| [v[0], v[1]]).collect();
+    if points.iter().any(|p| p[0] < 0.0) || points.windows(2).any(|w| w[0] == w[1]) {
+        return Err(INVALID);
+    }
+    let mut outline = Vec::with_capacity(points.len() + 2);
+    if points[0][0] > 0.0 {
+        outline.push([0.0, points[0][1]]);
+    }
+    outline.extend_from_slice(&points);
+    let last = points[points.len() - 1];
+    if last[0] > 0.0 {
+        outline.push([0.0, last[1]]);
+    }
+    if !simple_loop(&outline) {
+        return Err(INVALID);
+    }
+    Ok(values.to_vec())
 }
 
 fn simple_polygon(values: &[f64]) -> bool {

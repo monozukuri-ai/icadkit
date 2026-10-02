@@ -27,9 +27,14 @@ The unreleased source adds [view inventories and saved 2D geometry](docs/drawing
 through `read_views()` / `read_drawing()` and the `views` / `drawing` CLI commands.
 Old originals and registered parts are read directly. Qualified 2D primitives
 use view-local coordinates; text content is separate from unsupported layout.
-It also uses `parasolid-core 0.3.3` for catalog-free raw parsing and source B-Rep
-mapping of [five exact legacy iCAD schema keys](docs/support.md#schemas).
+It also uses `parasolid-core 0.3.4` for catalog-free raw parsing and source B-Rep
+mapping of [eighteen further exact iCAD schema keys](docs/support.md#schemas).
 SPUN_SURF geometry remains partial; saved-body conversion has separate limits.
+It further frames the [trailing container](docs/trailer.md) with per-entity
+blocks and stored local bounds (`read_trailer()`, `icadkit trailer`), binds V8
+saved bodies through their saved association records, binds V7L2–V7L5 saved
+bodies, and reads extrusions with arc profiles and revolved profiles as
+[native primitives](docs/native.md).
 
 Run `icadkit view model.icd` to open qualified native primitives and their
 part properties. The base viewer works without the preview extra.

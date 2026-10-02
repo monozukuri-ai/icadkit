@@ -26,9 +26,9 @@ resolver for V7L6/V7L7/V8L1/V8L2/V8L3, composing qualified external placements a
 mirrors. Default part reads remain single-file.
 
 V7L2–V7L5 use separate `opaque_entities` profiles: part frames and structure
-are qualified, while native/saved geometry and appearance remain unsupported.
-V7L6 additionally enables bounded standalone primitives and explicit saved-body
-bindings. Registered parts and non-3D views are not promoted to empty models.
+are qualified, while native geometry and appearance remain unsupported. Their
+saved final bodies bind by native source ID, as in V7L6.
+V7L6 additionally enables bounded standalone primitives. Registered parts and non-3D views are not promoted to empty models.
 
 The current source also reads [saved 3D parameter tables](parameters.md) and the
 root-owned entities of qualified V8L1 templates and V8L3 resaves. Local SDK
@@ -47,18 +47,20 @@ owner's list opaque. The [native viewer](viewer.md) displays these parameters
 without optional dependencies and labels every view as a partial model.
 
 The unreleased native reader additionally supports six-vertex straight polygon
-extrusions and negative heights in qualified boxes. The polygon scope includes
-concave profiles and qualified negative-height mirrors; holes, curves, tapers
-and other vertex counts remain unsupported.
+extrusions, extrusions whose profile has straight and circular segments,
+revolved profiles, and negative heights in qualified boxes and cylinders.
+Holes, tapers, partial revolutions and other layouts remain unsupported.
 
 With the `preview` extra, [V7L7 CSG](csg.md) evaluates bounded box/cylinder
 programs, while [saved final bodies](saved-bodies.md) place qualified V7L6/V7L7/V8L1/V8L2/V8L3
-solids through explicit resource bindings. Saved spherical, conical and toroidal
-surfaces have bounded conversion support. Unsupported programs, ambiguous
-ownership and unresolved external ancestry retain diagnostics instead of meshes. Mirrored
-CSG history remains unsupported; saved final results can qualify independently.
-V8 owners with multiple distinct saved-body keys are rejected because observed
-entity-mirror copies can change the resource association.
+solids through explicit resource bindings; V7L2–V7L5 bind the same way.
+V8 bodies bind through saved association records, not through the marker word
+that earlier source treated as a resource key. Saved spherical, conical and
+toroidal surfaces, elliptical and intersection edges and cone apexes have
+bounded conversion support. Unsupported programs, missing or repeated
+bindings and unresolved external ancestry retain diagnostics instead of meshes.
+Mirrored CSG history remains unsupported; saved final results can qualify
+independently.
 The separate [resource preview](preview.md) exports one supported solid to GLB
 with caller-declared units and no assembly placement.
 
@@ -67,7 +69,8 @@ with caller-declared units and no assembly placement.
 | Header inspection | Both byte orders; leading MOD/DRW/RES framing; raw header fields and a CP932 name candidate | Unknown fields and later ranges remain unparsed |
 | Views / classification | Qualified counted views, document vs registered part, record ranges and ownership | Complete means framing only; unknown structures remain opaque |
 | Saved 2D drawing | Points, lines, circles, arcs in view-local mm; UTF-16LE text content | No sheet layout, font rendering, dimension or projection evaluation |
-| Resource listing | Owner-based indexing of supported raw and zlib X_B layouts | Does not infer parts, sharing or instances |
+| Resource listing | Owner-based indexing of supported raw and zlib X_B layouts; V8 entity-to-resource association records | Does not infer parts, sharing or instances |
+| Trailing container | Record framing in both byte orders; per-entity block identifiers, decoded bytes and qualified local bounds | Face/edge tables, older block revisions and the named table remain opaque |
 | Extraction | Bounds, sizes, checksum, stream termination, alignment and X_B envelope validation | Does not parse geometry nodes |
 | Raw geometry | Exact-schema node parsing and paginated access | Requires a matching built-in profile or explicit catalog |
 | B-Rep | Backend-supported topology, analytic curves/surfaces and NURBS | Unsupported types remain partial with diagnostics |
@@ -105,7 +108,7 @@ TORUS (54) declaration, so qualified trimmed-torus/swept-arc resources no longer
 need an external catalog. Version 0.2.0 used core 0.3.0 and profile revision 1.
 An explicit compatible catalog remains authoritative.
 
-The current unreleased source uses the published `parasolid-core 0.3.3`
+The current unreleased source uses the published `parasolid-core 0.3.4`
 registry crate. Its reviewed profiles replace icadkit's temporary
 `icad-legacy-13006-raw-r1` profile and support both raw parsing and B-Rep mapping:
 
@@ -116,12 +119,35 @@ registry crate. Its reviewed profiles replace icadkit's temporary
 | `SCH_1700223_16100_13006` | `icad-1700223-16100-13006-r1` |
 | `SCH_1700256_16100_13006` | `icad-1700256-16100-13006-r1` |
 | `SCH_1901315_19008_13006` | `icad-1901315-19008-13006-r1` |
+| `SCH_2100293_20000_13006` | `icad-2100293-20000-13006-r1` |
+| `SCH_2100311_20000_13006` | `icad-2100311-20000-13006-r1` |
+| `SCH_2401260_20000_13006` | `icad-2401260-20000-13006-r1` |
+| `SCH_2800188_28002_13006` | `icad-2800188-28002-13006-r1` |
+| `SCH_2901199_28101_13006` | `icad-2901199-28101-13006-r1` |
+| `SCH_3200152_32001_13006` | `icad-3200152-32001-13006-r1` |
+| `SCH_3200252_32001_13006` | `icad-3200252-32001-13006-r1` |
+| `SCH_3301231_33103_13006` | `icad-3301231-33103-13006-r1` |
+| `SCH_2401000_20000` | `icad-2401000-20000-r1` |
+| `SCH_2800000_28002` | `icad-2800000-28002-r1` |
+| `SCH_2901000_28101` | `icad-2901000-28101-r1` |
+| `SCH_3200000_32001` | `icad-3200000-32001-r1` |
+| `SCH_3301000_33103` | `icad-3301000-33103-r1` |
 
-In a local sample of 539 resource occurrences from 214 files, all 539 parse
-without a catalog; 535 have complete source B-Reps and four remain partial due
-to unsupported SPUN_SURF (68) geometry. All 539 match the explicit catalog path
-in raw values/boundaries, B-Rep parameters, source references and topology status.
-Base types 59, 68 and 137 are admitted only by their reviewed exact profiles.
+The last five keys carry no base suffix and transmit no schema. Their profiles
+declare complete layouts, and only for the node types checked under each key;
+another type yields `schema.builtin_profile_uncovered_type` and needs a catalog.
+
+In a local sample of 33,943 resource occurrences from 837 files, 33,078 parse
+without a catalog, compared with 2,725 under core 0.3.3. Every one of them has
+the same raw, B-Rep and topology status as the explicit catalog path: 32,771
+complete source B-Reps, 53 partial due to unsupported SPUN_SURF (68) geometry,
+and 254 that fail B-Rep mapping in both paths, 253 of them for a trimmed curve
+whose parameters are stored as null. The other 865 are not covered: keys
+without a profile, such as `SCH_2601246_26105_13006` and `SCH_2601000_26105`,
+and resources with a base type that their profile does not admit, such as
+OFFSET_SURF (60). All but two of them parse with an explicit catalog. Base
+types beyond the shared subset are admitted only by the exact profiles that
+reviewed them.
 SPUN_SURF parameters remain available as raw fields; a catalog does not make
 that geometry supported. `require_complete()` rejects these partial B-Reps,
 while `require_complete("raw_geometry")` succeeds.

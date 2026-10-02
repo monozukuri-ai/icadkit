@@ -30,6 +30,7 @@ from . import (
 )
 from .drawing import DrawingLimits
 from .references import AssemblyLimits, read_assembly
+from .trailer import TrailerLimits
 from .views import ViewIndex, ViewLimits
 
 
@@ -100,6 +101,83 @@ def _drawing_command(args: argparse.Namespace) -> int:
                     f"{entity.entity_id}: {kind}; "
                     f"view={entity.view_id}; {entity.status}"
                 )
+    return code
+
+
+def _trailer_command(args: argparse.Namespace) -> int:
+    result: dict[str, object] = {
+        "schema_version": 1,
+        "operation": "trailer",
+        "source": args.path,
+    }
+    try:
+        document = read(
+            args.path, limits=ReadLimits(max_file_bytes=args.max_file_bytes)
+        )
+        policy = TrailerLimits(args.max_records, args.max_block_bytes)
+        index = document.read_trailer(limits=policy)
+        result["result"] = asdict(index)
+        result["raw_bytes_encoding"] = "hex"
+        code = {"complete": 0, "partial": 3, "unsupported": 3, "invalid": 1}[
+            index.status
+        ]
+        decoded = []
+        if args.bounds:
+            for block in index.blocks:
+                data = document.read_trailer_block(block.block_id, limits=policy)
+                row = asdict(data)
+                # Decoded bytes stay available through the Python API.
+                row["payload_bytes"] = len(row.pop("payload"))
+                decoded.append(row)
+                if data.status == "invalid":
+                    code = 1
+            result["decoded_blocks"] = decoded
+    except IcadError as exc:
+        result.pop("result", None)
+        result["error"] = asdict(exc.diagnostic)
+        code = (
+            4
+            if isinstance(exc, LimitExceededError)
+            else 3
+            if isinstance(exc, UnsupportedFormatError)
+            else 1
+        )
+    except OSError as exc:
+        result["error"] = asdict(Diagnostic("io", "io.read_failed", None, str(exc)))
+        code = 1
+    if args.json:
+        print(
+            json.dumps(
+                result,
+                default=lambda v: v.hex() if isinstance(v, bytes) else str(v),
+                sort_keys=True,
+            )
+        )
+    elif "error" in result:
+        print(f"icadkit: {result['error']}", file=sys.stderr)
+    else:
+        span = index.byte_range
+        print(
+            f"{args.path}: trailer={index.status}; "
+            + (
+                f"[{span.start}, {span.end}); revision={index.revision}; "
+                f"blocks={len(index.blocks)}; tables={len(index.tables)}"
+                if span
+                else "absent"
+            )
+        )
+        bounds = {row["block_id"]: row for row in decoded}
+        for block in index.blocks:
+            line = (
+                f"{block.block_id}: entity=0x{block.source_id:08x}; "
+                f"view={block.view_name!r}; {block.declared_decoded_bytes} bytes"
+            )
+            if block.block_id in bounds:
+                row = bounds[block.block_id]
+                line += f"; {row['status']}; bounds={row['bounds']}"
+            print(line)
+        for diagnostic in index.diagnostics:
+            print(f"Diagnostic: {diagnostic.code} at byte {diagnostic.byte_offset}")
     return code
 
 
@@ -685,6 +763,12 @@ def _view_command(args: argparse.Namespace) -> int:
             if args.schema
             else None,
         }
+        if args.max_bodies is not None:
+            from .csg import CsgLimits
+            from .saved import SavedBodyLimits
+
+            options["saved_limits"] = SavedBodyLimits(max_bodies=args.max_bodies)
+            options["csg_limits"] = CsgLimits(max_bodies=args.max_bodies)
         if args.reference_root:
             assembly = read_assembly(
                 args.path,
@@ -782,6 +866,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                     type=_positive_u64,
                     default=getattr(DrawingLimits(), name),
                 )
+    trailer = commands.add_parser(
+        "trailer", help="frame the container after the indexed records"
+    )
+    trailer.add_argument("path")
+    trailer.add_argument("--json", action="store_true")
+    trailer.add_argument(
+        "--bounds",
+        action="store_true",
+        help="decode every block and report qualified local bounds",
+    )
+    trailer.add_argument(
+        "--max-file-bytes", type=_positive_u64, default=ReadLimits().max_file_bytes
+    )
+    trailer.add_argument(
+        "--max-records", type=_positive_u64, default=TrailerLimits().max_records
+    )
+    trailer.add_argument(
+        "--max-block-bytes",
+        type=_positive_u64,
+        default=TrailerLimits().max_block_bytes,
+    )
     info = commands.add_parser("info", help="show the compiled backend identity")
     info.add_argument(
         "--json", action="store_true", help="emit a versioned JSON object"
@@ -874,6 +979,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     view.add_argument("--max-triangles", type=_positive_u64, default=1_000_000)
     view.add_argument(
         "--max-output-bytes", type=_positive_u64, default=128 * 1024 * 1024
+    )
+    view.add_argument(
+        "--max-bodies",
+        type=_positive_u64,
+        help="final bodies indexed by --saved-brep or --csg (default: 256)",
     )
     for view_defaults in (ReadLimits(), PartLimits()):
         for name in view_defaults.__dataclass_fields__:
@@ -972,6 +1082,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             if hasattr(args, name) and getattr(args, name) > (1 << 31) - 1:
                 parser.error(f"--{name.replace('_', '-')} must be at most 2**31 - 1")
         return _drawing_command(args)
+    if args.command == "trailer":
+        for name in ("max_records", "max_block_bytes"):
+            if getattr(args, name) > (1 << 31) - 1:
+                parser.error(f"--{name.replace('_', '-')} must be at most 2**31 - 1")
+        return _trailer_command(args)
     if args.command in ("check", "preview", "view"):
         if bool(args.schema) != bool(args.schema_id):
             parser.error("--schema and --schema-id must be supplied together")
@@ -988,6 +1103,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("--schema-sha256 must contain 64 hexadecimal digits")
         if args.command == "view" and args.schema and not args.saved_brep:
             parser.error("view --schema requires --saved-brep")
+        if args.command == "view" and args.max_bodies is not None:
+            if not (args.saved_brep or args.csg):
+                parser.error("view --max-bodies requires --saved-brep or --csg")
+            if args.max_bodies > (1 << 31) - 1:
+                parser.error("--max-bodies must be at most 2**31 - 1")
     if args.command in ("parts", "view", "assembly"):
         for name in PartLimits.__dataclass_fields__:
             if getattr(args, name) > (1 << 31) - 1:

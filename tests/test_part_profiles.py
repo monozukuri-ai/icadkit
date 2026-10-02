@@ -14,15 +14,15 @@ import icadkit
 @pytest.mark.parametrize(
     "version,convention,policy,saved,csg",
     [
-        ("v7l2", "root_relative", "opaque_entities", None, None),
-        ("v7l3", "root_relative", "opaque_entities", None, None),
-        ("v7l4", "root_relative", "opaque_entities", None, None),
-        ("v7l5", "root_relative", "opaque_entities", None, None),
+        ("v7l2", "root_relative", "opaque_entities", "v7_legacy_source_id", None),
+        ("v7l3", "root_relative", "opaque_entities", "v7_legacy_source_id", None),
+        ("v7l4", "root_relative", "opaque_entities", "v7_legacy_source_id", None),
+        ("v7l5", "root_relative", "opaque_entities", "v7_legacy_source_id", None),
         ("v7l6", "root_relative", "standalone_owner", "v7l6_source_id", None),
         ("v7l7", "root_relative", "standalone_owner", "v7_source_id", "v7_postfix"),
         ("v8l1", "root_relative", "standalone_owner", "v8l1_saved_body", None),
-        ("v8l2", "root_relative", "standalone_owner", "v8_resource_key", None),
-        ("v8l3", "root_relative", "saved_entities", "v8_resource_key", None),
+        ("v8l2", "root_relative", "standalone_owner", "v8_resource_association", None),
+        ("v8l3", "root_relative", "saved_entities", "v8_resource_association", None),
     ],
 )
 def test_policies_have_view_and_record_evidence(

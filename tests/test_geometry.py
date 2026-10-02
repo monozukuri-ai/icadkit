@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 
 import pytest
-from geometry_fixtures import catalog_bytes, header, wire_payload
+from geometry_fixtures import STANDARD_BODIES, catalog_bytes, header, wire_payload
 
 import icadkit as ic
 
@@ -113,6 +113,14 @@ def test_icad_v34_rejects_nearby_key_and_unknown_base(geometry_doc):
         b"SCH_1700223_16100_13006",
         b"SCH_1700256_16100_13006",
         b"SCH_1901315_19008_13006",
+        b"SCH_2100293_20000_13006",
+        b"SCH_2100311_20000_13006",
+        b"SCH_2401260_20000_13006",
+        b"SCH_2800188_28002_13006",
+        b"SCH_2901199_28101_13006",
+        b"SCH_3200152_32001_13006",
+        b"SCH_3200252_32001_13006",
+        b"SCH_3301231_33103_13006",
     ],
 )
 def test_legacy_exact_profile_qualifies_brep_without_catalog(geometry_doc, key):
@@ -151,6 +159,48 @@ def test_legacy_exact_profile_qualifies_brep_without_catalog(geometry_doc, key):
         d = geometry_doc(raw)
         result = d.read_geometry(d.resources[0].resource_id)
         assert result.raw is None and result.diagnostics[0].code == code
+
+
+@pytest.mark.parametrize("key", list(STANDARD_BODIES))
+def test_standard_exact_profile_qualifies_brep_without_catalog(geometry_doc, key):
+    # A standard key transmits no schema: the revision's field order decides
+    # where the body's precisions, kind and topology heads are read.
+    payload = wire_payload(key=key)
+    doc = geometry_doc(payload)
+    g = doc.read_geometry(doc.resources[0].resource_id).require_complete()
+    expected_profile = "icad-" + key.decode()[4:].replace("_", "-") + "-r1"
+    assert g.schema.kind == "builtin" and g.schema.profile_id == expected_profile
+    assert g.schema.profile_revision == 1 and len(g.schema.profile_sha256) == 64
+    assert g.raw.schema_key == key.decode() and g.raw.to_bytes() == payload
+    assert g.raw.node_count == 11 and g.raw.terminator_range.end == len(payload)
+    size, linear, kind, region, edge, vertex = STANDARD_BODIES[key][1]
+    assert g.raw.field_values(1, size) == (1e-6,)
+    assert g.raw.field_values(1, linear) == (1e-8,)
+    assert g.raw.field_values(1, kind) == (2,)
+    assert [g.raw.field_values(1, i) for i in (region, edge, vertex)] == [
+        (2,),
+        (6,),
+        (4,),
+    ]
+    assert g.status.brep == g.status.topology == "complete"
+    assert g.brep.counts["edges"] == 1 and g.brep.topology_valid
+    assert g.brep.vertex_bounds == ((2.0, -1.0, 3.0), (5.0, 3.0, 3.0))
+    assert g.brep.entities("curves")[0].attributes["direction"] == (0.6, 0.8, 0.0)
+    assert not g.diagnostics
+
+    uncovered = bytearray(payload)
+    uncovered[len(header(key)) : len(header(key)) + 2] = b"\0\x3c"  # OFFSET_SURF.
+    near = payload.replace(key, key[:-1] + b"9")
+    truncated = payload[:-12]
+    for raw, code in (
+        (bytes(uncovered), "schema.builtin_profile_uncovered_type"),
+        (near, "schema.missing_base_schema"),
+    ):
+        d = geometry_doc(raw)
+        result = d.read_geometry(d.resources[0].resource_id)
+        assert result.raw is None and result.diagnostics[0].code == code
+    d = geometry_doc(truncated)
+    assert d.read_geometry(d.resources[0].resource_id).raw is None
 
 
 @pytest.mark.parametrize(

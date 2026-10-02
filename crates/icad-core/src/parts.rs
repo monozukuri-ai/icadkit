@@ -135,7 +135,7 @@ impl PartProfile {
                 "root_relative",
                 "opaque_entities",
                 Some("mm"),
-                None,
+                Some("v7_legacy_source_id"),
                 None,
             ),
             Self::V7L3 => (
@@ -143,7 +143,7 @@ impl PartProfile {
                 "root_relative",
                 "opaque_entities",
                 Some("mm"),
-                None,
+                Some("v7_legacy_source_id"),
                 None,
             ),
             Self::V7L4 => (
@@ -151,7 +151,7 @@ impl PartProfile {
                 "root_relative",
                 "opaque_entities",
                 Some("mm"),
-                None,
+                Some("v7_legacy_source_id"),
                 None,
             ),
             Self::V7L5 => (
@@ -159,7 +159,7 @@ impl PartProfile {
                 "root_relative",
                 "opaque_entities",
                 Some("mm"),
-                None,
+                Some("v7_legacy_source_id"),
                 None,
             ),
             Self::V7L6 => (
@@ -191,7 +191,7 @@ impl PartProfile {
                 "root_relative",
                 "standalone_owner",
                 Some("mm"),
-                Some("v8_resource_key"),
+                Some("v8_resource_association"),
                 None,
             ),
             Self::V8L3 => (
@@ -199,7 +199,7 @@ impl PartProfile {
                 "root_relative",
                 "saved_entities",
                 Some("mm"),
-                Some("v8_resource_key"),
+                Some("v8_resource_association"),
                 None,
             ),
         };
@@ -300,6 +300,43 @@ impl PartProfile {
         }
         at == bytes.len()
     }
+}
+
+/// Validate an attribute record made of length-framed fragments and return
+/// the first fragment's subtype. The declared fragment count must match and
+/// the fragments must consume the record exactly; nothing is searched for.
+fn attribute_fragments(record: &[u8], profile: PartProfile) -> Option<u32> {
+    if record.len() < 32 {
+        return None;
+    }
+    let flags = word(record, 12);
+    let mirror_bit = if profile.mirrors() { 0x1000 } else { 0 };
+    if flags >> 24 != 0xcf
+        || word(record, 4) != 1
+        || word(record, 8) != 0
+        || word(record, 16) & 0xf0000000 != 0x80000000
+        || word(record, 20) != 0
+        || (flags & 0xffff) & !(0x40 | mirror_bit) != 0x0081
+    {
+        return None;
+    }
+    let declared = ((flags >> 16) & 0xff) as usize;
+    let mut cursor = 24;
+    let mut found = 0;
+    while cursor < record.len() {
+        if record.len() - cursor < 8 {
+            return None;
+        }
+        let tag = word(record, cursor);
+        let size = (tag & 0x00ffffff) as usize;
+        if tag >> 24 != 0xfd || size < 8 || !size.is_multiple_of(4) || size > record.len() - cursor
+        {
+            return None;
+        }
+        found += 1;
+        cursor += size;
+    }
+    (found == declared && found > 0).then(|| word(record, 28))
 }
 
 impl PartIndex {
@@ -977,6 +1014,29 @@ impl Document {
                         result.index_status = Status::Partial;
                         result.opaque(base + at as u64, base + next as u64, "unknown_attribute");
                     }
+                } else if let Some(subtype) = attribute_fragments(&bytes[at..next], profile) {
+                    // Other attribute records: several length-framed fragments,
+                    // or the saved visibility bit. Framing and ownership are
+                    // qualified; no fragment is interpreted, including text.
+                    if length - 24 > limits.max_property_bytes {
+                        return Err(limit(
+                            base + at as u64,
+                            "limit.part_property_bytes",
+                            "part property exceeds max_property_bytes",
+                        ));
+                    }
+                    if let Some(part) = result.parts.last_mut() {
+                        part.opaque_attributes.push(PartAttributeRecord {
+                            byte_range: ByteRange {
+                                start: base + at as u64,
+                                end: base + next as u64,
+                            },
+                            source_id: word(bytes, at + 16),
+                            subtype,
+                            raw_bytes: bytes[at..next].to_vec(),
+                        });
+                    }
+                    result.opaque(base + at as u64, base + next as u64, "attribute_payload");
                 } else {
                     if let Some(part) = result.parts.last_mut() {
                         let range = ByteRange {

@@ -27,6 +27,7 @@ from .models import (
     InspectionStatus,
     ReadLimits,
     RecordInfo,
+    ResourceAssociation,
     ResourceRef,
     SourceRef,
     UnparsedRange,
@@ -34,6 +35,13 @@ from .models import (
 from .parameters import ParameterIndex, ParameterLimits, _read_parameters
 from .parts import PartIndex, PartLimits, _read_parts
 from .schema import SchemaCatalog
+from .trailer import (
+    TrailerBlockData,
+    TrailerIndex,
+    TrailerLimits,
+    _read_trailer,
+    _read_trailer_block,
+)
 from .views import ViewIndex, ViewLimits, _read_views
 
 if TYPE_CHECKING:
@@ -70,10 +78,21 @@ class Document:
     resource_index_status: Literal["complete", "partial"]
     status: InspectionStatus
     _handle: _core.DocumentHandle = field(repr=False, compare=False)
+    resource_associations: tuple[ResourceAssociation, ...] = ()
 
     def read_views(self, *, limits: ViewLimits | None = None) -> ViewIndex:
         """Classify directory-owned views and bound records, including old originals."""
         return _read_views(self, limits)
+
+    def read_trailer(self, *, limits: TrailerLimits | None = None) -> TrailerIndex:
+        """Frame the container after the indexed records without decompression."""
+        return _read_trailer(self, limits)
+
+    def read_trailer_block(
+        self, block_id: str, *, limits: TrailerLimits | None = None
+    ) -> TrailerBlockData:
+        """Decode one indexed trailer block and its qualified header fields."""
+        return _read_trailer_block(self, block_id, limits)
 
     def read_drawing(
         self,
@@ -251,4 +270,13 @@ def read(
         resource_index_status=data["resource_index_status"],
         status=info.status,
         _handle=handle,
+        resource_associations=tuple(
+            ResourceAssociation(
+                a["entity_source_id"],
+                a["resource_source_id"],
+                tuple(a["frame"]),
+                ByteRange(*a["byte_range"]),
+            )
+            for a in data["associations"]
+        ),
     )

@@ -119,6 +119,41 @@ def _polygon_cap(points: tuple[tuple[float, float], ...]) -> list[int]:
     return triangles
 
 
+def _outline(
+    primitive: NativePrimitive, segments: int
+) -> tuple[list[tuple[float, float]], list[int]]:
+    """Profile vertices with arcs as chords, and the indices of saved corners.
+
+    A full turn uses the same chord count as a cylinder. Chords are a display
+    approximation only; the saved arcs remain available in the primitive.
+    """
+    assert primitive.profile is not None
+    points: list[tuple[float, float]] = []
+    corners: list[int] = []
+    for segment in primitive.profile:
+        corners.append(len(points))
+        points.append(segment.start)
+        if segment.kind == "arc":
+            assert segment.center is not None and segment.sweep_angle is not None
+            cx, cy = segment.center
+            dx, dy = segment.start[0] - cx, segment.start[1] - cy
+            sweep = segment.sweep_angle
+            steps = max(2, math.ceil(segments * abs(sweep) / math.tau))
+            for k in range(1, steps):
+                c, s = math.cos(sweep * k / steps), math.sin(sweep * k / steps)
+                points.append((cx + dx * c - dy * s, cy + dx * s + dy * c))
+    return points, corners
+
+
+def _revolution_counts(primitive: NativePrimitive, segments: int) -> int:
+    assert primitive.revolution_profile is not None
+    profile = primitive.revolution_profile
+    count = sum(segments for r, _ in (profile[0], profile[-1]) if r > 0)
+    for (r0, _), (r1, _) in zip(profile, profile[1:], strict=False):
+        count += segments * ((r0 > 0) + (r1 > 0))
+    return count
+
+
 def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
     """Generate outward triangles in the saved global frame (millimetres)."""
     vertices: list[tuple[float, ...]] = []
@@ -168,6 +203,89 @@ def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
             a, b = (i, j) if signed_area > 0 else (j, i)
             triangles.extend((a, b, b + n, a, b + n, a + n))
             edges.extend((i, j, i + n, j + n, i, i + n))
+    elif primitive.kind == "profile_extrusion":
+        assert primitive.height is not None
+        outline, corners = _outline(primitive, segments)
+        n = len(outline)
+        vertices = [(x, y, z) for z in (0, primitive.height) for x, y in outline]
+        cap = _polygon_cap(tuple(outline))
+        for at in range(0, len(cap), 3):
+            a, b, c = cap[at : at + 3]
+            triangles.extend((a, c, b, a + n, b + n, c + n))
+        counterclockwise = (
+            sum(
+                outline[i][0] * outline[(i + 1) % n][1]
+                - outline[(i + 1) % n][0] * outline[i][1]
+                for i in range(n)
+            )
+            > 0
+        )
+        for i in range(n):
+            j = (i + 1) % n
+            a, b = (i, j) if counterclockwise else (j, i)
+            triangles.extend((a, b, b + n, a, b + n, a + n))
+            edges.extend((i, j, i + n, j + n))
+        for i in corners:
+            edges.extend((i, i + n))
+    elif primitive.kind == "revolution":
+        assert primitive.revolution_profile is not None
+        profile = primitive.revolution_profile
+        starts: list[int] = []
+        for radius, z in profile:
+            starts.append(len(vertices))
+            if radius > 0:
+                for i in range(segments):
+                    angle = math.tau * i / segments
+                    vertices.append(
+                        (radius * math.cos(angle), radius * math.sin(angle), z)
+                    )
+                for i in range(segments):
+                    edges.extend((starts[-1] + i, starts[-1] + (i + 1) % segments))
+            else:
+                vertices.append((0.0, 0.0, z))
+        for at, ((r0, _), (r1, _)) in enumerate(
+            zip(profile, profile[1:], strict=False)
+        ):
+            a, b = starts[at], starts[at + 1]
+            for i in range(segments):
+                j = (i + 1) % segments
+                if r0 > 0 and r1 > 0:
+                    triangles.extend((a + i, a + j, b + j, a + i, b + j, b + i))
+                elif r0 > 0:
+                    triangles.extend((a + i, a + j, b))
+                elif r1 > 0:
+                    triangles.extend((a, b + j, b + i))
+            if r0 > 0 and r1 > 0:
+                for i in range(0, segments, max(1, segments // 4)):
+                    edges.extend((a + i, b + i))
+        # Flat discs close the ends that do not already lie on the axis.
+        for end, ring in ((0, starts[0]), (-1, starts[-1])):
+            radius, z = profile[end]
+            if radius > 0:
+                centre = len(vertices)
+                vertices.append((0.0, 0.0, z))
+                for i in range(segments):
+                    j = (i + 1) % segments
+                    triangles.extend(
+                        (centre, ring + j, ring + i)
+                        if end == 0
+                        else (centre, ring + i, ring + j)
+                    )
+        # The profile may run in either axial direction. Orient by volume.
+        volume = 0.0
+        for at in range(0, len(triangles), 3):
+            p, q, r = (vertices[k] for k in triangles[at : at + 3])
+            volume += (
+                p[0] * (q[1] * r[2] - q[2] * r[1])
+                - p[1] * (q[0] * r[2] - q[2] * r[0])
+                + p[2] * (q[0] * r[1] - q[1] * r[0])
+            )
+        if volume < 0:
+            for at in range(0, len(triangles), 3):
+                triangles[at + 1], triangles[at + 2] = (
+                    triangles[at + 2],
+                    triangles[at + 1],
+                )
     elif primitive.kind == "sphere":
         assert primitive.radius is not None
         radius = primitive.radius
@@ -328,6 +446,10 @@ def _mesh_triangle_count(primitive: NativePrimitive, segments: int) -> int:
     if primitive.kind == "polygon_extrusion":
         assert primitive.profile_points is not None
         return 4 * len(primitive.profile_points) - 4
+    if primitive.kind == "profile_extrusion":
+        return 4 * len(_outline(primitive, segments)[0]) - 4
+    if primitive.kind == "revolution":
+        return _revolution_counts(primitive, segments)
     if primitive.kind == "sphere":
         return 2 * segments * (segments // 2 - 1)
     if primitive.kind == "torus":

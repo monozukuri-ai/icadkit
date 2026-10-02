@@ -105,6 +105,13 @@ Use the separate [resource preview](preview.md) to view a selected supported
 embedded resource. Unknown hierarchy links are retained; cycle-safe traversal
 lists each part once. This does not repair or certify the hierarchy.
 
+The current source also displays negative-height cylinders, extrusions with
+straight and circular profile segments, and revolved profiles. Profile arcs and
+revolutions use the cylinder segment control: a full turn has that many chords,
+shorter arcs proportionally fewer. Profile caps are triangulated without adding
+vertices; the mesh is a display approximation of the saved parameters shown in
+the properties.
+
 Full spheres use the same segment control as cylinders, with half as many
 latitude bands. Cones/frusta share the circumferential control; full tori use it
 for the major ring with half as many minor-ring segments (at least eight).
@@ -133,7 +140,9 @@ accepts `part_limits=PartLimits(...)`, `limits=ViewerLimits(...)` and
 `cylinder_segments=64`. Optional `csg=True` and `csg_limits=CsgLimits(...)`
 enable bounded V7L7 boolean evaluation; see [CSG scope and limits](csg.md). Input/index limits also remain available on `icadkit.read`.
 The CLI exposes the read/part limits plus `--max-triangles` (default 1,000,000) and
-`--max-output-bytes` (default 128 MiB). Limits do not cap total process/browser
+`--max-output-bytes` (default 128 MiB). The current source adds `--max-bodies N`
+for `--saved-brep` and `--csg`, replacing the default body count of
+`SavedBodyLimits` and `CsgLimits`; it is rejected without one of those modes. Limits do not cap total process/browser
 memory or CPU time. Files are prepared and size-checked before the destination
 is created. Publication reserves the destination and cleans up files it created
 on failure; it is not a filesystem transaction.

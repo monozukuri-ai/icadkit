@@ -153,6 +153,21 @@ class ResourceRef:
 
 
 @dataclass(frozen=True)
+class ResourceAssociation:
+    """A saved record naming the resource number used by one native entity.
+
+    frame holds the stored origin, Z axis and X axis. Neither identifier is a
+    persistent CAD identity. The record does not, by itself, qualify the entity,
+    the resource layout or an evaluated placement.
+    """
+
+    entity_source_id: int
+    resource_source_id: int
+    frame: tuple[float, ...]
+    byte_range: ByteRange
+
+
+@dataclass(frozen=True)
 class SourceRef:
     """Provenance in separate original-container and decoded-payload coordinates."""
 

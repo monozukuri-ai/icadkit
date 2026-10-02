@@ -147,6 +147,31 @@ def test_unqualified_positive_mirrored_box_height_remains_invalid():
 
 
 @pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("mirror", [False, True])
+def test_cylinder_signed_height_extends_along_negative_z_once(profile, mirror):
+    # The frame Z axis is global +Y. Height -29 from Y=-11 spans Y=-40..-11,
+    # whether or not the saved entity carries the mirror flag.
+    raw = native("cylinder", mirror=mirror, parameters=(7, -29))
+    doc = icadkit.read(
+        view_parts([part(ROOT, root=True, profile=profile), raw], profile=profile)
+    )
+    entity = doc.read_parts().parts[0].entities[0]
+    shape = entity.primitive
+    assert entity.is_mirror is mirror and entity.geometry_status == "complete"
+    assert (shape.radius, shape.height) == (7, 29)
+    assert shape.mirror_convention == ("signed_height" if mirror else None)
+    assert struct.unpack_from("<2d", shape.raw_bytes, 72) == (7, -29)
+    assert _determinant(shape.world_transform) == -1
+    mesh = _mesh(shape, 48)
+    ys = mesh["positions"][1::3]
+    assert (min(ys), max(ys)) == (-40, -11)
+    # Outward winding gives the inscribed 48-gon prism volume, not its negative.
+    assert signed_volume(mesh) == pytest.approx(
+        0.5 * 48 * 7 * 7 * math.sin(math.tau / 48) * 29
+    )
+
+
+@pytest.mark.parametrize("profile", PROFILES)
 def test_nonmirrored_box_can_extrude_in_negative_z(profile):
     # Rotated global Z is +Y. Signed height -13 spans Y=-24..-11;
     # the off-centre XY rectangle must not be reflected a second time.

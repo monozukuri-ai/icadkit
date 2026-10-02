@@ -142,9 +142,9 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "parasolid-core"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84a87b5a4788da87a31bd77ce9049f42387cfda7f0cf1d58e43efb91893490d7"
+checksum = "0f9dddafdeed4142723016b217438a4291cb332778637f30668c652c5fa1e2dd"
 
 [[package]]
 name = "portable-atomic"

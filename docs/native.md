@@ -18,7 +18,8 @@ operands are never drawn as a completed boolean result. Qualified internal
 mirrors are included; external owners and unsupported layouts remain unavailable.
 
 The current source also accepts negative heights in qualified nonmirrored boxes
-and adds the bounded polygon extrusion layout described below.
+and in cylinders, and adds the bounded polygon extrusion, profile extrusion and
+revolution layouts described below.
 
 ```python
 import icadkit
@@ -93,10 +94,35 @@ self-intersecting profiles are invalid. `profile_points` is `None` for other
 kinds. As with other primitives, older versions require a complete qualified
 standalone owner before any member is exposed as geometry.
 
-Nonmirrored boxes and polygon extrusions can store a negative height. The
-reader exposes its absolute value and reverses only the Z column of the frame;
-the original sign remains in `raw_bytes`. This sign does not imply an entity
-mirror, so `mirror_convention` remains `None` for these nonmirrored records.
+A `profile_extrusion` is the general saved extrusion: frame, signed height and
+a closed profile of straight and circular segments. `NativePrimitive.profile`
+is a tuple of `ProfileSegment` values in profile order, each with `kind`
+(`line` or `arc`), `start` and `end`; an arc also has `center` and a signed
+`sweep_angle` in radians, positive from +X toward +Y. In the record an arc
+follows its start vertex as two flagged elements, the centre and the sweep; a
+trailing bit field marks those elements. Only the first value of the sweep
+element is used: the second is arbitrary in saved files and is ignored. The
+profile must return to its first vertex, either by a repeated vertex or by a
+final arc. Zero-length repeats are dropped and collinear vertices are kept.
+The viewer draws arcs as chords, with a full turn using the same chord count as
+a cylinder. Open, degenerate or self-intersecting profiles and invalid arcs are
+`invalid` (`native.profile`); unqualified flag patterns are unsupported
+(`native.profile_layout`). The six-vertex `polygon_extrusion` layout is separate
+and unchanged.
+
+A `revolution` turns the polyline in `revolution_profile`, a tuple of
+`(radius, axial)` pairs, completely about the frame Z axis. The region is closed
+along the axis: an end with a positive radius gets a flat disc. `height`,
+`radius` and the profile fields of other kinds are `None`. No sweep angle is
+stored in this layout, so partial revolutions are not represented. Negative
+radii, repeated points and self-intersecting or degenerate profiles are
+`invalid` (`native.revolution`).
+
+Nonmirrored boxes, cylinders, polygon extrusions and profile extrusions can
+store a negative height. The reader exposes its absolute value and reverses only
+the Z column of the frame; the original sign remains in `raw_bytes`. This sign
+does not imply an entity mirror, so `mirror_convention` remains `None` for
+these nonmirrored records.
 
 Matrices contain four rows and act on column vectors. The first three columns
 are the X, Y and Z axes; the fourth is the origin. A box spans the saved X/Y
@@ -143,9 +169,12 @@ heights remain unqualified and are rejected. Nonmirrored boxes and qualified
 polygons accept either height sign as described above; nonmirrored cones retain
 their positive-height requirement.
 
-Full cylinders, full spheres and full ring tori use
-`mirror_convention="symmetric_frame"`: their stored frames already place the
-symmetric shape. Qualified mirrored tori require the observed negative full
+Full cylinders with a positive height, full spheres, full ring tori and
+revolutions use `mirror_convention="symmetric_frame"`: their stored frames
+already place the symmetric shape. A mirrored cylinder or profile extrusion with
+a negative height uses `signed_height`, like a mirrored box. A mirrored profile
+extrusion with a positive height uses `stored_profile`: its saved frame and
+profile already describe the reflected solid and nothing is reversed. Qualified mirrored tori require the observed negative full
 sweep; other extent/flag combinations retain diagnostics. Nonmirrored primitives
 have `mirror_convention=None`. The viewer reverses triangle winding for a negative
 geometry determinant so derived normals stay outward. Unsupported extrusions,
@@ -202,6 +231,15 @@ radii/surface points are checked alongside SDK centroids, area and volume.
 Incorrect unit scaling, repeated part transforms and transposed rotation are
 negative controls. CAD files, SDK binaries and vendor catalogs are not distributed;
 public tests use independently authored synthetic records and malformed inputs.
+
+For the unreleased cylinder sign, profile extrusion and revolution layouts,
+saved SDK observations match volume, area and centroid for 290 negative-height
+cylinders (30 of them mirrored), 83 profile extrusions (19 mirrored) and 133
+revolutions (58 mirrored). In a local sample all 6,638 extrusion records of this
+layout have a closed profile under the rule above; 987 standalone extrusions and
+217 standalone revolutions decode and tessellate with the expected volume.
+Records used as operands of a saved boolean body stay opaque, and hexagonal
+prism records occur only as such operands in the checked inputs.
 
 The v0.3 additions have offline checks against saved/reopened SDK
 observations for ten cone/frustum/torus files, including oblique and dimension

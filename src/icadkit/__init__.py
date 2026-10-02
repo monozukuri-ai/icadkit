@@ -37,9 +37,17 @@ from .models import (
     InspectionStatus,
     ReadLimits,
     RecordInfo,
+    ResourceAssociation,
     ResourceRef,
     SourceRef,
     UnparsedRange,
+)
+from .trailer import (
+    TrailerBlock,
+    TrailerBlockData,
+    TrailerIndex,
+    TrailerLimits,
+    TrailerTable,
 )
 from .views import View, ViewEntry, ViewIndex, ViewLimits
 
@@ -50,6 +58,11 @@ __all__ = [
     "DrawingLimits",
     "DrawingPrimitive",
     "DrawingText",
+    "TrailerBlock",
+    "TrailerBlockData",
+    "TrailerIndex",
+    "TrailerLimits",
+    "TrailerTable",
     "View",
     "ViewEntry",
     "ViewIndex",
@@ -82,6 +95,7 @@ __all__ = [
     "LimitExceededError",
     "RecordInfo",
     "ReadLimits",
+    "ResourceAssociation",
     "ResourceRef",
     "SourceRef",
     "UnparsedRange",
@@ -106,7 +120,7 @@ from .geometry import (
     RawNode,
     SchemaSelection,
 )
-from .native import NativeAppearance, NativeEntity, NativePrimitive
+from .native import NativeAppearance, NativeEntity, NativePrimitive, ProfileSegment
 from .parameters import (
     ParameterCondition,
     ParameterIndex,
@@ -161,6 +175,7 @@ __all__ += [
     "NativeAppearance",
     "NativeEntity",
     "NativePrimitive",
+    "ProfileSegment",
     "Part",
     "PartIndex",
     "PartLimits",

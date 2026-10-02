@@ -57,7 +57,8 @@ completeness of an individual part or body. Continue to check `index.status` and
 the per-part/geometry diagnostics. Inventory-only profiles do not expose
 qualified units or evaluated coordinates. The `opaque_entities` policy used by
 V7L2–V7L5 permits qualified part frames but leaves entity geometry and appearance
-unsupported. It does not grant saved-body or CSG decoding.
+unsupported. Saved-body binding is described by `saved_body_layout`
+(`v7_legacy_source_id` for these profiles); CSG decoding is not granted.
 
 `index.views` retains `PartView` entries with source byte ranges. The currently
 recognized kind is `3d_global`; all other layouts remain `unknown`. Absence of a
@@ -72,7 +73,8 @@ V7L2–V7L5 require `0x61000001`, V7L6/V7L7 require `0x61000002`, and V8 profile
 require `0x61000003`. Unknown layouts stop with source ranges and diagnostics.
 
 V7L2–V7L5 expose inventory, hierarchy, names, comments, stored attributes and
-root-relative millimetre frames, with opaque entity geometry. V7L6/V7L7 and
+root-relative millimetre frames, with opaque entity geometry. Their saved final
+bodies bind through the separate [binding API](saved-bodies.md). V7L6/V7L7 and
 V8L1/V8L2 additionally qualify native primitives and saved appearance only for
 complete standalone owners. Unknown or CSG siblings keep the owner's geometry
 opaque. Saved final bodies use the separate [binding API](saved-bodies.md).
@@ -178,6 +180,16 @@ with `source_id`, `subtype`, `owner_id`, `byte_range`, exact `raw_bytes` and
 leave `status.index="complete"`, while `stored_attributes="partial"` and
 `parts.attribute_semantics` report unknown attribute meaning. Unknown attribute layouts retain a partial index and opaque bytes; unknown
 record framing stops traversal. `max_property_bytes` applies to these payloads.
+
+Attribute records can also consist of several length-framed fragments, or carry
+the saved visibility bit. When the declared fragment count matches and the
+fragments consume the record exactly, the whole record is retained as one
+`PartOpaqueAttribute`; `subtype` is the subtype of its first fragment. Such
+records are no longer listed as geometry entities, so they do not keep an
+owner's primitives opaque. A text fragment inside such a record is **not**
+exposed as `extra_info`: only the single-fragment record is qualified as
+extended text. Records whose fragment framing does not match stay opaque
+entities, as before.
 
 Names and comments use strict CP932 decoding. General extended information
 (`SxInfEx` in the validation SDK) is exposed as `extra_info`, decoded strictly

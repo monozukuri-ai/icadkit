@@ -5,6 +5,8 @@ onshape_sch30000 profile. Topology and coordinates are authored for these tests;
 no installed iCAD catalog or vendor CAD payload is used or needed.
 The embedded variant uses the reviewed 13006 BODY/REGION field subset and
 unchanged declarations for the exact iCAD V34 profile added in version 0.3.0.
+Standard keys of other schema revisions transmit no schema; their BODY and
+REGION scalar orders are stated below, independently of parasolid-core.
 """
 
 import struct
@@ -35,10 +37,41 @@ CODES = {
 }
 
 
-def wire_payload(*, bad_reference=False, embedded=False):
+# BODY codes per standard revision, then the ordinals of its two precisions,
+# body kind and region/edge/vertex heads.
+STANDARD_BODIES = {
+    b"SCH_2401000_20000": ("DPPPPPPFFPPPUPUUPPPPPPPDPPP", (7, 8, 14, 20, 21, 22)),
+    b"SCH_2800000_28002": ("DPPPPPPFFPPPUPUUPPPPPPPPDPPPPD", (7, 8, 14, 20, 21, 22)),
+    b"SCH_2901000_28101": (CODES[12], (9, 10, 16, 24, 25, 26)),
+    b"SCH_3200000_32001": (CODES[12] + "P", (9, 10, 16, 24, 25, 26)),
+    b"SCH_3301000_33103": (
+        "DPPPPPPPPPFFPPPUPUUPPPPPPPPPDPPPPDP",
+        (10, 11, 17, 25, 26, 27),
+    ),
+}
+
+
+def wire_payload(*, bad_reference=False, embedded=False, key=None):
     # Endpoints (2,-1,3) and (5,3,3): independent length 5, unit direction (3/5,4/5,0).
+    codes, body = CODES, (9, 10, 16, 24, 25, 26)
+    if key is not None:
+        layout, body = STANDARD_BODIES[key]
+        region = "DPPPPPC" if key == b"SCH_2401000_20000" else CODES[19]
+        codes = {**CODES, 12: layout, 19: region}
+    size, linear, body_kind, region_head, edge_head, vertex_head = body
     definitions = [
-        (12, 1, {9: 1e-6, 10: 1e-8, 16: 2, 24: 2, 25: 6, 26: 4}),
+        (
+            12,
+            1,
+            {
+                size: 1e-6,
+                linear: 1e-8,
+                body_kind: 2,
+                region_head: 2,
+                edge_head: 6,
+                vertex_head: 4,
+            },
+        ),
         (19, 2, {2: 1, 5: 3, 6: ord("V")}),
         (13, 3, {7: 2}),
         (18, 4, {4: 9, 5: 999 if bad_reference else 5, 7: 1}),
@@ -50,7 +83,8 @@ def wire_payload(*, bad_reference=False, embedded=False):
         (29, 10, {2: 9, 5: (5, 3, 3)}),
         (30, 11, {2: 6, 7: (2, -1, 3), 8: (0.6, 0.8, 0)}),
     ]
-    key = b"SCH_3401212_34101_13006" if embedded else b"SCH_3000000_30000"
+    if key is None:
+        key = b"SCH_3401212_34101_13006" if embedded else b"SCH_3000000_30000"
     out = bytearray(header(key))
     declared = set()
     for kind, index, overrides in definitions:
@@ -67,13 +101,13 @@ def wire_payload(*, bad_reference=False, embedded=False):
             "C": ord("+"),
             "V": (0, 0, 0),
         }
-        ordinals = list(range(len(CODES[kind])))
+        ordinals = list(range(len(codes[kind])))
         if embedded and kind == 12:
             ordinals = [*range(6), *range(8, 22), 24, 25, 26]
         elif embedded and kind == 19:
             ordinals = ordinals[:7]
         for i in ordinals:
-            code = CODES[kind][i]
+            code = codes[kind][i]
             value = overrides.get(i, defaults[code])
             if code == "P":
                 out += struct.pack(">H", value + 1)

@@ -45,6 +45,12 @@ The current source also adds [explicit assembly resolution](references.md):
 contract. `icadkit assembly --reference-root` reports resolution; `icadkit view
 --reference-root` and `icadkit.viewer.write_assembly_viewer()` display qualified
 placed geometry. These changes are unreleased.
+The current source adds the [trailing container](trailer.md):
+`Document.read_trailer()` and `Document.read_trailer_block()` return
+`TrailerIndex`, `TrailerBlock`, `TrailerTable` and `TrailerBlockData`, bounded by
+`TrailerLimits`. `Document.resource_associations` lists saved
+`ResourceAssociation` records. `NativePrimitive` gains the `profile_extrusion`
+and `revolution` kinds with `ProfileSegment`; see [native access](native.md).
 The optional `icadkit.preview.write_preview()` and `icadkit preview` command
 export one qualified resource to a GLB and local viewer, with explicit source
 units. See the [preview API and CLI](preview.md) for scope and dependencies.
@@ -364,6 +370,8 @@ icadkit check model.icd --target geometry --resource RESOURCE_ID \
   --scope raw_geometry --schema sch_13006.sch_txt --schema-id 13006 --json
 icadkit check model.icd --target container --json
 icadkit check model.icd --target model --json
+icadkit trailer model.icd --bounds --json
+icadkit view model.icd --saved-brep --max-bodies 5000
 ```
 
 `python -m icadkit` provides the same interface. Output uses UTF-8 independently

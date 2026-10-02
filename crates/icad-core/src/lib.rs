@@ -13,6 +13,7 @@ mod reader;
 mod record;
 mod resource;
 mod schema;
+mod trailer;
 mod views;
 
 pub use document::Document;
@@ -33,8 +34,11 @@ pub use parts::{
 pub use provenance::{Extraction, SourceRef};
 pub use reader::ByteOrder;
 pub use record::{ByteRange, RecordInfo};
-pub use resource::{Encoding, ResourceRef};
+pub use resource::{Encoding, ResourceAssociation, ResourceRef};
 pub use schema::SchemaCatalog;
+pub use trailer::{
+    TrailerBlock, TrailerBlockData, TrailerIndex, TrailerLimits, TrailerTable, TrailerView,
+};
 pub use views::{ViewEntry, ViewIndex, ViewLimits, ViewRecord};
 
 use parasolid_core::{BuiltinProfileRegistry, ParseError};
@@ -43,7 +47,7 @@ use parasolid_core::{BuiltinProfileRegistry, ParseError};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Exact registry dependency; checked against the manifest and lock in CI.
-pub const PARASOLID_CORE_VERSION: &str = "0.3.3";
+pub const PARASOLID_CORE_VERSION: &str = "0.3.4";
 
 /// Metadata of the compiled Parasolid backend, not ICD format coverage.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -5,7 +5,7 @@ import math
 import struct
 
 import pytest
-from fixture_builders import document_factory, resource_factory
+from fixture_builders import association, document_factory, resource_factory
 from part_fixtures import ROOT, A, B, part, view_parts
 from preview_fixtures import box_payload
 from test_csg import RESULT, RIGHT, result
@@ -31,20 +31,25 @@ def resource(
 
 
 def document(
-    *, resources=None, markers=None, hidden=False, root_position=(100, 200, 300)
+    *,
+    resources=None,
+    markers=None,
+    hidden=False,
+    root_position=(100, 200, 300),
+    profile="v7l7",
 ):
     records = [
         part(
             ROOT,
             root=True,
-            profile="v7l7",
+            profile=profile,
             position=root_position,
             axes=(0, 1, 0, 1, 0, 0),
         ),
         struct.pack("<I", 0x30010000),
     ]
     records += [result(hidden=hidden)] if markers is None else markers
-    view = view_parts(records, profile="v7l7")
+    view = view_parts(records, profile=profile)
     size = int.from_bytes(view[500:504], "little") * 4
     data = bytearray(
         document_factory()(
@@ -53,7 +58,7 @@ def document(
             tail=b"",
         )
     )
-    data[12:16] = b"\0\7\0\7"
+    data[12:16] = view[12:16]
     return icadkit.read(bytes(data))
 
 
@@ -268,10 +273,30 @@ def test_cli_positive_and_schema_arguments(tmp_path, capsys):
         ["--schema", "catalog", "--schema-id", "abc"],
         ["--schema", "catalog", "--schema-id", "26105"],
         ["--saved-brep", "--csg"],
+        ["--max-bodies", "2"],
+        ["--saved-brep", "--max-bodies", "0"],
+        ["--saved-brep", "--max-bodies", str(2**31)],
     ):
         with pytest.raises(SystemExit) as exc:
             main(["view", str(p), *args])
         assert exc.value.code == 2
+
+
+def test_cli_body_limit_is_adjustable(tmp_path, capsys):
+    backend()
+    doc = v8_document(
+        keys=(901, 902),
+        references=(901, 902),
+        origins=((10, 20, 30), (-10, 50, 90)),
+    )
+    p = tmp_path / "authored.bin"
+    p.write_bytes(doc.source_bytes(icadkit.ByteRange(0, doc.file_size)))
+    common = ["view", str(p), "--saved-brep", "--write-only", "--json", "--output"]
+    assert main([*common, str(tmp_path / "limited"), "--max-bodies", "1"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "saved.limit_bodies"
+    assert not (tmp_path / "limited").exists()
+    assert main([*common, str(tmp_path / "view"), "--max-bodies", "2"]) == 0
+    assert json.loads(capsys.readouterr().out)["evaluated_saved_bodies"] == 2
 
 
 @pytest.mark.parametrize("value", [0, -1, True, 2**32])
@@ -294,9 +319,18 @@ def v8_document(
     origins=((10, 20, 30),),
     duplicate_native_id=False,
     mirrored_ancestor=False,
+    marker_keys=None,
+    links=None,
 ):
+    """Authored V8 markers, numbered resources and their association records.
+
+    keys are the resource numbers; references name, per marker, the resource
+    number in its association. marker_keys are the unrelated words at marker
+    +32, different from every resource number unless given.
+    """
     resources = [resource(sid=key, version=6) for key in keys]
     markers = []
+    associations = []
     for i, (key, origin) in enumerate(zip(references, origins, strict=True)):
         data = bytearray(152)
         sid = RESULT if duplicate_native_id else RESULT + i
@@ -312,14 +346,18 @@ def v8_document(
             0,
             0xFD000080,
             0x01000000,
-            key,
+            7000 + i if marker_keys is None else marker_keys[i],
             0,
             0x212,
             0x01000044,
         )
-        struct.pack_into("<9d", data, 48, *origin, 0, 1, 0, 1, 0, 0)
+        frame = (*origin, 0, 1, 0, 1, 0, 0)
+        struct.pack_into("<9d", data, 48, *frame)
         struct.pack_into("<I", data, 120, 2 + i)
         markers.append(bytes(data))
+        associations.append(association(sid, key, frame))
+    if links is not None:
+        associations = [association(*link) for link in links]
     parents = [part(ROOT, root=True, position=(100, 200, 300))]
     if mirrored_ancestor:
         parents = [
@@ -336,7 +374,11 @@ def v8_document(
     )
     size = int.from_bytes(view[500:504], "little") * 4
     data = bytearray(
-        document_factory()(resources, view_payload=view[504 : 496 + size - 4], tail=b"")
+        document_factory()(
+            [*resources, *associations],
+            view_payload=view[504 : 496 + size - 4],
+            tail=b"",
+        )
     )
     data[12:16] = {"v8l1": b"\0\10\0\1", "v8l2": b"\0\10\0\2", "v8l3": b"\0\10\0\3"}[
         profile
@@ -345,9 +387,7 @@ def v8_document(
 
 
 @pytest.mark.parametrize("profile", ["v8l1", "v8l2", "v8l3"])
-def test_v8_explicit_resource_key_supports_shared_instances_and_arbitrary_order(
-    profile,
-):
+def test_v8_association_supports_shared_instances_and_arbitrary_order(profile):
     doc = v8_document(
         profile=profile,
         keys=(777, 901),
@@ -356,10 +396,11 @@ def test_v8_explicit_resource_key_supports_shared_instances_and_arbitrary_order(
     )
     index = icadkit.read_saved_bodies(doc)
     assert index.status == "complete" and len(index.bodies) == 2
+    assert len(doc.resource_associations) == 2
     for body in index.bodies:
         assert body.resource_id == doc.resources[1].resource_id
         assert body.resource_source_id == 901 and body.source_id != 901
-        assert body.binding_kind == "saved_resource_key"
+        assert body.binding_kind == "resource_association"
         assert body.frame_source == "root_relative_native"
         assert body.resource_frame_range.start == body.byte_range.start + 48
         assert body.raw_resource_frame == doc.source_bytes(body.resource_frame_range)
@@ -372,34 +413,16 @@ def test_v8_explicit_resource_key_supports_shared_instances_and_arbitrary_order(
     assert index.bodies[1].world_transform[1][3] == -150
 
 
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"keys": (777,)},
-        {"keys": (901, 901)},
-        {
-            "references": (901, 901),
-            "origins": ((0, 0, 0), (1, 2, 3)),
-            "duplicate_native_id": True,
-        },
-    ],
-)
-def test_v8_ambiguous_or_missing_resources_never_fall_back_to_order(kwargs):
-    index = icadkit.read_saved_bodies(v8_document(**kwargs))
-    assert index.status == "partial"
-    assert all(
-        b.status == "unsupported" and b.diagnostics[0].code == "saved.binding"
-        for b in index.bodies
-    )
-
-
 @pytest.mark.parametrize("profile", ["v8l1", "v8l2", "v8l3"])
 @pytest.mark.parametrize("state", [0, 0x01000000])
-def test_v8_distinct_keys_in_one_owner_require_qualified_associations(profile, state):
+def test_v8_marker_word_never_selects_a_resource(profile, state):
+    # The words at marker +32 name the other body's resource number. The
+    # association records are authoritative, as after a copy within one owner.
     doc = v8_document(
         profile=profile,
         keys=(901, 902),
-        references=(901, 902),
+        references=(902, 901),
+        marker_keys=(901, 902),
         origins=((10, 20, 30), (-10, 50, 90)),
     )
     raw = bytearray(doc.source_bytes(icadkit.ByteRange(0, doc.file_size)))
@@ -407,12 +430,50 @@ def test_v8_distinct_keys_in_one_owner_require_qualified_associations(profile, s
         struct.pack_into("<I", raw, marker.byte_range.start + 28, state)
     doc = icadkit.read(bytes(raw))
     index = icadkit.read_saved_bodies(doc)
-    assert index.status == "partial" and len(index.bodies) == 2
-    assert [b.resource_source_id for b in index.bodies] == [901, 902]
+    assert index.status == "complete" and len(index.bodies) == 2
+    assert [b.resource_source_id for b in index.bodies] == [902, 901]
+    assert [b.resource_id for b in index.bodies] == [
+        doc.resources[1].resource_id,
+        doc.resources[0].resource_id,
+    ]
+    assert all(len(doc.source_bytes(b.byte_range)) == 152 for b in index.bodies)
+
+
+FRAME = (10, 20, 30, 0, 1, 0, 1, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "kwargs,code",
+    [
+        ({"links": []}, "saved.binding"),
+        ({"links": [], "marker_keys": (901,)}, "saved.binding"),
+        ({"links": [(RESULT, 901, FRAME), (RESULT, 901, FRAME)]}, "saved.binding"),
+        ({"links": [(RESULT + 1, 901, FRAME)]}, "saved.binding"),
+        ({"references": (777,)}, "saved.binding"),
+        ({"keys": (901, 901)}, "saved.binding"),
+        (
+            {
+                "references": (901, 901),
+                "origins": ((0, 0, 0), (1, 2, 3)),
+                "duplicate_native_id": True,
+            },
+            "saved.binding",
+        ),
+        (
+            {"links": [(RESULT, 901, (11, 20, 30, 0, 1, 0, 1, 0, 0))]},
+            "saved.association_frame",
+        ),
+    ],
+)
+def test_v8_missing_or_ambiguous_association_never_falls_back(kwargs, code):
+    doc = v8_document(**kwargs)
+    index = icadkit.read_saved_bodies(doc)
+    assert index.status == "partial"
     for body in index.bodies:
-        assert body.status == "unsupported" and body.resource_id is None
-        assert body.diagnostics[0].code == "saved.owner_resource_keys"
-        assert len(doc.source_bytes(body.byte_range)) == 152
+        assert body.status == "unsupported" and body.world_transform is None
+        assert body.diagnostics[0].code == code
+        # Only a frame conflict is detected after the resource is identified.
+        assert (body.resource_id is None) == (code == "saved.binding")
         with pytest.raises(icadkit.UnsupportedFormatError, match="saved.incomplete"):
             icadkit.evaluate_saved_body(doc, body)
 
@@ -492,3 +553,157 @@ def test_spherical_bore_shared_seams_are_independent_of_source_face_order(sphere
     assert mesh.area_mm2 == pytest.approx(4 * math.pi * z * (11 + 3), rel=1e-10)
     assert mesh.centroid_mm == pytest.approx((0, 0, 0), abs=1e-10)
     assert "generate_periodic_surface_seam" in operations
+
+
+def _solid(model):
+    from parasolid_kit.interop.occt.options import OcctConversionOptions
+
+    from icadkit._csg_occt import _runtime, mesh_shape
+    from icadkit._saved_occt import _build, _preflight
+
+    limits = icadkit.SavedBodyLimits()
+    _preflight(model, limits)
+    shape, operations = _build(
+        model,
+        OcctConversionOptions(source_unit="m", target_unit="mm"),
+        _runtime(),
+        limits,
+    )
+    return mesh_shape(shape, "authored", icadkit.CsgLimits(), 0.05, _runtime()), (
+        operations
+    )
+
+
+def test_elliptical_edge_of_an_oblique_cut_keeps_exact_mass_properties():
+    backend()
+    from saved_fixtures import oblique_cylinder_model
+
+    mesh, _ = _solid(oblique_cylinder_model())
+    # r = 7 mm, mean height h = 20 mm, cut plane z = h + x / 2. The kernel
+    # integrates the trimmed faces numerically, hence the looser tolerance.
+    assert mesh.volume_mm3 == pytest.approx(math.pi * 49 * 20, rel=1e-5)
+    assert mesh.area_mm2 == pytest.approx(
+        math.pi * 49 + 2 * math.pi * 7 * 20 + math.pi * 49 * math.sqrt(1.25), rel=1e-5
+    )
+    # Centroid: x = k r^2 / (4 h), z = h / 2 + k^2 r^2 / (8 h).
+    assert mesh.centroid_mm == pytest.approx((0.30625, 0, 10.0765625), abs=1e-4)
+    assert mesh.solid_count == 1
+
+
+def test_cone_apex_vertex_loop_becomes_one_degenerated_boundary():
+    backend()
+    from saved_fixtures import apex_cone_model
+
+    mesh, operations = _solid(apex_cone_model())
+    # R = 6 mm, H = 8 mm, slant 10 mm.
+    assert mesh.volume_mm3 == pytest.approx(math.pi * 36 * 8 / 3, rel=1e-9)
+    assert mesh.area_mm2 == pytest.approx(math.pi * 36 + math.pi * 6 * 10, rel=1e-9)
+    assert mesh.centroid_mm == pytest.approx((0, 0, 2), abs=1e-9)
+    assert "degenerated_cone_apex_boundary" in operations
+
+
+def test_vertex_loops_off_the_apex_or_on_other_surfaces_stay_unqualified():
+    backend()
+    from dataclasses import replace
+
+    from saved_fixtures import apex_cone_model
+
+    from icadkit._saved_occt import _preflight
+
+    limits = icadkit.SavedBodyLimits()
+    with pytest.raises(icadkit.UnsupportedFormatError, match="saved.half_edge"):
+        _preflight(apex_cone_model(surface="sphere"), limits)
+    model = apex_cone_model()
+    moved = replace(
+        model.points[0], position=replace(model.points[0].position, z=0.007)
+    )
+    with pytest.raises(icadkit.UnsupportedFormatError, match="saved.half_edge"):
+        _solid(replace(model, points=(moved,)))
+    # A dummy fin, or a face whose only loop is the vertex, is not an apex.
+    dummy = replace(model.half_edges[2], dummy=True)
+    with pytest.raises(icadkit.UnsupportedFormatError, match="saved.half_edge"):
+        _preflight(replace(model, half_edges=(*model.half_edges[:2], dummy)), limits)
+    lone = replace(model.faces[1], loops=(2,))
+    with pytest.raises(icadkit.UnsupportedFormatError, match="saved.half_edge"):
+        _preflight(replace(model, faces=(model.faces[0], lone)), limits)
+
+
+def test_bridge_maps_ellipse_and_intersection_for_saved_bodies_only():
+    backend()
+    from types import SimpleNamespace
+
+    from icadkit._preview_bridge import bridge
+    from icadkit.geometry import BrepEntity, NodeSource
+    from icadkit.preview import PreviewError
+
+    def node(i):
+        return NodeSource(i + 1, 133, "authored", i, icadkit.ByteRange(0, 1))
+
+    ref = {
+        "node_index": 9,
+        "node_type": 40,
+        "type_name": "CHART",
+        "node_id": 9,
+        "decoded_range": (0, 1),
+    }
+    curves = [
+        BrepEntity(
+            0,
+            node(0),
+            {
+                "kind": "ellipse",
+                "owner": None,
+                "sense": "positive",
+                "center": (0.0, 0.0, 1.0),
+                "normal": (0.0, 0.0, 1.0),
+                "x_axis": (1.0, 0.0, 0.0),
+                "major_radius": 3.0,
+                "minor_radius": 2.0,
+            },
+        ),
+        BrepEntity(
+            1,
+            node(1),
+            {
+                "kind": "intersection",
+                "owner": None,
+                "sense": "negative",
+                "surfaces": (4, 7),
+                "chart": ref,
+                "start": ref,
+                "end": ref,
+                "intersection_data": None,
+                "chart_points": ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 1.0, 0.0)),
+                "start_points": ((0.0, 0.0, 0.0),),
+                "end_points": ((2.0, 1.0, 0.0),),
+            },
+        ),
+    ]
+    names = (
+        "bodies", "regions", "shells", "faces", "loops", "half_edges", "edges",
+        "vertices", "points", "curves", "surfaces",
+    )  # fmt: skip
+    brep = SimpleNamespace(
+        counts={n: 2 if n == "curves" else 0 for n in names},
+        entities=lambda name, start, count: curves if name == "curves" else [],
+        vertex_bounds=None,
+        source_format="binary",
+        schema_key="authored-test",
+        complete=True,
+        topology_valid=True,
+        closed_loop_count=0,
+        closed_edge_ring_count=0,
+        euler_characteristic=0,
+        surface_area=None,
+        volume=None,
+    )
+    model = bridge(brep, saved_surfaces=True)
+    ellipse, intersection = (c.definition for c in model.curves)
+    assert (ellipse.major_radius, ellipse.minor_radius) == (3.0, 2.0)
+    assert ellipse.center.z == 1 and model.curves[0].kind.value == "ellipse"
+    assert intersection.surfaces == (4, 7) and intersection.chart.node_type == 40
+    assert [p.x for p in intersection.chart_points] == [0, 1, 2]
+    assert intersection.end_points[0].y == 1 and intersection.intersection_data is None
+    # The resource preview keeps its narrower contract.
+    with pytest.raises(PreviewError, match="ellipse"):
+        bridge(brep)

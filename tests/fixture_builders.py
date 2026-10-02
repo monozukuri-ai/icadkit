@@ -71,6 +71,19 @@ def resource_factory():
     return make
 
 
+def association(entity_id, resource_number, frame, *, order="little"):
+    """Authored 96-byte record naming the resource of one saved entity."""
+    import struct
+
+    prefix = ">" if order == "big" else "<"
+    return (
+        b"\x88\x06"
+        + (96).to_bytes(2, order)
+        + struct.pack(prefix + "5I", entity_id, resource_number, 0, 0x8001, 0)
+        + struct.pack(prefix + "9d", *frame)
+    )
+
+
 def document_factory():
     def make(
         entities=(),

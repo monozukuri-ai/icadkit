@@ -185,7 +185,9 @@ def test_overflowing_box_width_and_bad_cylinder_dimensions():
     for b in [
         native(parameters=(23, -1e308, -5, 1e308, 12)),
         native("cylinder", parameters=(0, 29)),
-        native("cylinder", parameters=(7, -29)),
+        native("cylinder", parameters=(-7, 29)),
+        native("cylinder", parameters=(7, 0)),
+        native("cylinder", parameters=(7, -math.inf)),
     ]:
         _, index = read(b)
         assert index.parts[1].entities[0].geometry_status == "invalid"

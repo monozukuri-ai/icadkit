@@ -55,9 +55,10 @@ def bridge(brep: Brep, *, saved_surfaces: bool = False) -> Any:
     }
     if saved_surfaces:
         surfaces.update(cone=geom.ConeSurface, torus=geom.TorusSurface)
+        curves.update(ellipse=geom.EllipseCurve, intersection=geom.IntersectionCurve)
 
     def entity(collection: str, value: BrepEntity) -> Any:
-        attrs = dict(value.attributes)
+        attrs: dict[str, Any] = dict(value.attributes)
         common = {"id": value.id, "source": source(value.source)}
         if "owner" in attrs:
             attrs["owner"] = source(attrs["owner"])
@@ -99,6 +100,13 @@ def bridge(brep: Brep, *, saved_surfaces: bool = False) -> Any:
         ):
             if name in attrs:
                 attrs[name] = vector(attrs[name])
+        if kind == "intersection":
+            # Source-identified branch: support surfaces, chart and limit points.
+            attrs["surfaces"] = tuple(attrs["surfaces"])
+            for name in ("chart", "start", "end", "intersection_data"):
+                attrs[name] = source(attrs[name])
+            for name in ("chart_points", "start_points", "end_points"):
+                attrs[name] = tuple(vector(p) for p in attrs[name])
         definition = constructors[kind](**attrs)
         if collection == "curves":
             return geom.CurveGeometry(

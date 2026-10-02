@@ -1,4 +1,4 @@
-use icad_core::{ByteRange, Document, ErrorKind, InspectError, ReadLimits};
+use icad_core::{ByteRange, Document, ErrorKind, InspectError, ReadLimits, Status, TrailerLimits};
 
 fn word(data: &mut [u8], at: usize, value: u32, big: bool) {
     data[at..at + 4].copy_from_slice(&if big {
@@ -169,5 +169,79 @@ fn geometry_bridge_handles_all_single_byte_mutations() -> Result<(), InspectErro
             }
         }
     }
+    Ok(())
+}
+
+fn framed(kind: u8, subtype: u8, header: &[u8], body: &[u8]) -> Vec<u8> {
+    let mut out = vec![kind, subtype];
+    out.extend_from_slice(&((8 + header.len()) as u16).to_le_bytes());
+    out.extend_from_slice(&((8 + header.len() + body.len()) as u32).to_le_bytes());
+    out.extend_from_slice(header);
+    out.extend_from_slice(body);
+    out
+}
+
+fn words(values: &[u32]) -> Vec<u8> {
+    values.iter().flat_map(|v| v.to_le_bytes()).collect()
+}
+
+#[test]
+fn trailer_framing_is_little_endian_in_either_byte_order() -> Result<(), InspectError> {
+    // Hand-authored block: length, kind, six bounds, zero, header size, filler.
+    let mut payload = words(&[72, 0x94]);
+    for value in [-2.0f32, -3.0, 0.0, 5.0, 7.0, 11.0] {
+        payload.extend_from_slice(&value.to_le_bytes());
+    }
+    payload.extend_from_slice(&words(&[0, 52]));
+    payload.resize(72, 0x5a);
+    let mut encoder = flate2::Compress::new(flate2::Compression::default(), true);
+    let mut encoded = Vec::with_capacity(256);
+    let status = encoder.compress_vec(&payload, &mut encoded, flate2::FlushCompress::Finish);
+    assert!(matches!(status, Ok(flate2::Status::StreamEnd)));
+    let mut body = encoded.clone();
+    body.resize((24 + encoded.len()).div_ceil(16) * 16 - 24, 0);
+    let block = framed(
+        0x23,
+        8,
+        &words(&[0x8000_0031, encoded.len() as u32, 72, 0]),
+        &body,
+    );
+    let mut header = b"3DGLOBAL".to_vec();
+    header.extend_from_slice(&words(&[1, 72]));
+    let view = framed(0x22, 0, &header, &block);
+    let set = framed(0x21, 8, &words(&[1, 0]), &view);
+    let tail = framed(0x10, 0, &[], &framed(0x20, 0, &[], &set));
+    for big in [false, true] {
+        let mut data = fixture(big);
+        let start = data.len() as u64;
+        data.extend_from_slice(&tail);
+        let doc = Document::from_bytes(&data, ReadLimits::default())?;
+        let index = doc.read_trailer(TrailerLimits::default())?;
+        assert_eq!(index.status, Status::Complete);
+        assert_eq!(index.revision, Some(8));
+        assert_eq!(index.byte_range.map(|r| r.start), Some(start));
+        assert_eq!(index.blocks.len(), 1);
+        assert_eq!(index.blocks[0].source_id, 0x8000_0031);
+        assert_eq!(index.views[0].raw_name, *b"3DGLOBAL");
+        let block =
+            doc.read_trailer_block(index.blocks[0].byte_range.start, TrailerLimits::default())?;
+        assert_eq!(block.payload, payload);
+        assert_eq!(block.bounds, Some([-2.0, -3.0, 0.0, 5.0, 7.0, 11.0]));
+        assert_eq!(block.status, Status::Partial);
+        // An offset that is not an indexed block start is never decoded.
+        assert!(matches!(
+            doc.read_trailer_block(start, TrailerLimits::default()),
+            Err(InspectError::Format(d)) if d.code == "trailer.block_not_found"
+        ));
+        assert!(matches!(
+            doc.read_trailer(TrailerLimits { max_records: 4, ..TrailerLimits::default() }),
+            Err(InspectError::Format(d)) if d.kind == ErrorKind::LimitExceeded
+        ));
+    }
+    // No trailing bytes: complete and without a range.
+    let doc = Document::from_bytes(&fixture(false), ReadLimits::default())?;
+    let index = doc.read_trailer(TrailerLimits::default())?;
+    assert_eq!(index.status, Status::Complete);
+    assert!(index.byte_range.is_none() && index.blocks.is_empty());
     Ok(())
 }

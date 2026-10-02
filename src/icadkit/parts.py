@@ -204,7 +204,13 @@ class PartProfile:
     ]
     source_length_unit: Literal["mm"] | None
     saved_body_layout: (
-        Literal["v7l6_source_id", "v7_source_id", "v8_resource_key", "v8l1_saved_body"]
+        Literal[
+            "v7_legacy_source_id",
+            "v7l6_source_id",
+            "v7_source_id",
+            "v8_resource_association",
+            "v8l1_saved_body",
+        ]
         | None
     )
     csg_layout: Literal["v7_postfix"] | None

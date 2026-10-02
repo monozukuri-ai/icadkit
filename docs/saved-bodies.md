@@ -36,17 +36,29 @@ requires a complete parsed B-Rep and topology plus the optional preview runtime.
 
 ## Qualified binding and geometry
 
-The adapter accepts qualified little-endian V7L6/V7L7/V8L1/V8L2/V8L3, complete part/resource
-indexes, qualified internal owners (including mirrors) and saved root frames.
+The adapter accepts qualified little-endian V7L2–V7L7 and V8L1/V8L2/V8L3,
+complete part/resource indexes, qualified internal owners (including mirrors
+where the profile qualifies them) and saved root frames.
 External ancestors in a single-file index prevent evaluation. The separate
 [assembly viewer](references.md) evaluates each explicitly resolved source in its
 own document, then applies the external occurrence transform to its saved result.
-Final type-85 markers are
-distinguished from component markers. Exactly one indexed resource must match
-the marker's profile-specific key, and the native marker ID must be unique.
-Resource order never supplies ownership. Unknown layouts and ambiguous keys
-are rejected. Imported-solid and evaluated-native final markers are qualified
-separately from feature replay.
+Final type-85 markers are distinguished from component markers. Each binding is
+an explicit saved reference: a native entity identifier stored in the resource
+header, or a saved association record. Resource order, geometry and mass
+properties never supply ownership. Unknown layouts, missing or repeated
+references are rejected. Imported-solid and evaluated-native final markers are
+qualified separately from feature replay.
+
+V8 files that store numbered resources also store one fixed 96-byte
+**association record** per entity: the entity identifier, the resource number
+and the entity frame. `Document.resource_associations` exposes these records.
+A V8 final marker binds through the single association for its identifier; the
+association frame must equal the marker frame byte for byte. The word at marker
+offset `+32` is not a resource reference: after copies and edits it keeps an
+earlier value while resource numbers are reassigned, so it never selects a
+resource. Earlier source used that word and therefore rejected owners with
+several distinct values (`saved.owner_resource_keys`) and bound some bodies to
+another body's resource. Both are replaced by the association rule.
 
 The observed final-result state words at marker offset `+44` include
 `01000004`, `01800004`, `03000004`, `03800004`, `04000004` and `04800004`,
@@ -60,30 +72,40 @@ its resource's schema, surfaces or tessellation.
 
 | Profile | Binding | Frame applied after scaling resource metres to mm |
 | --- | --- | --- |
-| V7L6 | Native marker source ID to a unique type-134/version-4 resource | `inverse(saved_root_frame) * saved_resource_frame` |
+| V7L2–V7L6 | Native marker source ID to a unique type-134/version-4 resource | `inverse(saved_root_frame) * saved_resource_frame` |
 | V7L7 | Native marker source ID to a unique type-134/version-5 resource | `inverse(saved_root_frame) * saved_resource_frame` |
-| V8L1/V8L2/V8L3 | Explicit marker resource key to a unique type-135/version-6 resource | `inverse(saved_root_frame) * saved_marker_frame` |
+| V8L1/V8L2/V8L3 | The marker's unique association record to a unique type-135/version-6 resource number | `inverse(saved_root_frame) * saved_marker_frame` |
 | Original V8L1 template | Native source ID to a unique type-134/version-5 resource; root-owned 704-byte part with identity root and identical marker/resource frames | Qualified marker frame |
 
-V8 occurrences can share a resource key while retaining distinct native IDs,
-owners and frames. Multiple V7 bodies can belong to the same part. In V8,
-multiple distinct final-marker resource keys within one owner are rejected with
-`saved.owner_resource_keys`: entity-mirror copies can reorder resource payloads
-without updating these numeric keys. Shared instances of one key remain qualified.
-The reader never guesses the association from order, geometry or mass properties.
+V8 occurrences can share one resource number while retaining distinct native
+IDs, owners and frames; each has its own association record. Multiple bodies can
+belong to the same part in every profile. A marker without an association, with
+several associations, or whose association names a missing or repeated resource
+number has `saved.binding`. A frame that differs between marker and association
+has `saved.association_frame`; neither frame is chosen.
 Part placement is never applied again. V8 profile revision 2 and later normalize the saved root once,
 matching the reopened SDK coordinate system. The older V8L1 template binding
-rejects competing resource keys, conflicting frames and unqualified owners.
-`resource_source_id`, `binding_kind` and `frame_source` describe the binding.
+rejects a resource numbered like the marker's `+32` word, conflicting frames and
+unqualified owners.
+`resource_source_id`, `binding_kind` (`native_source_id` or
+`resource_association`) and `frame_source` describe the binding.
 `resource_frame_range` locates the frame in the resource header for V7L6/V7L7 and
 the native marker for V8 profiles. Original bytes and payload hashes remain available.
 The final marker supplies visibility, palette index and layer; colors are
 illustrative and layer visibility is not interpreted.
 
 The current converter covers solid bodies with planes, cylinders, spheres,
-cones, tori, lines, circles and explicit line/circle trims. This is a bounded
-surface/boundary combination, not support for arbitrary solids containing those
-surfaces. Faces require explicit boundary loops. Shared source vertices/edges/loops and
+cones and tori, bounded by lines, circles, ellipses, source-identified
+surface-intersection curves and explicit trims of those curves. This is a
+bounded surface/boundary combination, not support for arbitrary solids
+containing those surfaces. Faces require explicit boundary loops. A conical
+face that ends in its apex is stored with a loop of one vertex and no edge; the
+adapter closes it with one degenerated boundary edge when that vertex lies at
+the cone's apex. Vertex loops elsewhere, on other surfaces, or as a face's only
+loop remain unsupported (`saved.half_edge`). Intersection curves are rebuilt
+by the pinned adapter from their two support surfaces and saved chart points;
+closed or unresolved branches are rejected without a substitute curve.
+Shared source vertices/edges/loops and
 material-region shells are preserved. Surface parameter curves, periodic seams
 and wire orientation are constructed by the pinned `parasolid-kit==0.2.0` OCCT
 adapter. Generated edges/vertices retain the declared body resolution; existing
@@ -106,10 +128,10 @@ TORUS (54): qualified trimmed-torus and swept-arc solids no longer require a
 catalog. Other uncompiled types retain a diagnostic when no catalog is supplied.
 Catalogs are not bundled.
 
-The unreleased source uses `parasolid-core 0.3.3`, which also supplies reviewed
-B-Rep mappings for [five legacy schema keys](support.md#schemas). This removes
-their catalog requirement within the qualified subsets. SPUN_SURF remains
-unsupported. Resource parsing does not establish a saved-body binding or extend
+The unreleased source uses `parasolid-core 0.3.4`, which also supplies reviewed
+B-Rep mappings for [eighteen further schema keys](support.md#schemas). This
+removes their catalog requirement within the qualified subsets. SPUN_SURF
+remains unsupported. Resource parsing does not establish a saved-body binding or extend
 the converter's supported surfaces and topology.
 
 ## Saved mirrors
@@ -125,8 +147,8 @@ Local save/reopen checks cover axis/oblique planes, same/different-plane double
 mirrors, mirrored parents and children, rotation/translation after reflection,
 and changed root coordinates. The evaluated analytic volume, area and centroid
 match SDK observations; closed mesh winding is checked separately. V7L7
-within-owner entity mirrors also qualify through unique native source IDs.
-The ambiguous V8 within-owner case above remains explicitly unsupported.
+within-owner entity mirrors qualify through unique native source IDs, and V8
+within-owner mirror copies through their association records.
 
 ## Limits and viewer
 
@@ -157,6 +179,31 @@ check final face counts, volume, area, centroid and appearance. Synthetic tests
 cover independent unit/placement expectations, reordered/duplicate/missing
 resources, invalid frames, missing catalogs, limits and optional dependencies.
 
-V7L6 uses the observed 48-byte final marker and a unique type-134/version-4
+V7L2–V7L6 use the observed 48-byte final marker and a unique type-134/version-4
 resource binding. CSG operands/programs remain opaque; this path reads the saved
-final B-Rep without evaluating history. V7L2–V7L5 do not enable this adapter.
+final B-Rep without evaluating history. V7L2–V7L5 keep their other limits:
+entity geometry and appearance stay opaque and mirrored placements are
+unqualified, so bodies under a mirrored owner are not bound there.
+
+## Local evidence for bindings and conversion
+
+In a local sample of 305 V8 files with numbered resources, every one of 28,685
+indexed resources is named by an association record and every final marker has
+exactly one; 27,118 marker frames equal their association frames byte for byte,
+while the word at marker `+32` differs from the associated resource number for
+6,957 markers. Against the previous rule, 6,739 bodies that were rejected now
+bind and 2,670 bodies now bind to a different resource. For every one of 6,059
+evaluated bodies the saved [per-entity box](trailer.md) contains the solid in
+its local frame, and it is tight for 6,040 of them.
+
+Of 29,703 distinct bound resources in the sample, 26,925 convert to valid
+solids. An explicit schema catalog is needed only where no built-in profile
+applies. The others keep their diagnostics: unsupported curve or surface kinds,
+kernel validation failures, null source parameters and SPUN_SURF surfaces.
+
+Saved SDK observations cover 1,789 evaluated bodies from V7L2–V7L7 and
+V8L1–V8L3 inputs: volume, area and centroid match for all of them, including
+153 with elliptical edges, 347 with intersection curves and 103 cone apexes.
+V7L5 has no SDK observation with an evaluated body; its seven evaluated bodies
+are checked against the saved bounds only. Bodies that fail conversion keep
+their diagnostics; none is reported as matched.

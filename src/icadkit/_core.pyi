@@ -61,11 +61,18 @@ class RawDiagnostic(TypedDict):
     byte_offset: int
     message: str
 
+class RawAssociation(TypedDict):
+    byte_range: tuple[int, int]
+    entity_source_id: int
+    resource_source_id: int
+    frame: list[float]
+
 class RawDocument(TypedDict):
     inspection: RawInspection
     source_sha256: str
     records: list[RawRecord]
     resources: list[RawResource]
+    associations: list[RawAssociation]
     unparsed_ranges: list[RawUnparsedRange]
     diagnostics: list[RawDiagnostic]
     resource_index_status: Literal["complete", "partial"]
@@ -79,8 +86,36 @@ class RawExtraction(TypedDict):
     payload_sha256: str
     encoding: Literal["raw", "zlib"]
 
+class RawTrailerView(TypedDict):
+    byte_range: tuple[int, int]
+    raw_name: bytes
+    block_count: int
+
+class RawTrailerIndex(TypedDict):
+    status: Status
+    byte_range: tuple[int, int] | None
+    revision: int | None
+    views: list[RawTrailerView]
+    blocks: list[tuple[tuple[int, int], tuple[int, int], int, int, int]]
+    tables: list[tuple[tuple[int, int], tuple[int, int]]]
+    opaque_ranges: list[tuple[int, int]]
+    diagnostics: list[RawDiagnostic]
+
+class RawTrailerBlock(TypedDict):
+    source_id: int
+    payload: bytes
+    payload_sha256: str
+    raw_kind: int | None
+    bounds: list[float] | None
+    status: Status
+    diagnostics: list[RawDiagnostic]
+
 class DocumentHandle:
     def read_views(self, policy: tuple[int, int]) -> RawViewIndex: ...
+    def read_trailer(self, policy: tuple[int, int]) -> RawTrailerIndex: ...
+    def read_trailer_block(
+        self, block_start: int, policy: tuple[int, int]
+    ) -> RawTrailerBlock: ...
     def read_parts(self, policy: tuple[int, int, int, int]) -> RawPartIndex: ...
     def read_geometry(
         self,
@@ -117,7 +152,16 @@ class RawViewIndex(TypedDict):
     status: Status
 
 class RawNativePrimitive(TypedDict):
-    kind: Literal["box", "cylinder", "sphere", "cone", "torus", "polygon_extrusion"]
+    kind: Literal[
+        "box",
+        "cylinder",
+        "sphere",
+        "cone",
+        "torus",
+        "polygon_extrusion",
+        "profile_extrusion",
+        "revolution",
+    ]
     frame: list[float]
     parameters: list[float]
 
@@ -164,7 +208,13 @@ class RawPartProfile(TypedDict):
     ]
     source_length_unit: Literal["mm"] | None
     saved_body_layout: (
-        Literal["v7l6_source_id", "v7_source_id", "v8_resource_key", "v8l1_saved_body"]
+        Literal[
+            "v7_legacy_source_id",
+            "v7l6_source_id",
+            "v7_source_id",
+            "v8_resource_association",
+            "v8l1_saved_body",
+        ]
         | None
     )
     csg_layout: Literal["v7_postfix"] | None

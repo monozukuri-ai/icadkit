@@ -16,7 +16,7 @@ from .errors import (
     UnsupportedFormatError,
 )
 from .geometry import GeometryLimits
-from .models import ByteRange, Diagnostic, Status
+from .models import ByteRange, Diagnostic, ResourceAssociation, Status
 from .native import NativeAppearance
 from .parts import PartIndex, PartLimits, _frame, _relative
 from .schema import SchemaCatalog
@@ -102,13 +102,20 @@ def _read_saved_bodies(
 ) -> SavedBodyIndex:
     profile = parts.profile
     v7 = profile is not None and profile.saved_body_layout in (
+        "v7_legacy_source_id",
         "v7l6_source_id",
         "v7_source_id",
     )
     if (
         profile is None
         or profile.saved_body_layout
-        not in ("v7l6_source_id", "v7_source_id", "v8_resource_key", "v8l1_saved_body")
+        not in (
+            "v7_legacy_source_id",
+            "v7l6_source_id",
+            "v7_source_id",
+            "v8_resource_association",
+            "v8l1_saved_body",
+        )
         or parts.status.index != "complete"
         or parts.source_length_unit != "mm"
         or parts.status.hierarchy not in ("complete", "partial")
@@ -166,22 +173,14 @@ def _read_saved_bodies(
     for r in doc.resources:
         resources.setdefault(r.source_id, []).append(r.resource_id)
     by_id = {r.resource_id: r for r in doc.resources}
+    # V8 files name each entity's resource in a saved association record. The
+    # word at marker +32 is not that reference: copies keep it while resource
+    # numbers are reassigned, so it must never select a resource.
+    associations: dict[int, list[ResourceAssociation]] = {}
+    for association in doc.resource_associations:
+        associations.setdefault(association.entity_source_id, []).append(association)
     bodies: list[SavedBody] = []
     for part in parts.parts:
-        # V8 copies within one owner can reorder resource payloads while leaving
-        # distinct marker keys unchanged. A unique numeric key alone does not
-        # qualify that association. Repeated occurrences of one key are bounded.
-        owner_keys: set[int] = set()
-        if not v7:
-            for entity in part.entities:
-                raw = doc.source_bytes(entity.byte_range)
-                if (
-                    entity.raw_type == 85
-                    and len(raw) == 152
-                    and struct.unpack_from("<I", raw, 12)[0] & 0xFFFFFF
-                    not in (0x109E1, 0x109A1)
-                ):
-                    owner_keys.add(struct.unpack_from("<I", raw, 32)[0])
         for entity in part.entities:
             b = doc.source_bytes(entity.byte_range)
             # Component markers (0x109e1/0x109a1) are not final results.
@@ -255,21 +254,26 @@ def _read_saved_bodies(
                         "Unqualified saved final-body marker",
                         entity.byte_range.start,
                     )
-                # V8 layouts can store an explicit resource key at +32. Repeated
-                # occurrences may share that key, while their native IDs and
-                # frames remain independent. Never use resource enumeration order.
+                # Repeated occurrences may share one resource number, while
+                # their native IDs and frames remain independent. Resource
+                # enumeration order never supplies ownership.
                 legacy_template = (
                     profile.saved_body_layout == "v8l1_saved_body"
                     and any(by_id[r].owner_type == 134 for r in resources.get(sid, []))
                 )
-                resource_source_id = sid if v7 or legacy_template else words[8]
-                if not v7 and not legacy_template and len(owner_keys) > 1:
-                    raise _error(
-                        "owner_resource_keys",
-                        "Multiple distinct V8 resource keys in one owner require "
-                        "an unqualified association table",
-                        entity.byte_range.start,
-                    )
+                link = None
+                if v7 or legacy_template:
+                    resource_source_id = sid
+                else:
+                    links = associations.get(sid, [])
+                    if source_counts[sid] != 1 or len(links) != 1:
+                        raise _error(
+                            "binding",
+                            "Final body requires one unique resource association",
+                            entity.byte_range.start,
+                        )
+                    link = links[0]
+                    resource_source_id = link.resource_source_id
                 matches = resources.get(resource_source_id, [])
                 if source_counts[sid] != 1 or len(matches) != 1:
                     raise _error(
@@ -281,7 +285,8 @@ def _read_saved_bodies(
                 resource = by_id[resource_id]
                 expected_layout = (
                     (134, 4)
-                    if profile.saved_body_layout == "v7l6_source_id"
+                    if profile.saved_body_layout
+                    in ("v7_legacy_source_id", "v7l6_source_id")
                     else (134, 5)
                     if v7 or legacy_template
                     else (135, 6)
@@ -303,6 +308,16 @@ def _read_saved_bodies(
                 if frame is None:
                     raise _error(
                         "frame", "Non-rigid saved resource frame", frame_range.start
+                    )
+                if link is not None and raw_frame != doc.source_bytes(
+                    ByteRange(link.byte_range.start + 24, link.byte_range.end)
+                ):
+                    # The association repeats the marker frame. A difference
+                    # is unobserved; neither frame is chosen over the other.
+                    raise _error(
+                        "association_frame",
+                        "Marker and association frames differ",
+                        link.byte_range.start + 24,
                     )
                 if legacy_template:
                     # Original V8L1 parametric templates use native IDs for
@@ -340,7 +355,7 @@ def _read_saved_bodies(
                 binding_kind = (
                     "native_source_id"
                     if v7 or legacy_template
-                    else "saved_resource_key"
+                    else "resource_association"
                 )
                 frame_source = (
                     "root_relative_resource"

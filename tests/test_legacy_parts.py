@@ -94,13 +94,17 @@ def test_old_index_qualifies_frames_but_retains_geometry_as_opaque(profile):
     assert child.entities[0].primitive is None
     assert child.entities[0].diagnostics[0].code == "native.legacy_inventory"
     assert ix.status.native_geometry == ix.status.appearance == "unsupported"
-    assert icadkit.read_saved_bodies(doc).status == "unsupported"
+    # Saved final bodies are indexed separately; no marker means no body.
+    saved = icadkit.read_saved_bodies(doc)
+    assert saved.status == "complete" and not saved.bodies
+    assert icadkit.read_csg(doc).status == "unsupported"
 
 
+@pytest.mark.parametrize("profile", LEGACY)
 @pytest.mark.parametrize(
     "defect", [None, "missing", "duplicate", "frame", "wrong_version"]
 )
-def test_v7l6_saved_binding_retains_existing_resource_guards(defect):
+def test_old_saved_binding_uses_native_ids_and_resource_guards(profile, defect):
     from test_saved import resource
 
     resources = [resource(version=4)]
@@ -112,12 +116,17 @@ def test_v7l6_saved_binding_retains_existing_resource_guards(defect):
         resources = [resource(version=4, bad_frame=True)]
     elif defect == "wrong_version":
         resources = [resource(version=5)]
-    source = saved_document(resources=resources)
-    raw = bytearray(source.source_bytes(icadkit.ByteRange(0, source.file_size)))
-    raw[12:16] = b"\0\7\0\6"
-    doc = icadkit.read(bytes(raw))
+    doc = saved_document(resources=resources, profile=profile)
+    assert doc.header.raw_version == bytes((0, 7, 0, int(profile[-1])))
     bodies = icadkit.read_saved_bodies(doc)
-    assert bodies.bodies[0].status == ("complete" if defect is None else "unsupported")
+    (body,) = bodies.bodies
+    assert body.status == ("complete" if defect is None else "unsupported")
+    if defect is None:
+        assert body.binding_kind == "native_source_id"
+        assert body.frame_source == "root_relative_resource"
+        assert body.resource_frame_range.start == (
+            doc.resources[0].owner_range.start + 32
+        )
     assert icadkit.read_csg(doc).status == "unsupported"
 
 

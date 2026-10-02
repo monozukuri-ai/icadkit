@@ -7,7 +7,8 @@ use crate::provenance::sha256;
 use crate::record::record_info;
 use crate::{
     ByteOrder, ByteRange, Diagnostic, Encoding, ErrorKind, Extraction, InspectError, Inspection,
-    ReadLimits, RecordInfo, ResourceRef, SourceRef, UnparsedRange, inspect_bytes,
+    ReadLimits, RecordInfo, ResourceAssociation, ResourceRef, SourceRef, UnparsedRange,
+    inspect_bytes,
 };
 
 /// Immutable owned input and a structural resource index. Construction never
@@ -21,6 +22,7 @@ pub struct Document {
     source_sha256: String,
     records: Vec<RecordInfo>,
     resources: Vec<ResourceRef>,
+    associations: Vec<ResourceAssociation>,
     unparsed_ranges: Vec<UnparsedRange>,
     diagnostics: Vec<Diagnostic>,
     resource_index_complete: bool,
@@ -42,6 +44,14 @@ impl Document {
     }
     pub fn resources(&self) -> &[ResourceRef] {
         &self.resources
+    }
+    /// Saved entity-to-resource records, in source order. Presence does not
+    /// establish that the entity or the resource is otherwise qualified.
+    pub fn associations(&self) -> &[ResourceAssociation] {
+        &self.associations
+    }
+    pub(crate) fn all_bytes(&self) -> &[u8] {
+        &self.data
     }
     pub fn unparsed_ranges(&self) -> &[UnparsedRange] {
         &self.unparsed_ranges
@@ -122,6 +132,7 @@ impl Document {
             source_sha256,
             records: Vec::new(),
             resources: Vec::new(),
+            associations: Vec::new(),
             unparsed_ranges: Vec::new(),
             diagnostics: Vec::new(),
             resource_index_complete: true,
@@ -418,6 +429,26 @@ impl Document {
                         position,
                         "view entity has an unobserved length",
                     ))?;
+                }
+                if kind == 0x88 {
+                    // The fixed record names one saved entity, one resource
+                    // number and that entity's frame. Its other words stay opaque.
+                    let mut frame = [0.0; 9];
+                    for (i, value) in frame.iter_mut().enumerate() {
+                        let at = position + 24 + 8 * i;
+                        let mut raw = [0; 8];
+                        raw.copy_from_slice(&self.data[at..at + 8]);
+                        *value = order.f64(raw);
+                    }
+                    self.associations.push(ResourceAssociation {
+                        byte_range: ByteRange {
+                            start: position as u64,
+                            end: next as u64,
+                        },
+                        entity_source_id: self.word(position + 4)?,
+                        resource_source_id: self.word(position + 8)?,
+                        frame,
+                    });
                 }
                 self.opaque(position, next, "entity_metadata", "USR");
             }

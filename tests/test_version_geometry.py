@@ -115,7 +115,8 @@ def legacy_template(*, profile="v8l1", defect=None, origin=(0, 0, 0), flags=0x55
     root = parametric_part(root=True, profile=profile)
     resources = [resource(sid=RESULT, origin=origin)]
     if defect == "competing_key":
-        resources.append(resource(sid=901, version=6))
+        key = struct.unpack_from("<I", marker, 32)[0]
+        resources.append(resource(sid=key, version=6))
     if defect == "duplicate":
         resources += resources
     if defect == "resource_frame":

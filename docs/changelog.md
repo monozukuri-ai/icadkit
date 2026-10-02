@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- Add `Document.read_trailer()`, `Document.read_trailer_block()` and the
+  `icadkit trailer` command for the container after the indexed records. Its
+  framing is the same in both byte orders. Each compressed block is stored under
+  a saved entity identifier; revisions 7 and 8 expose a stored single-precision
+  enclosing box in the entity's local frame, which is not always the smallest
+  one. Face/edge tables, older revisions and the named table remain opaque. See
+  [trailing container](trailer.md).
+- Expose V8 association records as `Document.resource_associations` and bind V8
+  saved final bodies through them. The word at marker `+32` no longer selects a
+  resource: it is not a resource reference. This removes
+  `saved.owner_resource_keys`, binds bodies previously left with
+  `saved.binding`, and corrects bodies that were bound to another body's
+  resource. `SavedBody.binding_kind` is now `resource_association` for V8 and
+  `PartProfile.saved_body_layout` is `v8_resource_association`. A frame conflict
+  yields `saved.association_frame`.
+- Bind V7L2–V7L5 saved final bodies by native source ID
+  (`saved_body_layout="v7_legacy_source_id"`), as V7L6 already did. Their entity
+  geometry, appearance and mirrors keep the existing limits.
+- Convert saved bodies with elliptical edges, source-identified intersection
+  curves and cone apexes. Other curve kinds, vertex loops away from a cone apex
+  and non-solid bodies remain unsupported. See [saved bodies](saved-bodies.md).
+- Accept negative heights in qualified cylinders, with or without the mirror
+  flag: the solid extends along the frame's negative Z. `height` stays positive
+  and the exposed Z column is reversed once.
+- Decode standalone extrusions with straight and circular profile segments
+  (`profile_extrusion`, `NativePrimitive.profile`) and revolved profiles
+  (`revolution`, `NativePrimitive.revolution_profile`), and display them in the
+  native viewer. See [native primitives](native.md).
+- Retain attribute records with several fragments, or with the saved
+  visibility bit, as `Part.opaque_attributes` instead of geometry entities.
+  Text fragments inside them are not promoted to extended text.
+- Add `icadkit view --max-bodies` for `--saved-brep` and `--csg`.
+
 - Accept negative heights in qualified nonmirrored boxes, retaining the source
   sign and reversing the display frame's Z axis once.
 - Traverse repeated 264-byte view-control records under a qualified
@@ -13,12 +46,14 @@
   unique-ID/resource/frame checks. Ambiguous V8 associations remain unsupported.
   Also accept the observed `+28=0` state, adding 2,305 bound records in the local
   installed corpus with the same guards.
-- Update the registry dependency to `parasolid-core 0.3.3` and use its five
-  exact legacy iCAD profiles for catalog-free raw parsing and source B-Rep
-  mapping. Remove the temporary icadkit raw-only profile and B-Rep gate.
-  Local checks cover 539 resources: all parse, 535 map completely and four
-  retain explicit SPUN_SURF partial diagnostics. Profile IDs and hashes now
-  come from the backend; see [supported schemas](support.md#schemas).
+- Update the registry dependency to `parasolid-core 0.3.4` and use its
+  eighteen further exact iCAD profiles for catalog-free raw parsing and source
+  B-Rep mapping: thirteen embedded keys and five standard keys for schema
+  revisions 20000, 28002, 28101, 32001 and 33103. Remove the temporary icadkit
+  raw-only profile and B-Rep gate. In a local sample of 33,943 resources,
+  33,078 now parse without a catalog and agree with the catalog path; the
+  others keep their diagnostics. Profile IDs and hashes come from the backend;
+  see [supported schemas](support.md#schemas).
 - Decode and display qualified six-vertex polygon extrusions, including concave
   profiles, negative heights and negative-height mirrored records. Local SDK
   comparisons cover 21 mirrored records. Other polygon layouts, holes, curved
@@ -42,10 +77,7 @@
   signed orientation; stored raw coordinates and parameters are preserved.
 - Qualified native mirrors and saved final B-Reps display without applying
   reflection twice. Reflected box/cone meshes preserve outward triangle winding.
-- V8 owners with multiple distinct saved-body resource keys now retain
-  `saved.owner_resource_keys` diagnostics: observed within-owner mirror copies
-  make the former numeric-key association unreliable. Mirrored CSG history
-  remains unsupported. See the [source roadmap](roadmap.md)
+- Mirrored CSG history remains unsupported. See the [source roadmap](roadmap.md)
   for the preceding version-support stages and local validation scope.
 
 ## 0.3.0

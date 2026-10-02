@@ -17,6 +17,27 @@ a bound resource can still have unsupported curves/surfaces. P3 and P4 below
 extend old inventories and internal mirrors. P5 adds explicit external resolution.
 Actual V8L4 qualification remains separate work. This source change is not a release or remote CI result.
 
+## Trailing container and saved associations (unreleased)
+
+The [trailing container](trailer.md) after the indexed records is framed in both
+byte orders. It stores one compressed block per saved body under the entity's
+identifier; the qualified header gives local bounds. Its face/edge tables, the
+older block revisions and the named table stay opaque and are the next step.
+
+V8 files store an association record per entity. [Saved bodies](saved-bodies.md)
+now bind through it; the marker word used before is not a resource reference.
+This supersedes the within-owner restriction recorded under P4 and corrects
+bodies that had been bound to another body's resource. V7L2–V7L5 bind by native
+source ID like V7L6. The converter adds elliptical edges, source-identified
+intersection curves and cone apexes.
+
+[Native access](native.md) adds signed cylinder heights, extrusions with
+straight/arc profiles and revolved profiles. Multi-fragment attribute records
+are retained as opaque attributes instead of geometry entities. Hexagonal prism
+records were only observed as operands of saved boolean bodies and remain
+opaque. The `parasolid-core 0.3.4` dependency adds exact profiles for thirteen
+further schema keys; other keys and unreviewed base types still need a catalog.
+
 ## Version-support P6: old originals and 2D inventory (unreleased)
 
 [View and drawing access](drawing.md) separates document/registered-part

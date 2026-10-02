@@ -91,6 +91,105 @@ def test_unknown_attribute_layout_does_not_gain_index_completeness(offset, value
     assert any(d.code == "parts.attribute_layout" for d in index.diagnostics)
 
 
+RECORD = 0x80000007
+
+
+def fragments(parts, *, flags=0x0081, layer=1, declared=None):
+    """Authored attribute record made of several length-framed fragments."""
+    body = b"".join(
+        struct.pack("<II", 0xFD000000 | (len(payload) + 8), subtype) + payload
+        for subtype, payload in parts
+    )
+    count = len(parts) if declared is None else declared
+    head = struct.pack(
+        "<6I", 24 + len(body), layer, 0, 0xCF000000 | count << 16 | flags, RECORD, 0
+    )
+    return head + body
+
+
+TEXT = 'User_Type,"調達"'.encode("utf-16-le")
+PAIR = [(0x06000000, bytes(range(16))), (0x10000000, TEXT)]
+
+
+@pytest.mark.parametrize("profile", ["v7l6", "v7l7", "v8l1", "v8l2", "v8l3"])
+@pytest.mark.parametrize(
+    "flags,parts",
+    [
+        (0x0081, PAIR),
+        (0x00C1, PAIR[::-1]),
+        (0x1081, PAIR + [(0x02000000, bytes(40))]),
+        (0x10C1, PAIR),
+        # One fragment with the saved visibility bit; the plain single-fragment
+        # record keeps its own exact layouts.
+        (0x00C1, [(0x03000000, b"\1\0\0\0")]),
+    ],
+)
+def test_fragmented_attributes_keep_ownership_without_hiding_primitives(
+    profile, flags, parts
+):
+    raw = fragments(parts, flags=flags)
+    doc = icadkit.read(
+        view_parts(
+            [
+                part(ROOT, root=True, profile=profile),
+                struct.pack("<I", 0x30010000),
+                raw,
+                native(first=False),
+            ],
+            profile=profile,
+        )
+    )
+    index = doc.read_parts()
+    owner = index.parts[0]
+    assert index.status.index == index.status.hierarchy == "complete"
+    assert index.status.stored_attributes == "partial"
+    (a,) = owner.opaque_attributes
+    assert a.subtype == parts[0][0] and a.source_id == RECORD
+    assert a.raw_bytes == raw == doc.source_bytes(a.byte_range)
+    # A text fragment inside such a record is not promoted to extended text.
+    assert owner.extra_info is None and len(owner.properties) == 1
+    # The attribute is not a geometry entity and no longer hides the primitive.
+    (entity,) = owner.entities
+    assert entity.raw_type == 75 and entity.primitive.box_dimensions == (13, 17, 23)
+    with pytest.raises(icadkit.LimitExceededError, match="max_property_bytes"):
+        doc.read_parts(limits=icadkit.PartLimits(max_property_bytes=len(raw) - 25))
+
+
+def overrun():
+    # The last fragment claims four bytes beyond its record.
+    raw = bytearray(fragments(PAIR))
+    struct.pack_into("<I", raw, 24 + 24, 0xFD000000 | (len(TEXT) + 12))
+    return bytes(raw)
+
+
+@pytest.mark.parametrize(
+    "raw,profile",
+    [
+        (fragments(PAIR, declared=3), "v8l3"),
+        (fragments(PAIR, declared=1, flags=0x00C1), "v8l3"),
+        (fragments(PAIR, layer=2), "v8l3"),
+        (fragments(PAIR, flags=0x0083), "v8l3"),
+        (fragments(PAIR, flags=0x1081), "v7l4"),
+        (overrun(), "v8l3"),
+    ],
+)
+def test_unqualified_fragment_framing_keeps_the_previous_opaque_entity(raw, profile):
+    index = icadkit.read(
+        view_parts(
+            [
+                part(ROOT, root=True, profile=profile),
+                struct.pack("<I", 0x30010000),
+                raw,
+            ],
+            profile=profile,
+        )
+    ).read_parts()
+    owner = index.parts[0]
+    assert index.status.index == "complete" and not owner.opaque_attributes
+    (entity,) = owner.entities
+    assert entity.raw_type == 0xCF and entity.primitive is None
+
+
 @pytest.mark.parametrize("profile", ["v8l1", "v8l2"])
 def test_qualified_legacy_parts_expose_placement_appearance_and_native_geometry(
     profile, tmp_path

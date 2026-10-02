@@ -107,6 +107,109 @@ impl DocumentHandle {
         Ok(result)
     }
 
+    fn read_trailer<'py>(
+        &self,
+        py: Python<'py>,
+        policy: (usize, u64),
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let index = py
+            .detach(|| {
+                self.inner.read_trailer(icad_core::TrailerLimits {
+                    max_records: policy.0,
+                    max_block_bytes: policy.1,
+                })
+            })
+            .map_err(inspection_error)?;
+        let result = PyDict::new(py);
+        result.set_item("status", index.status.as_str())?;
+        result.set_item("byte_range", index.byte_range.map(|r| (r.start, r.end)))?;
+        result.set_item("revision", index.revision)?;
+        let views = PyList::empty(py);
+        for view in index.views {
+            let value = PyDict::new(py);
+            value.set_item("byte_range", (view.byte_range.start, view.byte_range.end))?;
+            value.set_item("raw_name", PyBytes::new(py, &view.raw_name))?;
+            value.set_item("block_count", view.block_count)?;
+            views.append(value)?;
+        }
+        result.set_item("views", views)?;
+        let blocks = PyList::empty(py);
+        for block in index.blocks {
+            blocks.append((
+                (block.byte_range.start, block.byte_range.end),
+                (block.storage_range.start, block.storage_range.end),
+                block.source_id,
+                block.declared_decoded_bytes,
+                block.view_index,
+            ))?;
+        }
+        result.set_item("blocks", blocks)?;
+        let tables = PyList::empty(py);
+        for table in index.tables {
+            tables.append((
+                (table.byte_range.start, table.byte_range.end),
+                (table.payload_range.start, table.payload_range.end),
+            ))?;
+        }
+        result.set_item("tables", tables)?;
+        result.set_item(
+            "opaque_ranges",
+            index
+                .opaque_ranges
+                .iter()
+                .map(|r| (r.start, r.end))
+                .collect::<Vec<_>>(),
+        )?;
+        let diagnostics = PyList::empty(py);
+        for d in index.diagnostics {
+            let value = PyDict::new(py);
+            value.set_item("category", d.kind.as_str())?;
+            value.set_item("code", d.code)?;
+            value.set_item("byte_offset", d.byte_offset)?;
+            value.set_item("message", d.message)?;
+            diagnostics.append(value)?;
+        }
+        result.set_item("diagnostics", diagnostics)?;
+        Ok(result)
+    }
+
+    fn read_trailer_block<'py>(
+        &self,
+        py: Python<'py>,
+        block_start: u64,
+        policy: (usize, u64),
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let block = py
+            .detach(|| {
+                self.inner.read_trailer_block(
+                    block_start,
+                    icad_core::TrailerLimits {
+                        max_records: policy.0,
+                        max_block_bytes: policy.1,
+                    },
+                )
+            })
+            .map_err(inspection_error)?;
+        let result = PyDict::new(py);
+        result.set_item("source_id", block.source_id)?;
+        result.set_item("payload", PyBytes::new(py, &block.payload))?;
+        result.set_item("payload_sha256", block.payload_sha256)?;
+        result.set_item("raw_kind", block.raw_kind)?;
+        result.set_item("bounds", block.bounds.map(|b| b.map(f64::from)))?;
+        result.set_item("status", block.status.as_str())?;
+        let diagnostics = PyList::empty(py);
+        for d in block.diagnostics {
+            let value = PyDict::new(py);
+            value.set_item("category", d.kind.as_str())?;
+            value.set_item("code", d.code)?;
+            value.set_item("byte_offset", d.byte_offset)?;
+            value.set_item("message", d.message)?;
+            diagnostics.append(value)?;
+        }
+        result.set_item("diagnostics", diagnostics)?;
+        Ok(result)
+    }
+
     fn read_parts<'py>(
         &self,
         py: Python<'py>,
@@ -319,6 +422,16 @@ impl DocumentHandle {
             resources.append(value)?;
         }
         result.set_item("resources", resources)?;
+        let associations = PyList::empty(py);
+        for item in self.inner.associations() {
+            let value = PyDict::new(py);
+            value.set_item("byte_range", (item.byte_range.start, item.byte_range.end))?;
+            value.set_item("entity_source_id", item.entity_source_id)?;
+            value.set_item("resource_source_id", item.resource_source_id)?;
+            value.set_item("frame", item.frame)?;
+            associations.append(value)?;
+        }
+        result.set_item("associations", associations)?;
         let records = PyList::empty(py);
         for record in self.inner.records() {
             let value = PyDict::new(py);
