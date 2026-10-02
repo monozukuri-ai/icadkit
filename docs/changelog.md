@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Accept negative heights in qualified nonmirrored boxes, retaining the source
+  sign and reversing the display frame's Z axis once.
+- Traverse repeated 264-byte view-control records under a qualified
+  `40000000` metadata group in either byte order. Unknown framing still stops.
+- Bind observed type-85 final-result variants `03` and `04` with the existing
+  unique-ID/resource/frame checks. Ambiguous V8 associations remain unsupported.
+- Add exact raw-node profiles for five legacy embedded Parasolid keys using
+  the public reviewed 13006 subset. These profiles require an explicit matching
+  catalog for B-Rep mapping; see [supported schemas](support.md#schemas).
+- Decode and display qualified nonmirrored six-vertex polygon extrusions,
+  including concave profiles and negative heights. Other polygon layouts,
+  holes, curved segments, tapers and mirrored records remain unsupported.
+
 - Version-support P6 adds direct old-format view/registered-part inventories,
   bounded big-endian V6L1/V6L2/V7L1 internal part inventories, and separate
   `read_views()` / `read_drawing()` APIs with `views` / `drawing` CLI commands.

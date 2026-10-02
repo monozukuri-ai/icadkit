@@ -10,6 +10,7 @@ pub struct NativePrimitiveRecord {
     /// Box: height, xmin, ymin, xmax, ymax. Cylinder: radius, height.
     /// Full sphere: radius, repeated radius, pi. Cone: height, four zero offsets,
     /// base radius, top radius. Torus: full sweep, major radius, minor radius, zero.
+    /// Polygon extrusion: signed height, then six distinct XY vertex pairs.
     pub parameters: Vec<f64>,
 }
 
@@ -144,9 +145,10 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
         Some(72) => Some((144, 0x53440078, "sphere")),
         Some(68) => Some((176, 0x57440098, "cone")),
         Some(74) => Some((152, 0x54440080, "torus")),
+        Some(76) => Some((368, 0x5a440158, "polygon_extrusion")),
         _ => None,
     };
-    let layout = shape.is_some_and(|(length, marker, _)| {
+    let layout = shape.is_some_and(|(length, marker, kind)| {
         bytes.len() == length
             && word(bytes, 4) > 0
             && word(bytes, 8) == 0
@@ -156,8 +158,9 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
             && word(bytes, 24) == marker
             && word(bytes, 32) == 0
             // The upper word is retained as opaque producer metadata.
-            && word(bytes, 40) & 0xffff == 0x180
+            && word(bytes, 40) & 0xffff == if kind == "polygon_extrusion" { 0x1b0 } else { 0x180 }
             && word(bytes, 44) == 0
+            && (kind != "polygon_extrusion" || word(bytes, 12) & 0x1000 == 0)
     });
     if !layout {
         result.issue(
@@ -206,6 +209,10 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
         && dot(z, x).abs() <= 1e-8;
     let signed_height = if mirrored {
         values[9] < 0.0
+    } else if matches!(kind, "box" | "polygon_extrusion") {
+        // Saved nonmirrored boxes can extrude in either Z direction. The
+        // source sign is independent of occurrence mirror parity.
+        values[9] != 0.0
     } else {
         values[9] > 0.0
     };
@@ -215,6 +222,8 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
             && values[13] > values[11]
             && (values[12] - values[10]).is_finite()
             && (values[13] - values[11]).is_finite()
+    } else if kind == "polygon_extrusion" {
+        signed_height
     } else if kind == "sphere" {
         values[9] > 0.0
     } else if kind == "cone" {
@@ -242,6 +251,33 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
             "Only the qualified full-sphere extent is supported",
         );
         return result;
+    }
+    if kind == "polygon_extrusion" {
+        // Two identical closed seven-point profiles and a zero trailer are
+        // qualified. Curved edges, holes, tapers and other layouts stay opaque.
+        if values[10..24] != values[24..38]
+            || values[10..12] != values[22..24]
+            || values[38..40] != [0.0, 0.0]
+        {
+            result.issue(
+                ErrorKind::Unsupported,
+                "native.polygon_layout",
+                128,
+                "Only identical closed six-vertex straight profiles are qualified",
+            );
+            return result;
+        }
+        if !simple_polygon(&values[10..22]) {
+            result.geometry_status = Status::Invalid;
+            result.issue(
+                ErrorKind::Invalid,
+                "native.polygon",
+                128,
+                "Polygon is degenerate, self-intersecting or numerically unqualified",
+            );
+            return result;
+        }
+        values.truncate(22);
     }
     if (kind == "cone" && values[10..14].iter().any(|v| *v != 0.0))
         || (kind == "torus"
@@ -271,4 +307,57 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     });
     result.geometry_status = Status::Complete;
     result
+}
+
+fn simple_polygon(values: &[f64]) -> bool {
+    let points: Vec<_> = values.chunks_exact(2).map(|v| [v[0], v[1]]).collect();
+    let n = points.len();
+    let scale = points
+        .iter()
+        .flat_map(|p| [(p[0] - points[0][0]).abs(), (p[1] - points[0][1]).abs()])
+        .fold(0.0_f64, f64::max);
+    let epsilon = 1e-12 * scale * scale;
+    if !epsilon.is_finite() || epsilon == 0.0 {
+        return false;
+    }
+    let cross = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    };
+    let area: f64 = (1..n - 1)
+        .map(|i| cross(points[0], points[i], points[i + 1]))
+        .sum();
+    if !area.is_finite() || area.abs() <= epsilon {
+        return false;
+    }
+    for i in 0..n {
+        let a = points[i];
+        let b = points[(i + 1) % n];
+        let turn = cross(a, b, points[(i + 2) % n]);
+        if !turn.is_finite() || turn.abs() <= epsilon {
+            return false;
+        }
+        for j in i + 1..n {
+            if j == i + 1 || (i == 0 && j == n - 1) {
+                continue;
+            }
+            let c = points[j];
+            let d = points[(j + 1) % n];
+            let signs = [
+                cross(a, b, c),
+                cross(a, b, d),
+                cross(c, d, a),
+                cross(c, d, b),
+            ];
+            if signs.iter().any(|v| !v.is_finite()) {
+                return false;
+            }
+            // Conservative tolerance also rejects nonadjacent touching edges.
+            let same_side =
+                |x: f64, y: f64| (x > epsilon && y > epsilon) || (x < -epsilon && y < -epsilon);
+            if !same_side(signs[0], signs[1]) && !same_side(signs[2], signs[3]) {
+                return false;
+            }
+        }
+    }
+    true
 }

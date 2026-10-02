@@ -46,6 +46,11 @@ require complete standalone primitive owners; unknown/CSG records keep the
 owner's list opaque. The [native viewer](viewer.md) displays these parameters
 without optional dependencies and labels every view as a partial model.
 
+The unreleased native reader additionally supports nonmirrored six-vertex
+straight polygon extrusions and negative heights in qualified boxes. The
+polygon scope includes concave profiles; holes, curves, tapers and other
+vertex counts remain unsupported.
+
 With the `preview` extra, [V7L7 CSG](csg.md) evaluates bounded box/cylinder
 programs, while [saved final bodies](saved-bodies.md) place qualified V7L6/V7L7/V8L1/V8L2/V8L3
 solids through explicit resource bindings. Saved spherical, conical and toroidal
@@ -98,6 +103,24 @@ Version 0.3.0 uses `parasolid-core 0.3.1` and the exact
 TORUS (54) declaration, so qualified trimmed-torus/swept-arc resources no longer
 need an external catalog. Version 0.2.0 used core 0.3.0 and profile revision 1.
 An explicit compatible catalog remains authoritative.
+
+The current source adds `icad-legacy-13006-raw-r1` for these exact keys:
+
+- `SCH_1500137_15003_13006`
+- `SCH_1500245_15003_13006`
+- `SCH_1700223_16100_13006`
+- `SCH_1700256_16100_13006`
+- `SCH_1901315_19008_13006`
+
+This profile reuses the public reviewed 13006 subset and qualifies **raw node
+parsing only**. In a local sample of 539 resource occurrences, 531 matched the
+explicit catalog path in decoded values and source boundaries; eight stopped
+at uncompiled base types (59, 68 or 137). `schema.brep_profile` explains the
+separate B-Rep gate after successful raw parsing. Supply an explicit compatible
+13006 catalog for B-Rep roles. No schema key or provider provenance is rewritten,
+and no vendor catalog is bundled. Use `require_complete("raw_geometry")` when
+that is the intended scope. These changes are unreleased.
+
 Profile availability does not mean that every geometry type or every ICD file
 using that schema is supported. A missing exact profile produces a diagnostic;
 icadkit does not substitute a nearby schema version.

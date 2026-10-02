@@ -117,7 +117,7 @@ class RawViewIndex(TypedDict):
     status: Status
 
 class RawNativePrimitive(TypedDict):
-    kind: Literal["box", "cylinder", "sphere", "cone", "torus"]
+    kind: Literal["box", "cylinder", "sphere", "cone", "torus", "polygon_extrusion"]
     frame: list[float]
     parameters: list[float]
 

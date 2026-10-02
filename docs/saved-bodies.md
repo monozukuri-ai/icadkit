@@ -48,6 +48,13 @@ Resource order never supplies ownership. Unknown layouts and ambiguous keys
 are rejected. Imported-solid and evaluated-native final markers are qualified
 separately from feature replay.
 
+The observed final-result state words at marker offset `+44` include
+`01000004`, `01800004`, `03000004`, `03800004`, `04000004` and `04800004`,
+with the saved visibility bit `40` added when present. Their other bits are
+retained without assigning semantics. Nearby flags and markers with an
+unqualified `+28` word remain unsupported. Accepting a marker does not qualify
+its resource's schema, surfaces or tessellation.
+
 | Profile | Binding | Frame applied after scaling resource metres to mm |
 | --- | --- | --- |
 | V7L6 | Native marker source ID to a unique type-134/version-4 resource | `inverse(saved_root_frame) * saved_resource_frame` |

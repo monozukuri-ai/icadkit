@@ -227,7 +227,19 @@ impl Document {
             let end = b.len() - 4;
             let mut cursor = at + 240;
             let mut group = false;
+            let mut control_group = false;
             let mut owner = None;
+            let control_record = |start: usize| {
+                end - start >= 264
+                    && u(start) == 264
+                    && u(start + 4) == 0
+                    && u(start + 8) == 0
+                    && b[start + 12..start + 16] == [0x40, 0, 1, 0xcb]
+                    && u(start + 16) >> 28 == 8
+                    && u(start + 20) == 0
+                    && order.u16([b[start + 24], b[start + 25]]) == 240
+                    && b[start + 26..start + 28] == [0x40, 0xfd]
+            };
             loop {
                 if end - cursor < 4 {
                     view.stop(
@@ -261,6 +273,7 @@ impl Document {
                         break;
                     }
                     group = true;
+                    control_group = false;
                     cursor += 4;
                     continue;
                 }
@@ -268,6 +281,10 @@ impl Document {
                     0x61000001..=0x61000003 if is_3d => (4, "part"),
                     0x60000001 | 0x60000002 if is_3d => (4, "legacy_owner"),
                     0x20000000 | 0x21000000 | 0x40000000 => (4, "metadata"),
+                    // A 0x40000000 marker owns a sequence of fixed, length-
+                    // framed view-control records. Only the first has a tag.
+                    // Their payload supplies neither geometry nor ownership.
+                    264 if !group && control_group && control_record(cursor) => (0, "metadata"),
                     _ if group => (0, "entity"),
                     _ => {
                         view.stop(
@@ -309,6 +326,7 @@ impl Document {
                 count += 1;
                 if prefix != 0 {
                     group = false;
+                    control_group = tag == 0x40000000 && control_record(cursor + prefix);
                 }
                 if kind == "part" || kind == "legacy_owner" {
                     owner = Some(base + cursor as u64);

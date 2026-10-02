@@ -104,6 +104,48 @@ def test_icad_v34_rejects_nearby_key_and_unknown_base(geometry_doc):
         assert g.diagnostics[0].code == code
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        b"SCH_1500137_15003_13006",
+        b"SCH_1500245_15003_13006",
+        b"SCH_1700223_16100_13006",
+        b"SCH_1700256_16100_13006",
+        b"SCH_1901315_19008_13006",
+    ],
+)
+def test_legacy_exact_profile_qualifies_raw_only(geometry_doc, key):
+    payload = wire_payload(embedded=True).replace(b"SCH_3401212_34101_13006", key)
+    doc = geometry_doc(payload)
+    g = doc.read_geometry(doc.resources[0].resource_id)
+    assert g.schema.profile_id == "icad-legacy-13006-raw-r1"
+    assert len(g.schema.profile_sha256) == 64
+    assert g.raw.schema_key == key.decode() and g.raw.to_bytes() == payload
+    assert g.raw.node_count == 11 and g.raw.terminator_range.end == len(payload)
+    assert g.raw.field_values(11, 7) == ((2.0, -1.0, 3.0),)
+    assert g.status.raw_geometry == "complete"
+    assert g.status.brep == "unsupported" and g.brep is None
+    assert g.status.topology == "not_checked"
+    assert g.diagnostics[0].code == "schema.brep_profile"
+    with pytest.raises(ic.IncompleteGeometryError):
+        g.require_complete()
+    with pytest.raises(ic.LimitExceededError):
+        doc.read_geometry(
+            doc.resources[0].resource_id, limits=ic.GeometryLimits(max_nodes=1)
+        )
+
+    unknown = bytearray(payload)
+    unknown[len(header(key)) : len(header(key)) + 2] = b"\0\x6e"
+    near = payload.replace(key, key.replace(b"13006", b"13007"))
+    for raw, code in (
+        (bytes(unknown), "schema.unknown_base_type"),
+        (near, "schema.missing_base_schema"),
+    ):
+        d = geometry_doc(raw)
+        result = d.read_geometry(d.resources[0].resource_id)
+        assert result.raw is None and result.diagnostics[0].code == code
+
+
 def test_icad_v34_cli_uses_builtin(geometry_doc, tmp_path):
     doc = geometry_doc(wire_payload(embedded=True))
     source = tmp_path / "v34.icd"

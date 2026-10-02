@@ -53,6 +53,12 @@ boundaries were traversed. It does **not** mean their contents are understood.
 Unknown records stop traversal; the remaining range is retained without scanning
 for a plausible next entity. A missing view is not interpreted as an empty drawing.
 
+A qualified `40000000` metadata group can contain repeated 264-byte
+view-control records, with the tag present only on the first record. Each
+continuation must match the fixed length and internal markers. Records retain
+their exact ranges as `metadata`, without geometry or part ownership. This
+qualifies traversal only; projection-control semantics remain unavailable.
+
 ## Drawing scope
 
 `DrawingIndex` contains the view inventory and bounded 2D `DrawingEntity` records.

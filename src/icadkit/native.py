@@ -38,9 +38,12 @@ class NativePrimitive:
     should be applied again. This describes parameters, not an evaluated B-Rep.
     Spheres and tori use a centre frame and height=None. Cones/frusta use
     a bottom-centre frame, radius for the base and top_radius for the top.
+    Polygon extrusions use six profile_points in XY and Z in [0, height].
+    Signed box/polygon heights reverse the exposed Z column; raw bytes retain
+    the original direction independently of the entity mirror flag.
     """
 
-    kind: Literal["box", "cylinder", "sphere", "cone", "torus"]
+    kind: Literal["box", "cylinder", "sphere", "cone", "torus", "polygon_extrusion"]
     world_transform: tuple[tuple[float, ...], ...]
     height: float | None
     radius: float | None
@@ -55,6 +58,7 @@ class NativePrimitive:
     major_radius: float | None = None
     minor_radius: float | None = None
     mirror_convention: Literal["signed_height", "symmetric_frame"] | None = None
+    profile_points: tuple[tuple[float, float], ...] | None = None
 
     @property
     def box_dimensions(self) -> tuple[float, float, float] | None:
@@ -104,9 +108,9 @@ def _read_entity(doc: Document, raw: _core.RawNativeEntity, owner: str) -> Nativ
         p = value["parameters"]
         box = value["kind"] == "box"
         kind = value["kind"]
-        reflected_height = raw["is_mirror"] and kind in ("box", "cone")
-        if reflected_height:
-            # Negative stored extrusion height already carries the reflection.
+        reversed_height = kind in ("box", "cone", "polygon_extrusion") and p[0] < 0
+        if reversed_height:
+            # The stored extrusion direction is independent of mirror parity.
             # Normalize the height and reverse Z once; do not apply part parity.
             matrix = tuple(
                 tuple(-v if j == 2 else v for j, v in enumerate(row)) for row in matrix
@@ -116,7 +120,7 @@ def _read_entity(doc: Document, raw: _core.RawNativeEntity, owner: str) -> Nativ
             value["kind"],
             matrix,
             abs(p[0])
-            if kind in ("box", "cone")
+            if kind in ("box", "cone", "polygon_extrusion")
             else p[1]
             if kind == "cylinder"
             else None,
@@ -134,11 +138,14 @@ def _read_entity(doc: Document, raw: _core.RawNativeEntity, owner: str) -> Nativ
             minor_radius=p[2] if kind == "torus" else None,
             mirror_convention=(
                 "signed_height"
-                if reflected_height
+                if reversed_height and raw["is_mirror"]
                 else "symmetric_frame"
                 if raw["is_mirror"]
                 else None
             ),
+            profile_points=tuple((p[i], p[i + 1]) for i in range(1, len(p), 2))
+            if kind == "polygon_extrusion"
+            else None,
         )
     return NativeEntity(
         f"entity:{start:x}",

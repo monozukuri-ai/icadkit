@@ -94,6 +94,28 @@ def test_component_marker_does_not_become_a_final_body():
     assert len(icadkit.read_csg(doc).bodies) == 1
 
 
+@pytest.mark.parametrize("variant", [0x03000044, 0x03800044, 0x04000044, 0x04800044])
+@pytest.mark.parametrize("profile", ["v7l7", "v8l1", "v8l2", "v8l3"])
+def test_saved_result_variants_keep_exact_binding_and_frame(variant, profile):
+    doc = document() if profile == "v7l7" else v8_document(profile=profile)
+    before = icadkit.read_saved_bodies(doc).bodies[0]
+    raw = bytearray(doc.source_bytes(icadkit.ByteRange(0, doc.file_size)))
+    struct.pack_into("<I", raw, before.byte_range.start + 44, variant)
+    changed = icadkit.read(bytes(raw))
+    body = icadkit.read_saved_bodies(changed).bodies[0]
+    assert body.status == "complete"
+    assert body.resource_id == before.resource_id
+    assert body.source_id == before.source_id
+    assert body.world_transform == before.world_transform
+    assert body.appearance.color_index == before.appearance.color_index
+    assert changed.source_bytes(body.byte_range)[44:48] == struct.pack("<I", variant)
+    # Nearby flags remain unqualified; no broad mask is used.
+    struct.pack_into("<I", raw, before.byte_range.start + 44, variant | 0x20000000)
+    body = icadkit.read_saved_bodies(icadkit.read(bytes(raw))).bodies[0]
+    assert body.status == "unsupported" and body.resource_id is None
+    assert body.diagnostics[0].code == "saved.result_layout"
+
+
 @pytest.mark.parametrize(
     "kwargs,code",
     [

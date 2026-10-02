@@ -118,6 +118,63 @@ def test_annotations_are_not_decomposed_and_unknowns_do_not_resync():
     assert d.read_views().views[0].diagnostics[0].code == "views.record"
 
 
+def view_control(order):
+    control = bytearray(264)
+    control[:4] = (264).to_bytes(4, order)
+    control[12:16] = b"\x40\0\x01\xcb"
+    control[16:20] = (0x80000123).to_bytes(4, order)
+    control[24:26] = (240).to_bytes(2, order)
+    control[26:28] = b"\x40\xfd"
+    # Bytes within the framed payload never supply traversal or ownership.
+    control[32:40] = bytes.fromhex("6100000100000070")
+    return bytes(control)
+
+
+@pytest.mark.parametrize(
+    "order,version", [("big", b"\0\x05\0\x01"), ("little", b"\0\x07\0\x07")]
+)
+def test_counted_view_control_preserves_following_geometry_and_raw_bytes(
+    order, version
+):
+    control = view_control(order)
+    stream = (0x40000000).to_bytes(4, order) + control * 3
+    stream += (0x30010000).to_bytes(4, order) + entity(order=order)
+    doc = icadkit.read(drawing(stream=stream, order=order, version=version))
+    vi = doc.read_views()
+    assert vi.status == "complete"
+    first, record, repeated, line = vi.views[0].entries
+    assert first.tag == 0x40000000 and repeated.kind == "metadata"
+    assert record.kind == "metadata" and record.owner_offset is None
+    assert doc.source_bytes(record.byte_range) == control
+    result = doc.read_drawing()
+    assert result.entities[0].primitive.points == ((13, -7), (37, 11))
+    assert line.owner_offset is None
+    with pytest.raises(icadkit.LimitExceededError):
+        doc.read_views(limits=icadkit.ViewLimits(max_records=1))
+
+
+@pytest.mark.parametrize(
+    "defect", ["type", "length", "source_id", "subrecord", "position"]
+)
+def test_unqualified_view_control_never_resynchronizes(defect):
+    control = bytearray(view_control("big"))
+    if defect == "type":
+        control[15] = 0xCA
+    elif defect == "length":
+        control[:4] = (268).to_bytes(4, "big")
+    elif defect == "source_id":
+        control[16] = 0x90
+    elif defect == "subrecord":
+        control[24:26] = (236).to_bytes(2, "big")
+    stream = bytes.fromhex("40000000") + view_control("big") + bytes(control)
+    stream += (0x30010000).to_bytes(4, "big") + entity()
+    if defect == "position":
+        stream = bytes(control) + bytes.fromhex("30010000") + entity()
+    doc = icadkit.read(drawing(stream=stream))
+    assert doc.read_views().status == "partial"
+    assert not doc.read_drawing().entities
+
+
 @pytest.mark.parametrize(
     "stream,end,code",
     [

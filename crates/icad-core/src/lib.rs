@@ -13,6 +13,7 @@ mod reader;
 mod record;
 mod resource;
 mod schema;
+mod schema_profiles;
 mod views;
 
 pub use document::Document;
@@ -37,7 +38,7 @@ pub use resource::{Encoding, ResourceRef};
 pub use schema::SchemaCatalog;
 pub use views::{ViewEntry, ViewIndex, ViewLimits, ViewRecord};
 
-use parasolid_core::{BuiltinProfileRegistry, ParseError};
+use parasolid_core::ParseError;
 
 /// Version of this Rust crate, in Cargo SemVer notation.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -57,7 +58,7 @@ pub struct BackendInfo {
 /// # Errors
 /// Returns the backend error if its compiled profile table is inconsistent.
 pub fn backend_info() -> Result<BackendInfo, ParseError> {
-    let registry = BuiltinProfileRegistry::compiled()?;
+    let registry = schema_profiles::registry()?;
     let mut builtin_profile_ids: Vec<_> = registry
         .profiles()
         .map(|profile| profile.metadata().profile_id.clone())
@@ -78,7 +79,7 @@ mod tests {
     fn registry_initializes_and_keeps_exact_key_selection() -> Result<(), ParseError> {
         let info = backend_info()?;
         assert!(!info.builtin_profile_ids.is_empty());
-        let registry = BuiltinProfileRegistry::compiled()?;
+        let registry = schema_profiles::registry()?;
         let covered = SchemaKey::parse("SCH_3000310_30000_13006")?;
         let uncovered = SchemaKey::parse("SCH_2601246_26105_13006")?;
         assert!(registry.provider_for_key(&covered).is_some());

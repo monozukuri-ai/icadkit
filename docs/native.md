@@ -12,10 +12,13 @@ The 0.3.0 [native viewer](viewer.md) can tessellate the supported
 box/cylinder/full-sphere/cone/torus parameters for an explicitly partial display with a part tree.
 The current source also decodes qualified V7L6/V7L7/V8L1/V8L2 standalone primitive
 owners and saved entity appearance. These profiles require a complete saved hierarchy/index and
-an entire internal owner's list of qualified box/cylinder/sphere/cone/torus
+an entire internal owner's list of qualified primitive
 headers. An unknown or CSG record keeps the whole owner's list opaque; primitive
 operands are never drawn as a completed boolean result. Qualified internal
 mirrors are included; external owners and unsupported layouts remain unavailable.
+
+The current source also accepts negative heights in qualified nonmirrored boxes
+and adds the bounded polygon extrusion layout described below.
 
 ```python
 import icadkit
@@ -78,6 +81,21 @@ axis of revolution. `radius` and `height` are `None`. Partial sweeps, horn/spind
 tori and unknown extents remain unsupported. These added fields are `None` for
 other primitive kinds. Boxes remain the only kind with non-null box bounds.
 
+The unreleased `polygon_extrusion` kind exposes six distinct XY vertices in
+`profile_points` and a positive `height`. Its qualified 368-byte record stores
+two identical closed straight profiles and a zero trailer. Concave and convex
+simple polygons are accepted in either winding. The viewer triangulates both
+caps and preserves outward winding. Holes, curved segments, tapers, other vertex
+counts and mirrored extrusion records remain unsupported; degenerate or
+self-intersecting profiles are invalid. `profile_points` is `None` for other
+kinds. As with other primitives, older versions require a complete qualified
+standalone owner before any member is exposed as geometry.
+
+Nonmirrored boxes and polygon extrusions can store a negative height. The
+reader exposes its absolute value and reverses only the Z column of the frame;
+the original sign remains in `raw_bytes`. This sign does not imply an entity
+mirror, so `mirror_convention` remains `None` for these nonmirrored records.
+
 Matrices contain four rows and act on column vectors. The first three columns
 are the X, Y and Z axes; the fourth is the origin. A box spans the saved X/Y
 bounds and Z from zero to `height`. A cylinder's bottom centre is `(0, 0, 0)` and
@@ -86,8 +104,8 @@ its top centre is `(0, 0, height)` in this frame.
 The exposed `world_transform` is in **3DGLOBAL coordinates**; do not multiply it
 by the part frame again. All qualified V7L6/V7L7/V8L1/V8L2/V8L3 profiles use
 `inverse(saved_root_frame) * stored_primitive_frame`, independently of the owning
-part frame. Qualified mirrored box/cone records additionally reverse the stored Z column
-once, as described below. Raw bytes retain the original stored frame. If the root context is
+part frame. Qualified negative-height box/cone/polygon records additionally reverse
+the stored Z column once. Raw bytes retain the original stored frame. If the root context is
 unavailable or normalization overflows, `primitive=None` with a diagnostic. A box's saved reference origin can be the centre of its
 bottom cross-section instead of the creation corner. The axes are validated as
 orthonormal and are never silently normalized. Nonfinite values, nonpositive

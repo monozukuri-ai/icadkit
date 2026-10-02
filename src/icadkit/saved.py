@@ -236,10 +236,16 @@ def _read_saved_bodies(
                     or words[7] != 0x01000000
                     or not words[8]
                     or words[9]
+                    # Observed final-result states; these bits do not establish
+                    # body type, appearance or a resource association by themselves.
                     or words[11]
                     not in (
                         0x01800004 | (words[3] & 0x40),
                         0x01000004 | (words[3] & 0x40),
+                        0x03800004 | (words[3] & 0x40),
+                        0x03000004 | (words[3] & 0x40),
+                        0x04800004 | (words[3] & 0x40),
+                        0x04000004 | (words[3] & 0x40),
                     )
                 ):
                     raise _error(

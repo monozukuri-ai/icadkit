@@ -313,7 +313,7 @@ def test_v7_root_normalization_overflow_is_invalid():
 
 def test_v7_invalid_parameters_remain_invalid_in_a_recognized_owner():
     ix = document(
-        v7part(ROOT, root=True), native(parameters=(-1, -3, -5, 10, 12))
+        v7part(ROOT, root=True), native(parameters=(0, -3, -5, 10, 12))
     ).read_parts()
     assert ix.parts[0].entities[0].geometry_status == "invalid"
     assert ix.parts[0].entities[0].diagnostics[0].code == "native.parameters"

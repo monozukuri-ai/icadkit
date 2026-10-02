@@ -164,7 +164,7 @@ def test_mirror_layout_validation_keeps_appearance_and_ownership(kind, mirror):
         (88, 2),
         (96, 0),
         (120, 0),
-        (120, -1),
+        (120, -math.inf),
         (128, 10),
         (136, 12),
     ],
@@ -277,7 +277,7 @@ def test_every_aligned_primitive_truncation_fails_closed_without_losing_owner():
     [
         (native(), 0),
         (native("sphere", parameters=(9, 0, 0)), 3),
-        (native(parameters=(-1, -3, -5, 10, 12)), 1),
+        (native(parameters=(0, -3, -5, 10, 12)), 1),
     ],
 )
 def test_cli_native_requirement_is_explicit(record, code, tmp_path, capsys):

@@ -79,6 +79,46 @@ def _limit(message: str) -> LimitExceededError:
     )
 
 
+def _polygon_cap(points: tuple[tuple[float, float], ...]) -> list[int]:
+    """Triangulate a qualified simple profile with counterclockwise winding."""
+
+    def cross(a: int, b: int, c: int) -> float:
+        ax, ay = points[a]
+        bx, by = points[b]
+        cx, cy = points[c]
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+    indices = list(range(len(points)))
+    if sum(cross(0, i, i + 1) for i in range(1, len(points) - 1)) < 0:
+        indices.reverse()
+    triangles: list[int] = []
+    while len(indices) > 3:
+        for at, b in enumerate(indices):
+            a, c = indices[at - 1], indices[(at + 1) % len(indices)]
+            if cross(a, b, c) <= 0:
+                continue
+            if any(
+                min(cross(a, b, p), cross(b, c, p), cross(c, a, p)) >= 0
+                for p in indices
+                if p not in (a, b, c)
+            ):
+                continue
+            triangles.extend((a, b, c))
+            del indices[at]
+            break
+        else:
+            raise InvalidFormatError(
+                Diagnostic(
+                    "invalid",
+                    "viewer.polygon",
+                    None,
+                    "Could not triangulate the qualified polygon profile",
+                )
+            )
+    triangles.extend(indices)
+    return triangles
+
+
 def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
     """Generate outward triangles in the saved global frame (millimetres)."""
     vertices: list[tuple[float, ...]] = []
@@ -109,6 +149,25 @@ def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
         ):
             triangles.extend((a, b, c, a, c, d))
         edges = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]
+    elif primitive.kind == "polygon_extrusion":
+        assert primitive.profile_points is not None and primitive.height is not None
+        points = primitive.profile_points
+        n = len(points)
+        vertices = [(x, y, z) for z in (0, primitive.height) for x, y in points]
+        cap = _polygon_cap(points)
+        for at in range(0, len(cap), 3):
+            a, b, c = cap[at : at + 3]
+            triangles.extend((a, c, b, a + n, b + n, c + n))
+        signed_area = sum(
+            (points[i][0] - points[0][0]) * (points[(i + 1) % n][1] - points[0][1])
+            - (points[i][1] - points[0][1]) * (points[(i + 1) % n][0] - points[0][0])
+            for i in range(n)
+        )
+        for i in range(n):
+            j = (i + 1) % n
+            a, b = (i, j) if signed_area > 0 else (j, i)
+            triangles.extend((a, b, b + n, a, b + n, a + n))
+            edges.extend((i, j, i + n, j + n, i, i + n))
     elif primitive.kind == "sphere":
         assert primitive.radius is not None
         radius = primitive.radius
@@ -266,6 +325,9 @@ def _mesh(primitive: NativePrimitive, segments: int) -> dict[str, Any]:
 def _mesh_triangle_count(primitive: NativePrimitive, segments: int) -> int:
     if primitive.kind == "box":
         return 12
+    if primitive.kind == "polygon_extrusion":
+        assert primitive.profile_points is not None
+        return 4 * len(primitive.profile_points) - 4
     if primitive.kind == "sphere":
         return 2 * segments * (segments // 2 - 1)
     if primitive.kind == "torus":

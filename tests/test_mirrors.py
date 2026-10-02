@@ -133,15 +133,35 @@ def test_unqualified_older_mirror_keeps_transforms_unavailable(profile):
     assert ix.parts[1].placement.orientation_world_transform is None
 
 
-@pytest.mark.parametrize("mirror,height", [(True, 13), (False, -13)])
-def test_inconsistent_box_mirror_and_signed_height_remain_invalid(mirror, height):
+def test_unqualified_positive_mirrored_box_height_remains_invalid():
     doc = icadkit.read(
         view_parts(
             [
                 part(ROOT, root=True),
-                native(mirror=mirror, parameters=(height, 2, 3, 7, 11)),
+                native(mirror=True, parameters=(13, 2, 3, 7, 11)),
             ]
         )
     )
     entity = doc.read_parts().parts[0].entities[0]
     assert entity.primitive is None and entity.geometry_status == "invalid"
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_nonmirrored_box_can_extrude_in_negative_z(profile):
+    # Rotated global Z is +Y. Signed height -13 spans Y=-24..-11;
+    # the off-centre XY rectangle must not be reflected a second time.
+    raw = native(parameters=(-13, 2, 3, 7, 11))
+    doc = icadkit.read(
+        view_parts([part(ROOT, root=True, profile=profile), raw], profile=profile)
+    )
+    entity = doc.read_parts().parts[0].entities[0]
+    shape = entity.primitive
+    assert entity.is_mirror is False and shape.height == 13
+    assert shape.mirror_convention is None
+    assert struct.unpack_from("<d", shape.raw_bytes, 72)[0] == -13
+    mesh = _mesh(shape, 24)
+    points = list(zip(*[iter(mesh["positions"])] * 3, strict=True))
+    assert set(points) == {
+        (x, y, z) for x in (9, 14) for y in (-24, -11) for z in (8, 16)
+    }
+    assert signed_volume(mesh) == pytest.approx(520)

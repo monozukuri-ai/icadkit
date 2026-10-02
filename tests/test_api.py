@@ -14,6 +14,7 @@ def test_native_backend_identity():
     assert info.parasolid_core_version == "0.3.1"
     assert any(name.startswith("icad-") for name in info.builtin_profile_ids)
     assert "icad-sch34101-13006-r2" in info.builtin_profile_ids
+    assert "icad-legacy-13006-raw-r1" in info.builtin_profile_ids
     assert info.builtin_profile_ids == tuple(sorted(set(info.builtin_profile_ids)))
     with pytest.raises(FrozenInstanceError):
         info.version = "changed"
