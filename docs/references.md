@@ -1,4 +1,4 @@
-# Explicit external references (unreleased)
+# Explicit external references
 
 `read_assembly()` resolves caller-selected local ICD files and places qualified
 V7L6/V7L7/V8L1/V8L2/V8L3 content in the host's root-relative millimetre frame.

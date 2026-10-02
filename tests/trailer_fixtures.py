@@ -13,10 +13,44 @@ def framed(kind, subtype, header=b"", body=b""):
     return record(kind, subtype, header, body) + body
 
 
-def payload(bounds=(-3, -5, 0, 7, 11, 13), *, kind=0x96, marker=52, extra=b"\x5a" * 20):
-    # The packed header stays little-endian in a big-endian document.
-    head = struct.pack("<I6f", kind, *bounds) + struct.pack("<3I", 0, marker, 0)
-    return struct.pack("<I", 4 + len(head) + len(extra)) + head + extra
+def payload(
+    bounds=(-3, -5, 0, 7, 11, 13),
+    *,
+    kind=0x96,
+    marker=52,
+    faces=(),
+    edges=(),
+    extra=b"\x5a" * 20,
+    edges_at=None,
+    items_at=None,
+    shift=0,
+):
+    """A block with a face table, an edge table and their items.
+
+    faces are (node id, surface code, parameter box, item bytes) and edges are
+    (node id, (face, face), item bytes). The packed fields stay little-endian
+    in a big-endian document. shift moves every stored item offset.
+    """
+    table_end = 52 + 36 * len(faces) + 24 * len(edges)
+    items = [item for *_, item in faces] + [item for *_, item in edges]
+    offsets = [table_end + sum(map(len, items[:i])) + shift for i in range(len(items))]
+    head = struct.pack("<I6f", kind, *bounds) + struct.pack(
+        "<5I",
+        0,
+        marker,
+        52 + 36 * len(faces) if edges_at is None else edges_at,
+        len(faces) | len(edges) << 16,
+        table_end if items_at is None else items_at,
+    )
+    body = b"".join(
+        struct.pack("<4BI4BIHH4f", 0x10, 0, 0, 0, node, 0, 0, code, 1, at, 0, 0, *box)
+        for (node, code, box, _), at in zip(faces, offsets, strict=False)
+    ) + b"".join(
+        struct.pack("<4BI4H4BI", 0x10, 0, 0, 0, node, *pair, 0, 0, 1, 1, 0, 2, at)
+        for (node, pair, _), at in zip(edges, offsets[len(faces) :], strict=True)
+    )
+    data = head + body + b"".join(items) + extra
+    return struct.pack("<I", 4 + len(data)) + data
 
 
 def block(source_id, decoded, *, encoded=None, declared=None, pad=None, zero=0):

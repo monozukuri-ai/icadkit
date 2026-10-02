@@ -73,10 +73,10 @@ def test_icad_v34_without_catalog(geometry_doc, version):
     doc = geometry_doc(payload, version=version, count=0 if version == 0 else 3)
     g = doc.read_geometry(doc.resources[0].resource_id).require_complete()
     assert g.schema.kind == "builtin"
-    assert g.schema.profile_id == "icad-sch34101-13006-r2"
-    assert g.schema.profile_revision == 2
+    assert g.schema.profile_id == "icad-sch34101-13006-r3"
+    assert g.schema.profile_revision == 3
     assert g.schema.profile_sha256 == (
-        "eaebc3477246b7a6b56d1b5dc500029beba46f54e9226973883bc444684f26eb"
+        "595a8848c2b7730367bb41bbe75332c79c9038eb56accc7ee785ca9742a37de7"
     )
     assert g.raw.schema_key == "SCH_3401212_34101_13006"
     assert g.raw.to_bytes() == payload
@@ -112,10 +112,12 @@ def test_icad_v34_rejects_nearby_key_and_unknown_base(geometry_doc):
         b"SCH_1500245_15003_13006",
         b"SCH_1700223_16100_13006",
         b"SCH_1700256_16100_13006",
+        b"SCH_1901261_19008_13006",
         b"SCH_1901315_19008_13006",
         b"SCH_2100293_20000_13006",
         b"SCH_2100311_20000_13006",
         b"SCH_2401260_20000_13006",
+        b"SCH_2601246_26105_13006",
         b"SCH_2800188_28002_13006",
         b"SCH_2901199_28101_13006",
         b"SCH_3200152_32001_13006",
@@ -127,9 +129,11 @@ def test_legacy_exact_profile_qualifies_brep_without_catalog(geometry_doc, key):
     payload = wire_payload(embedded=True).replace(b"SCH_3401212_34101_13006", key)
     doc = geometry_doc(payload)
     g = doc.read_geometry(doc.resources[0].resource_id).require_complete()
-    expected_profile = "icad-" + key.decode()[4:].replace("_", "-") + "-r1"
+    # Two profiles were revised when a further base type was admitted.
+    revision = 2 if key[4:11] in (b"2100293", b"3301231") else 1
+    expected_profile = "icad-" + key.decode()[4:].replace("_", "-") + f"-r{revision}"
     assert g.schema.kind == "builtin" and g.schema.profile_id == expected_profile
-    assert g.schema.profile_revision == 1
+    assert g.schema.profile_revision == revision
     assert len(g.schema.profile_sha256) == 64
     assert g.raw.schema_key == key.decode() and g.raw.to_bytes() == payload
     assert g.raw.node_count == 11 and g.raw.terminator_range.end == len(payload)
@@ -189,7 +193,7 @@ def test_standard_exact_profile_qualifies_brep_without_catalog(geometry_doc, key
     assert not g.diagnostics
 
     uncovered = bytearray(payload)
-    uncovered[len(header(key)) : len(header(key)) + 2] = b"\0\x3c"  # OFFSET_SURF.
+    uncovered[len(header(key)) : len(header(key)) + 2] = b"\0\x43"  # Swept surface.
     near = payload.replace(key, key[:-1] + b"9")
     truncated = payload[:-12]
     for raw, code in (
@@ -245,7 +249,7 @@ def test_legacy_spun_surface_preserves_raw_but_requires_partial_brep(geometry_do
 @pytest.mark.parametrize(
     ("key", "profile"),
     [
-        (b"SCH_3401212_34101_13006", "icad-sch34101-13006-r2"),
+        (b"SCH_3401212_34101_13006", "icad-sch34101-13006-r3"),
         (b"SCH_1700256_16100_13006", "icad-1700256-16100-13006-r1"),
     ],
 )

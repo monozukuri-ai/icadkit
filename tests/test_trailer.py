@@ -48,8 +48,9 @@ def test_framing_ownership_and_local_bounds(document_factory, order, revision):
     assert data.payload_sha256 == hashlib.sha256(first).hexdigest()
     assert data.bounds == ((-3, -5, 0), (7, 11, 13))
     assert (data.length_unit, data.coordinate_space) == ("mm", "entity_local")
-    # The face and edge tables are not interpreted, so a block is never complete.
+    # Empty tables are still tables: geometry is never claimed complete.
     assert data.status == "partial" and not data.diagnostics
+    assert data.faces == () and data.edges == ()
     assert doc.read_trailer_block(index.blocks[1].block_id).bounds[1] == (1.5, 4, 2)
     with pytest.raises(dataclasses.FrozenInstanceError):
         index.revision = 1
@@ -91,16 +92,105 @@ def test_unqualified_block_layout_keeps_decoded_bytes(document_factory, data, co
     assert result.status == ("invalid" if code.endswith("length") else "unsupported")
 
 
+# A capped cylinder as two half faces of saved face 113, two caps, the two
+# seam edges that carry the face identifier, and each saved circle in halves.
+HALF = 3.5
+FACES = [
+    (113, 2, (0, 6, HALF, 19), b"cylinder-a"),
+    (9, 1, (-4.5, -3.5, 7.5, 8.5), b"plane-low"),
+    (113, 2, (HALF, 6, 2 * HALF, 19), b"cylinder-b"),
+    (36, 1, (-7.5, -3.5, 4.5, 8.5), b"plane-high"),
+]
+EDGES = [
+    (113, (1, 3), b"seam-a"),
+    (113, (3, 1), b"seam-b"),
+    (95, (1, 4), b"top-a"),
+    (95, (3, 4), b"top-b"),
+    (98, (3, 2), b"low-a"),
+    (98, (1, 0), b"open"),
+]
+
+
+@pytest.mark.parametrize("order", ["little", "big"])
+def test_tables_expose_identity_adjacency_and_parameter_boxes(document_factory, order):
+    data = payload(faces=FACES, edges=EDGES, extra=b"")
+    tail = trailer([view("3DGLOBAL", [block(A, data)])])
+    doc = document(document_factory, tail, order)
+    result = doc.read_trailer_block(doc.read_trailer().blocks[0].block_id)
+    assert result.status == "partial" and not result.diagnostics
+    assert result.bounds == ((-3, -5, 0), (7, 11, 13))
+    assert [f.index for f in result.faces] == [1, 2, 3, 4]
+    assert [f.source_node_id for f in result.faces] == [113, 9, 113, 36]
+    assert [f.surface_code for f in result.faces] == [2, 1, 2, 1]
+    assert result.faces[1].parameter_bounds == (-4.5, -3.5, 7.5, 8.5)
+    assert result.faces[2].parameter_bounds == (HALF, 6, 2 * HALF, 19)
+    assert [e.index for e in result.edges] == [1, 2, 3, 4, 5, 6]
+    assert [e.source_node_id for e in result.edges] == [113, 113, 95, 95, 98, 98]
+    assert [e.faces for e in result.edges] == [pair for _, pair, _ in EDGES]
+    # Entries and their uninterpreted items are exact slices of the payload.
+    at = 52
+    for face, (_, _, _, item) in zip(result.faces, FACES, strict=True):
+        assert face.raw_bytes == data[at : at + 36]
+        assert data[face.item_offset : face.item_offset + len(item)] == item
+        at += 36
+    for edge, (_, _, item) in zip(result.edges, EDGES, strict=True):
+        assert edge.raw_bytes == data[at : at + 24]
+        assert data[edge.item_offset : edge.item_offset + len(item)] == item
+        at += 24
+    # Two entries of one saved face meet only at edges that carry its identifier.
+    seams = [e for e in result.edges if e.source_node_id == 113]
+    assert {frozenset(e.faces) for e in seams} == {frozenset((1, 3))}
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.faces[0].index = 2
+
+
+@pytest.mark.parametrize(
+    "box",
+    [(1, 0, 0, 1), (0, 1, 1, 0), (0, 0, float("nan"), 1), (float("-inf"), 0, 1, 1)],
+)
+def test_unordered_or_nonfinite_parameter_box_is_withheld(document_factory, box):
+    data = payload(faces=[(7, 1, box, b"item")])
+    doc = document(document_factory, trailer([view("3DGLOBAL", [block(A, data)])]))
+    result = doc.read_trailer_block(doc.read_trailer().blocks[0].block_id)
+    assert result.status == "partial"
+    assert result.faces[0].parameter_bounds is None
+    assert result.faces[0].raw_bytes == data[52:88]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"edges_at": 52},
+        {"items_at": 52 + 36 * 4 + 24 * 6 + 4},
+        {"shift": -1},
+        {"shift": 4096},
+        {"edges": [*EDGES[:-1], (98, (1, 5), b"open")]},
+        {"faces": FACES * 40, "edges": [], "extra": b"", "items_at": 2**20},
+    ],
+)
+def test_inconsistent_tables_expose_nothing(document_factory, change):
+    data = payload(**{"faces": FACES, "edges": EDGES, **change})
+    doc = document(document_factory, trailer([view("3DGLOBAL", [block(A, data)])]))
+    result = doc.read_trailer_block(doc.read_trailer().blocks[0].block_id)
+    assert result.status == "invalid" and result.payload == data
+    assert result.bounds is None and result.faces == () and result.edges == ()
+    assert [d.code for d in result.diagnostics] == ["trailer.block_tables"]
+
+
 @pytest.mark.parametrize("revision", [1, 2, 3, 4, 6])
 def test_older_revisions_are_framed_without_qualified_bounds(
     document_factory, revision
 ):
-    tail = trailer([view("3DGLOBAL", [block(A, payload())])], revision=revision)
+    tail = trailer(
+        [view("3DGLOBAL", [block(A, payload(faces=FACES, edges=EDGES))])],
+        revision=revision,
+    )
     doc = document(document_factory, tail)
     index = doc.read_trailer()
     assert index.status == "complete" and index.revision == revision
     data = doc.read_trailer_block(index.blocks[0].block_id)
     assert data.bounds is None and data.status == "unsupported"
+    assert data.faces == () and data.edges == ()
 
 
 @pytest.mark.parametrize(
@@ -201,15 +291,18 @@ def test_limits_and_block_identifiers(document_factory):
 
 def test_cli_reports_framing_and_optional_bounds(document_factory, tmp_path, capsys):
     path = tmp_path / "authored.bin"
+    data = payload(faces=FACES, edges=EDGES)
     path.write_bytes(
-        document_factory(tail=trailer([view("3DGLOBAL", [block(A, payload())])]))
+        document_factory(tail=trailer([view("3DGLOBAL", [block(A, data)])]))
     )
     assert main(["trailer", str(path), "--json", "--bounds"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["operation"] == "trailer" and out["result"]["status"] == "complete"
     row = out["decoded_blocks"][0]
     assert row["bounds"] == [[-3, -5, 0], [7, 11, 13]] and "payload" not in row
-    assert row["payload_bytes"] == len(payload())
+    assert row["payload_bytes"] == len(data)
+    assert (row["face_count"], row["edge_count"]) == (4, 6)
+    assert "faces" not in row and "edges" not in row
     assert main(["trailer", str(path)]) == 0
     assert "entity=0x80000021" in capsys.readouterr().out
     path.write_bytes(document_factory(tail=b"unknown remainder"))

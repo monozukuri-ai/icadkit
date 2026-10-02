@@ -107,6 +107,8 @@ class RawTrailerBlock(TypedDict):
     payload_sha256: str
     raw_kind: int | None
     bounds: list[float] | None
+    faces: list[tuple[int, int, list[float] | None, int, int]]
+    edges: list[tuple[int, list[int], int, int]]
     status: Status
     diagnostics: list[RawDiagnostic]
 

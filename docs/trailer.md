@@ -1,6 +1,6 @@
 # Trailing container and per-entity blocks
 
-The unreleased source adds `Document.read_trailer()` and
+Version 0.3.5 adds `Document.read_trailer()` and
 `Document.read_trailer_block()`. They frame the bytes that follow the last
 directory-indexed record: the range `Document.unparsed_ranges` reports as
 `uninspected_tail`. No iCAD process, schema catalog or optional package is needed.
@@ -15,6 +15,7 @@ for block in trailer.blocks:
     print(hex(block.source_id), block.view_name, block.declared_decoded_bytes)
     data = doc.read_trailer_block(block.block_id)
     print(data.status, data.bounds)  # None unless the layout is qualified
+    print(len(data.faces), len(data.edges))  # empty unless qualified
 ```
 
 ## Framing
@@ -72,9 +73,40 @@ the stored single-precision minimum and maximum corners:
 
 Older revisions (1–4 and 6) and the other block kinds are framed and decoded,
 but their payload layout is not qualified: `bounds` is `None` with
-`trailer.block_layout`. The face and edge tables that follow the header are not
-interpreted in any revision, so a block with bounds is `partial`, never
-`complete`. Nonfinite or reversed bounds are `invalid`.
+`trailer.block_layout`, and no table is exposed. Nonfinite or reversed bounds
+are `invalid`.
+
+## Face and edge tables
+
+In the qualified layout two fixed-size tables follow the header: 36-byte face
+entries, then 24-byte edge entries. `TrailerBlockData.faces` and `.edges`
+expose their identity and adjacency:
+
+- `TrailerFace.source_node_id` is the node identifier of a face of the saved
+  body bound to the same entity. A face that is closed in a parameter
+  direction, such as a full cylinder, is stored as several entries with one
+  identifier. `index` is the one-based entry number.
+- `TrailerFace.surface_code` is the stored surface type. In the checked inputs
+  1 is a plane, 2 a cylinder, 3 a cone, 4 a sphere and 5 a torus; other values
+  occur for free-form and special surfaces and are not qualified. The code is
+  the block's own classification: a few saved NURBS surfaces carry code 2.
+- `TrailerFace.parameter_bounds` is `(u_min, v_min, u_max, v_max)` of the entry
+  on its surface, with lengths in millimetres. It is verified for planar faces
+  with straight edges, where it equals the extent of the face's vertices in the
+  plane's own `u`/`v` axes. It is `None` when the stored values are not finite
+  and ordered.
+- `TrailerEdge.source_node_id` is the node identifier of a saved edge. An edge
+  that only separates two entries of one saved face carries that face's
+  identifier. `TrailerEdge.faces` holds the one-based numbers of the adjacent
+  face entries, 0 for none.
+- `raw_bytes` is the exact entry and `item_offset` locates the entry's
+  parameters in `payload`.
+
+The surface and curve parameters, the entry tags and the link fields between
+entries are not interpreted, so a block is `partial`, never `complete`. Counts
+or offsets that disagree with the tables make the block `invalid`
+(`trailer.block_tables`) and nothing is exposed. Use the saved body for
+geometry; the tables identify which saved face or edge an entry belongs to.
 
 The framed table group holds a linked name/value layout that is not qualified.
 `TrailerTable` exposes its byte ranges with `status="unsupported"`.
@@ -91,8 +123,8 @@ icadkit trailer model.icd --bounds --max-block-bytes 16777216
 ```
 
 `--bounds` decodes every block and adds `decoded_blocks` with `raw_kind`,
-`bounds`, status and the decoded size; payload bytes stay available through the
-Python API. Exit codes follow the framing status: 0 complete (including an
+`bounds`, status, the decoded size and the face and edge counts; payload bytes
+and entries stay available through the Python API. Exit codes follow the framing status: 0 complete (including an
 absent container), 3 partial or unsupported, 1 invalid data or I/O failure,
 4 a limit and 2 argument errors.
 
@@ -106,5 +138,18 @@ their bound resources, the stored box contains the evaluated solid in its local
 frame in every case. It equals the solid's bounds within 0.05 mm for 6,040 of
 them; the other 19 are chamfered hexagonal nuts whose stored box is larger along
 one axis. This qualifies the framing, the identifier and the bounds of the
-stated layout as an enclosing box. It does not qualify the face/edge tables, the
-older revisions or the table group.
+stated layout as an enclosing box.
+
+All 18,203 blocks of the qualified layout in files below 60 MB have consistent
+tables: 441,957 face entries and 1,067,181 edge entries. For 6,302 bodies
+compared with their bound saved B-Rep, the face identifiers equal the saved
+faces, every saved edge appears, every other edge identifier is a face
+identifier, and the two faces of each edge entry are the faces of that saved
+edge, with no exception. Surface codes 1 to 5 agree with 145,062 saved
+surfaces; 54 saved NURBS surfaces carry the cylinder code. The parameter box
+equals the vertex extent for all 32,541 planar straight-edged faces checked;
+248 face entries have no ordered finite box.
+
+This does not qualify the surface and curve parameters, the link fields, the
+older revisions, the other block kinds or the table group. The named table
+holds ASCII names with UTF-16 text values in a layout that was not resolved.

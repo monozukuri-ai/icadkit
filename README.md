@@ -4,37 +4,37 @@ A Rust-based Python reader for **iCAD SX `.icd` files**. Read saved part
 structure, coordinate frames, names and selected attributes; inspect native
 box/cylinder parameters; and extract embedded Parasolid geometry.
 
-Version **0.3.0** adds:
+Version **0.3.5** adds:
 
-- A [native file viewer](docs/viewer.md) with a part tree, stored properties,
-  selection and visibility controls. Qualified boxes, cylinders, full spheres,
-  cones/frusta and full ring tori use their saved frames.
-- Broader [part access](docs/parts.md): V7L7 traversal, bounded V8L1/V8L2
-  inventories and binary attributes retained with ownership and raw bytes.
-- Optional [V7L7 boolean evaluation](docs/csg.md) and
-  [saved final body display](docs/saved-bodies.md) for V7L7/V8L3, including
-  imported solids, shared resources and bounded analytic surfaces.
-- Updated exact V34 Parasolid support through `parasolid-core 0.3.1`, including
-  qualified toroidal resources without an external catalog.
+- [View inventories and saved 2D geometry](docs/drawing.md) through
+  `read_views()` / `read_drawing()` and the `views` / `drawing` CLI commands.
+  Old originals and registered parts are read directly. Qualified 2D primitives
+  use view-local coordinates; text content is separate from unsupported layout.
+- Catalog-free raw parsing and source B-Rep mapping of
+  [twenty-six further exact iCAD schema keys](docs/support.md#schemas) through
+  `parasolid-core 0.3.5`. SPUN_SURF geometry remains partial; saved-body
+  conversion has separate limits.
+- The [trailing container](docs/trailer.md): per-entity blocks with stored
+  local bounds and the identity of their faces and edges (`read_trailer()`,
+  `icadkit trailer`).
+- [Saved final bodies](docs/saved-bodies.md) bound through saved association
+  records in V8 and by source ID in V7L2–V7L5, and converted with elliptical
+  edges, intersection curves and cone apexes.
+- More [native primitives](docs/native.md): polygon extrusions, extrusions with
+  arc profiles, revolved profiles and signed heights, in V7L6/V7L7 and
+  V8L1/V8L2/V8L3, including internal mirrors.
+- [Saved 3D parameter tables](docs/parameters.md) and explicit
+  [external-reference resolution](docs/references.md).
+
+Version 0.3.0 added the [native file viewer](docs/viewer.md), broader
+[part access](docs/parts.md), optional [V7L7 boolean evaluation](docs/csg.md)
+and [saved final body display](docs/saved-bodies.md).
 
 icadkit is experimental. Unsupported geometry remains in the part inventory;
 unknown values and source ranges are preserved. Part frames, native primitive
 frames and embedded resource coordinates have separate contracts. Complete
 assembly geometry, inherited attributes and complete drawing reconstruction remain unsupported.
 Read the [support boundaries](docs/support.md) and [release notes](docs/changelog.md).
-
-The unreleased source adds [view inventories and saved 2D geometry](docs/drawing.md)
-through `read_views()` / `read_drawing()` and the `views` / `drawing` CLI commands.
-Old originals and registered parts are read directly. Qualified 2D primitives
-use view-local coordinates; text content is separate from unsupported layout.
-It also uses `parasolid-core 0.3.4` for catalog-free raw parsing and source B-Rep
-mapping of [eighteen further exact iCAD schema keys](docs/support.md#schemas).
-SPUN_SURF geometry remains partial; saved-body conversion has separate limits.
-It further frames the [trailing container](docs/trailer.md) with per-entity
-blocks and stored local bounds (`read_trailer()`, `icadkit trailer`), binds V8
-saved bodies through their saved association records, binds V7L2–V7L5 saved
-bodies, and reads extrusions with arc profiles and revolved profiles as
-[native primitives](docs/native.md).
 
 Run `icadkit view model.icd` to open qualified native primitives and their
 part properties. The base viewer works without the preview extra.
@@ -45,7 +45,7 @@ The base reader supports standard GIL-enabled CPython 3.10–3.14. Wheel targets
 are Linux x86_64 (glibc 2.28+), Windows x86_64 and macOS ARM64 (11+):
 
 ```sh
-python -m pip install icadkit==0.3.0
+python -m pip install icadkit==0.3.5
 ```
 
 The native extension bundles `parasolid-core` and has no mandatory Python
@@ -54,7 +54,7 @@ explicit compatible catalog is needed only for schemas absent from the built-in
 profiles. Release files are available on the
 [GitHub releases page](https://github.com/monozukuri-ai/icadkit/releases).
 
-For preview/GLB, install `python -m pip install 'icadkit[preview]==0.3.0'`.
+For preview/GLB, install `python -m pip install 'icadkit[preview]==0.3.5'`.
 The optional OCCT dependency requires glibc 2.31+ on Linux; see
 [preview requirements](docs/preview.md#dependencies-and-validation).
 To build from a source checkout or sdist, install Rust 1.88+ and a C linker,
@@ -97,7 +97,7 @@ native cones/frusta and full ring tori. The updated exact V34 profile in
 `parasolid-core 0.3.1` removes the catalog requirement for qualified toroidal
 resources.
 
-The current unreleased source extends qualified millimetre frames and bounded
+Version 0.3.5 extends qualified millimetre frames and bounded
 native/saved geometry to V7L6/V7L7 and V8L1/V8L2/V8L3, including internal mirrors.
 Signed occurrence orientation is separate from already placed geometry; see
 [mirror semantics](docs/parts.md#coordinate-frames-and-units). Explicit

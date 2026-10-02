@@ -1,8 +1,9 @@
 """Framing of the container that follows the directory-indexed records.
 
 The container holds per-entity compressed blocks and, in some files, a named
-table. Complete means its record boundaries were traversed; block payloads
-beyond the qualified header fields and the table layout remain uninterpreted.
+table. Complete means its record boundaries were traversed. A qualified block
+exposes its stored bounds and the identity and adjacency of its face and edge
+entries; their geometry and the table layout remain uninterpreted.
 """
 
 from dataclasses import dataclass
@@ -85,15 +86,56 @@ class TrailerIndex:
 
 
 @dataclass(frozen=True)
+class TrailerFace:
+    """One face entry of a block.
+
+    source_node_id is the node identifier of a face in the saved body bound to
+    the same entity. A face that is closed in a parameter direction is stored
+    as several entries with one identifier. index is the one-based entry
+    number that edges refer to. surface_code is the stored surface type: 1
+    plane, 2 cylinder, 3 cone, 4 sphere and 5 torus in the checked inputs;
+    other values are not qualified. parameter_bounds is (u_min, v_min, u_max,
+    v_max) on that surface, with lengths in millimetres; it is None when the
+    stored values are not finite and ordered. The surface parameters at
+    item_offset in the payload, and the other bytes of the entry, are not
+    interpreted.
+    """
+
+    index: int
+    source_node_id: int
+    surface_code: int
+    parameter_bounds: tuple[float, float, float, float] | None
+    raw_bytes: bytes
+    item_offset: int
+
+
+@dataclass(frozen=True)
+class TrailerEdge:
+    """One edge entry of a block.
+
+    source_node_id is the node identifier of an edge in the saved body. An
+    edge that only separates two entries of one saved face carries that face's
+    identifier instead. faces holds the one-based numbers of the adjacent face
+    entries, 0 for none. Curve parameters and link fields are not interpreted.
+    """
+
+    index: int
+    source_node_id: int
+    faces: tuple[int, int]
+    raw_bytes: bytes
+    item_offset: int
+
+
+@dataclass(frozen=True)
 class TrailerBlockData:
-    """A decoded block with its qualified header fields.
+    """A decoded block with its qualified header fields and tables.
 
     bounds holds the stored single-precision minimum and maximum corners in
     millimetres, in the saved local frame of the owning entity: the frame that
     places its saved body, not the document frame. The box encloses the body
-    but is not always the smallest such box. Bounds are exposed for the
-    qualified payload layout only. The face and edge tables that follow remain
-    uninterpreted, so a block with bounds is partial, never complete.
+    but is not always the smallest such box. Bounds, faces and edges are
+    exposed for the qualified payload layout only. The tables give identity
+    and adjacency, not geometry, so such a block is partial, never complete.
     """
 
     block_id: str
@@ -106,6 +148,8 @@ class TrailerBlockData:
     diagnostics: tuple[Diagnostic, ...]
     length_unit: Literal["mm"] = "mm"
     coordinate_space: Literal["entity_local"] = "entity_local"
+    faces: tuple[TrailerFace, ...] = ()
+    edges: tuple[TrailerEdge, ...] = ()
 
 
 def _policy(limits: TrailerLimits | None) -> tuple[int, int]:
@@ -179,13 +223,31 @@ def _read_trailer_block(
     except _core.InspectionError as exc:
         _raise_native(exc)
     b = raw["bounds"]
+    payload = raw["payload"]
     return TrailerBlockData(
         block_id,
         raw["source_id"],
-        raw["payload"],
+        payload,
         raw["payload_sha256"],
         raw["raw_kind"],
         ((b[0], b[1], b[2]), (b[3], b[4], b[5])) if b is not None else None,
         raw["status"],
         tuple(Diagnostic(**d) for d in raw["diagnostics"]),
+        faces=tuple(
+            TrailerFace(
+                number,
+                node_id,
+                code,
+                (box[0], box[1], box[2], box[3]) if box is not None else None,
+                payload[at : at + 36],
+                item,
+            )
+            for number, (node_id, code, box, at, item) in enumerate(raw["faces"], 1)
+        ),
+        edges=tuple(
+            TrailerEdge(
+                number, node_id, (pair[0], pair[1]), payload[at : at + 24], item
+            )
+            for number, (node_id, pair, at, item) in enumerate(raw["edges"], 1)
+        ),
     )

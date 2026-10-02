@@ -37,7 +37,8 @@ pub use record::{ByteRange, RecordInfo};
 pub use resource::{Encoding, ResourceAssociation, ResourceRef};
 pub use schema::SchemaCatalog;
 pub use trailer::{
-    TrailerBlock, TrailerBlockData, TrailerIndex, TrailerLimits, TrailerTable, TrailerView,
+    TrailerBlock, TrailerBlockData, TrailerEdge, TrailerFace, TrailerIndex, TrailerLimits,
+    TrailerTable, TrailerView,
 };
 pub use views::{ViewEntry, ViewIndex, ViewLimits, ViewRecord};
 
@@ -47,7 +48,7 @@ use parasolid_core::{BuiltinProfileRegistry, ParseError};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Exact registry dependency; checked against the manifest and lock in CI.
-pub const PARASOLID_CORE_VERSION: &str = "0.3.4";
+pub const PARASOLID_CORE_VERSION: &str = "0.3.5";
 
 /// Metadata of the compiled Parasolid backend, not ICD format coverage.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +85,8 @@ mod tests {
         assert!(!info.builtin_profile_ids.is_empty());
         let registry = BuiltinProfileRegistry::compiled()?;
         let covered = SchemaKey::parse("SCH_3000310_30000_13006")?;
-        let uncovered = SchemaKey::parse("SCH_2601246_26105_13006")?;
+        // A neighbouring modeller build is a different key, never a fallback.
+        let uncovered = SchemaKey::parse("SCH_3000311_30000_13006")?;
         assert!(registry.provider_for_key(&covered).is_some());
         assert!(registry.provider_for_key(&uncovered).is_none());
         Ok(())

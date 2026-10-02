@@ -40,7 +40,13 @@ CODES = {
 # BODY codes per standard revision, then the ordinals of its two precisions,
 # body kind and region/edge/vertex heads.
 STANDARD_BODIES = {
+    b"SCH_1300218_13006": ("DPPPPPPFFPPPUPUUPPPPPPP", (7, 8, 14, 20, 21, 22)),
+    b"SCH_1302234_13006": ("DPPPPPPFFPPPUPUUPPPPPPP", (7, 8, 14, 20, 21, 22)),
+    b"SCH_1500000_15003": ("DPPPPPPFFPPPUPUUPPPPPPP", (7, 8, 14, 20, 21, 22)),
+    b"SCH_1700000_16100": ("DPPPPPPFFPPPUPUUPPPPPPP", (7, 8, 14, 20, 21, 22)),
+    b"SCH_1901000_19008": ("DPPPPPPFFPPPUPUUPPPPPPPDPPP", (7, 8, 14, 20, 21, 22)),
     b"SCH_2401000_20000": ("DPPPPPPFFPPPUPUUPPPPPPPDPPP", (7, 8, 14, 20, 21, 22)),
+    b"SCH_2601000_26105": ("DPPPPPPFFPPPUPUUPPPPPPPPDPPPPD", (7, 8, 14, 20, 21, 22)),
     b"SCH_2800000_28002": ("DPPPPPPFFPPPUPUUPPPPPPPPDPPPPD", (7, 8, 14, 20, 21, 22)),
     b"SCH_2901000_28101": (CODES[12], (9, 10, 16, 24, 25, 26)),
     b"SCH_3200000_32001": (CODES[12] + "P", (9, 10, 16, 24, 25, 26)),
@@ -49,6 +55,8 @@ STANDARD_BODIES = {
         (10, 11, 17, 25, 26, 27),
     ),
 }
+# REGION gains its owner reference from schema revision 26105 on.
+BASE_REGION_KEYS = list(STANDARD_BODIES)[:6]
 
 
 def wire_payload(*, bad_reference=False, embedded=False, key=None):
@@ -56,7 +64,7 @@ def wire_payload(*, bad_reference=False, embedded=False, key=None):
     codes, body = CODES, (9, 10, 16, 24, 25, 26)
     if key is not None:
         layout, body = STANDARD_BODIES[key]
-        region = "DPPPPPC" if key == b"SCH_2401000_20000" else CODES[19]
+        region = "DPPPPPC" if key in BASE_REGION_KEYS else CODES[19]
         codes = {**CODES, 12: layout, 19: region}
     size, linear, body_kind, region_head, edge_head, vertex_head = body
     definitions = [

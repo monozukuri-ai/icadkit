@@ -204,13 +204,15 @@ def _operand(
     implicit: bool,
 ) -> CsgOperand:
     b = doc.source_bytes(span)
-    spec = {75: (160, 0x56440088, "box"), 71: (136, 0x50440070, "cylinder")}.get(
-        b[15] if len(b) >= 16 else -1
-    )
+    spec = {
+        75: (160, 0x56440088, "box"),
+        71: (136, 0x50440070, "cylinder"),
+        70: (224, 0x584400C8, "prism"),
+    }.get(b[15] if len(b) >= 16 else -1)
     if spec is None:
         _fail(
             "csg.operand_layout",
-            "CSG operand is not a qualified box/cylinder",
+            "CSG operand is not a qualified box, cylinder or prism",
             span.start,
         )
     assert spec is not None
@@ -253,6 +255,8 @@ def _operand(
         )
     assert world is not None
     p = values[9:]
+    if kind == "prism":
+        return CsgOperand(_word(b, 16), entity_id, _prism(world, p, span, b[48:]))
     height = p[0] if kind == "box" else p[1]
     if height < 0:
         _fail(
@@ -286,6 +290,66 @@ def _operand(
         b[48:],
     )
     return CsgOperand(_word(b, 16), entity_id, primitive)
+
+
+def _prism(
+    world: tuple[tuple[float, ...], ...],
+    p: tuple[float, ...],
+    span: ByteRange,
+    raw: bytes,
+) -> NativePrimitive:
+    # Signed height along the frame Z axis, then six XY vertices. A negative
+    # height moves the base instead of reversing an axis, so the frame stays
+    # rigid and the saved profile is used unchanged.
+    signed = p[0]
+    points = tuple((p[i], p[i + 1]) for i in range(1, 13, 2))
+    edges = [
+        (b[0] - a[0], b[1] - a[1])
+        for a, b in zip(points, points[1:] + points[:1], strict=True)
+    ]
+    turns = [
+        math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1])
+        for u, v in zip(edges, edges[1:] + edges[:1], strict=True)
+    ]
+    if signed == 0 or any(math.hypot(*edge) == 0 for edge in edges):
+        _fail(
+            "csg.operand_dimensions",
+            "Invalid component dimensions",
+            span.start + 120,
+            "invalid",
+        )
+    # One strictly convex turn around the profile, in either direction.
+    if not (
+        (all(t > 0 for t in turns) or all(t < 0 for t in turns))
+        and abs(abs(sum(turns)) - math.tau) < 1e-9
+    ):
+        _fail(
+            "csg.operand_layout",
+            "Only convex six-vertex prism profiles are qualified",
+            span.start + 128,
+        )
+    if signed < 0:
+        world = tuple((*row[:3], row[3] + signed * row[2]) for row in world[:3]) + (
+            world[3],
+        )
+        if not all(math.isfinite(row[3]) for row in world):
+            _fail(
+                "csg.operand_frame",
+                "Component global frame overflowed",
+                span.start + 48,
+                "invalid",
+            )
+    return NativePrimitive(
+        "polygon_extrusion",
+        world,
+        abs(signed),
+        None,
+        None,
+        None,
+        ByteRange(span.start + 48, span.end),
+        raw,
+        profile_points=points,
+    )
 
 
 def _read_csg(doc: Document, parts: PartIndex, limits: CsgLimits) -> CsgIndex:

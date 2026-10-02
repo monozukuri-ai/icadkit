@@ -1,6 +1,6 @@
 # Python API and CLI
 
-icadkit 0.3.0 provides header inspection, owner-based resource indexing, lazy
+icadkit 0.3.5 provides header inspection, owner-based resource indexing, lazy
 extraction and resource-level raw geometry and B-Rep. For supported platforms
 and model boundaries, see [supported capabilities](support.md).
 
@@ -28,27 +28,27 @@ frames and selected stored attributes. Its scope statuses are independent of
 the resource geometry API described below. Saved entities expose
 `NativeEntity`, `NativeAppearance` and `NativePrimitive`; see
 [native parameter and appearance access](native.md).
-The current source adds [saved 3D parameter tables](parameters.md) through
+Version 0.3.5 adds [saved 3D parameter tables](parameters.md) through
 `Document.read_parameters()`, returning `ParameterIndex`, `SavedParameter`,
 `ParameterCondition` and `ParameterTable`, with `ParameterLimits` for bounded
 allocation. These saved formulas and values are independent of primitive geometry.
-The current source adds [views and saved 2D entities](drawing.md):
+It adds [views and saved 2D entities](drawing.md):
 `Document.read_views()` returns `ViewIndex`, `View` and `ViewEntry`, bounded by
 `ViewLimits`; `Document.read_drawing()` returns `DrawingIndex`, `DrawingEntity`,
 `DrawingPrimitive` and `DrawingText`, with `DrawingLimits`. The `views` and
 `drawing` CLI commands expose classification, scoped status and source ranges.
 These APIs do not combine 2D geometry with the native 3D part API.
-The current source also adds [explicit assembly resolution](references.md):
+It also adds [explicit assembly resolution](references.md):
 `read_assembly()` / `Document.read_assembly()`, `AssemblyLimits`, `ReferenceRequest`,
 `ReferenceResolver`, `AssemblyReference`, `AssemblyDocument`, `AssemblyOccurrence`,
 `AssemblyEntity` and `AssemblyIndex`. `read_parts()` retains its single-file
 contract. `icadkit assembly --reference-root` reports resolution; `icadkit view
 --reference-root` and `icadkit.viewer.write_assembly_viewer()` display qualified
-placed geometry. These changes are unreleased.
-The current source adds the [trailing container](trailer.md):
+placed geometry.
+It adds the [trailing container](trailer.md):
 `Document.read_trailer()` and `Document.read_trailer_block()` return
-`TrailerIndex`, `TrailerBlock`, `TrailerTable` and `TrailerBlockData`, bounded by
-`TrailerLimits`. `Document.resource_associations` lists saved
+`TrailerIndex`, `TrailerBlock`, `TrailerTable` and `TrailerBlockData` with its
+`TrailerFace` and `TrailerEdge` entries, bounded by `TrailerLimits`. `Document.resource_associations` lists saved
 `ResourceAssociation` records. `NativePrimitive` gains the `profile_extrusion`
 and `revolution` kinds with `ProfileSegment`; see [native access](native.md).
 The optional `icadkit.preview.write_preview()` and `icadkit preview` command

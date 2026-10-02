@@ -1,6 +1,6 @@
 # Saved final bodies
 
-The current source supports qualified V7L6/V7L7 and V8L1/V8L2/V8L3 display paths using saved final
+Version 0.3.5 supports qualified V7L6/V7L7 and V8L1/V8L2/V8L3 display paths using saved final
 B-Rep solids. This displays the saved result without replaying feature history.
 It is separate from `--csg` and does not claim support for unknown CSG operations.
 
@@ -128,10 +128,10 @@ TORUS (54): qualified trimmed-torus and swept-arc solids no longer require a
 catalog. Other uncompiled types retain a diagnostic when no catalog is supplied.
 Catalogs are not bundled.
 
-The unreleased source uses `parasolid-core 0.3.4`, which also supplies reviewed
-B-Rep mappings for [eighteen further schema keys](support.md#schemas). This
+Version 0.3.5 uses `parasolid-core 0.3.5`, which also supplies reviewed
+B-Rep mappings for [twenty-six further schema keys](support.md#schemas). This
 removes their catalog requirement within the qualified subsets. SPUN_SURF
-remains unsupported. Resource parsing does not establish a saved-body binding or extend
+remains unsupported, and offset surfaces are read but not converted. Resource parsing does not establish a saved-body binding or extend
 the converter's supported surfaces and topology.
 
 ## Saved mirrors
@@ -196,11 +196,13 @@ bind and 2,670 bodies now bind to a different resource. For every one of 6,059
 evaluated bodies the saved [per-entity box](trailer.md) contains the solid in
 its local frame, and it is tight for 6,040 of them.
 
-Of 29,703 distinct bound resources in the sample, 26,925 convert to valid
+Of 29,703 distinct bound resources in the sample, 27,093 convert to valid
 solids. An explicit schema catalog is needed only where no built-in profile
-applies: for 596 of these resources, compared with 27,796 under core 0.3.3,
-with identical results. The others keep their diagnostics: unsupported curve or
-surface kinds, kernel validation failures, null source parameters and SPUN_SURF
+applies: for six of these resources, compared with 27,796 under core 0.3.3.
+Results agree with the catalog path, except that 253 resources whose line trims
+store unset parameters are now mapped; 168 of them convert. The others keep
+their diagnostics: unsupported curve or surface kinds, kernel validation
+failures, an intersection limit kind the mapper does not accept and SPUN_SURF
 surfaces.
 
 Saved SDK observations cover 1,789 evaluated bodies from V7L2–V7L7 and

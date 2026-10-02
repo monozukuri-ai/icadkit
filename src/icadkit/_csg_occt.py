@@ -29,6 +29,7 @@ def _runtime() -> dict[str, Any]:
         name: import_module("OCP." + name)
         for name in (
             "gp",
+            "BRepBuilderAPI",
             "BRepPrimAPI",
             "BRepAlgoAPI",
             "BRepCheck",
@@ -120,6 +121,25 @@ def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
         gp.gp_Dir(*(m[i][2] for i in range(3))),
         gp.gp_Dir(*(m[i][0] for i in range(3))),
     )
+    if p.kind == "polygon_extrusion":
+        if p.profile_points is None or len(p.profile_points) != 6:
+            _fail("csg.operand_dimensions", "Missing prism profile", category="invalid")
+        polygon = api["BRepBuilderAPI"].BRepBuilderAPI_MakePolygon()
+        for x, y in p.profile_points:
+            point = [m[i][0] * x + m[i][1] * y + m[i][3] for i in range(3)]
+            if not all(math.isfinite(v) for v in point):
+                _fail(
+                    "csg.operand_frame",
+                    "Operand position overflowed",
+                    category="invalid",
+                )
+            polygon.Add(gp.gp_Pnt(*point))
+        polygon.Close()
+        face = api["BRepBuilderAPI"].BRepBuilderAPI_MakeFace(polygon.Wire(), True)
+        if not face.IsDone():
+            _fail("csg.operand_dimensions", "Invalid prism profile", category="invalid")
+        sweep = gp.gp_Vec(*(m[i][2] * p.height for i in range(3)))
+        return api["BRepPrimAPI"].BRepPrimAPI_MakePrism(face.Face(), sweep).Shape()
     if p.kind == "box":
         dimensions = p.box_dimensions
         if dimensions is None or not all(

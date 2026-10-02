@@ -1,6 +1,6 @@
 # Views and saved 2D entities
 
-The unreleased source adds `Document.read_views()` and `Document.read_drawing()`.
+Version 0.3.5 adds `Document.read_views()` and `Document.read_drawing()`.
 Both read originals directly, including registered part files. No iCAD process,
 resave, optional geometry package or schema catalog is needed.
 

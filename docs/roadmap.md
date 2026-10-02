@@ -1,6 +1,6 @@
 # Release scope and follow-up work
 
-## Current source: version coverage
+## Version 0.3.5: version coverage
 
 Qualified V8L1 standard-part templates and V8L3 resaves now expose root-owned
 entity inventories and [saved parameter tables](parameters.md). Parameter
@@ -15,14 +15,15 @@ saved roots, verified against reopened SDK observations. Original V8L1 templates
 have a separately guarded source-ID binding. Geometry conversion remains bounded;
 a bound resource can still have unsupported curves/surfaces. P3 and P4 below
 extend old inventories and internal mirrors. P5 adds explicit external resolution.
-Actual V8L4 qualification remains separate work. This source change is not a release or remote CI result.
+Actual V8L4 qualification remains separate work.
 
-## Trailing container and saved associations (unreleased)
+## Trailing container and saved associations (0.3.5)
 
 The [trailing container](trailer.md) after the indexed records is framed in both
 byte orders. It stores one compressed block per saved body under the entity's
-identifier; the qualified header gives local bounds. Its face/edge tables, the
-older block revisions and the named table stay opaque and are the next step.
+identifier; the qualified header gives local bounds, and the face and edge
+tables give the identity and adjacency of saved faces and edges. Their surface
+and curve parameters, the older block revisions and the named table stay opaque.
 
 V8 files store an association record per entity. [Saved bodies](saved-bodies.md)
 now bind through it; the marker word used before is not a resource reference.
@@ -34,11 +35,11 @@ intersection curves and cone apexes.
 [Native access](native.md) adds signed cylinder heights, extrusions with
 straight/arc profiles and revolved profiles. Multi-fragment attribute records
 are retained as opaque attributes instead of geometry entities. Hexagonal prism
-records were only observed as operands of saved boolean bodies and remain
-opaque. The `parasolid-core 0.3.4` dependency adds exact profiles for thirteen
+records were only observed as operands of saved boolean bodies; the CSG reader
+decodes them, but the owners that contain them are outside its scope. The `parasolid-core 0.3.5` dependency adds exact profiles for twenty-one
 further schema keys; other keys and unreviewed base types still need a catalog.
 
-## Version-support P6: old originals and 2D inventory (unreleased)
+## Version-support P6: old originals and 2D inventory (0.3.5)
 
 [View and drawing access](drawing.md) separates document/registered-part
 classification, bounded view framing and saved 2D geometry. Both byte orders have
@@ -57,7 +58,7 @@ Local SDK checks cover 108 observations and 1,759 decoded 2D elements, including
 qualifies bounded records, not every file saved by each historical iCAD version.
 V8L4 remains unsupported until real V8L4 inputs and independent evidence exist.
 
-## Version-support P5: explicit external assemblies (unreleased)
+## Version-support P5: explicit external assemblies (0.3.5)
 
 [Assembly resolution](references.md) uses explicit roots or a caller resolver,
 preserving saved names, actual paths, hashes and occurrence ownership separately.
@@ -75,7 +76,7 @@ extrusions in the older corpus remain opaque; resolution does not add geometry
 families. V7L2–V7L5, V8L4, general feature history and assembly GLB remain outside
 this scope. Validation is local Linux/Wine evidence, not remote platform CI.
 
-## Version-support P4: internal mirrors (unreleased)
+## Version-support P4: internal mirrors (0.3.5)
 
 V7L6/V7L7 revision 2 and V8L1/V8L2/V8L3 revision 3 now distinguish saved part
 frames, absolute mirror parity and signed relative orientation. Native
@@ -90,7 +91,7 @@ V8 bodies from an entity mirror within one owner remain unsupported because
 multiple distinct resource keys do not establish a reliable association.
 V7L2–V7L5 mirrors and mirrored CSG history remain unsupported; external mirror
 resolution is covered separately by P5. Earlier release/stage descriptions below retain their
-historical boundaries; P4 is a local source change, not a published release.
+historical boundaries.
 
 ## v0.3.0 scope
 
@@ -307,7 +308,7 @@ ICD writing, and unrestricted whole-model STEP/mesh export are later work.
 Broader resource-to-part mapping and assembly GLB export remain follow-up work.
 Resource-local previews retain explicit coordinate and completeness limits.
 
-## Version-support P3: old little-endian V7 inputs (unreleased)
+## Version-support P3: old little-endian V7 inputs (0.3.5)
 
 V7L2–V7L6 now have individually selected part profiles. Original installed
 files establish the view, tag, record, metadata and terminal boundaries;

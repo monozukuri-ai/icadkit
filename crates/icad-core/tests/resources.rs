@@ -187,13 +187,21 @@ fn words(values: &[u32]) -> Vec<u8> {
 
 #[test]
 fn trailer_framing_is_little_endian_in_either_byte_order() -> Result<(), InspectError> {
-    // Hand-authored block: length, kind, six bounds, zero, header size, filler.
-    let mut payload = words(&[72, 0x94]);
+    // Hand-authored block: length, kind, six bounds, zero, the offsets and
+    // counts of one 36-byte face and one 24-byte edge, then their items.
+    let mut payload = words(&[120, 0x94]);
     for value in [-2.0f32, -3.0, 0.0, 5.0, 7.0, 11.0] {
         payload.extend_from_slice(&value.to_le_bytes());
     }
-    payload.extend_from_slice(&words(&[0, 52]));
-    payload.resize(72, 0x5a);
+    payload.extend_from_slice(&words(&[0, 52, 88, 1 | 1 << 16, 112]));
+    payload.extend_from_slice(&[0x10, 0, 0, 0]);
+    payload.extend_from_slice(&words(&[41, 0x0101_0000, 112, 1]));
+    for value in [-1.0f32, -2.0, 3.0, 4.0] {
+        payload.extend_from_slice(&value.to_le_bytes());
+    }
+    payload.extend_from_slice(&[0x10, 0, 0, 0]);
+    payload.extend_from_slice(&words(&[57, 1, 0, 0x0200_0101, 116]));
+    payload.resize(120, 0x5a);
     let mut encoder = flate2::Compress::new(flate2::Compression::default(), true);
     let mut encoded = Vec::with_capacity(256);
     let status = encoder.compress_vec(&payload, &mut encoded, flate2::FlushCompress::Finish);
@@ -203,11 +211,11 @@ fn trailer_framing_is_little_endian_in_either_byte_order() -> Result<(), Inspect
     let block = framed(
         0x23,
         8,
-        &words(&[0x8000_0031, encoded.len() as u32, 72, 0]),
+        &words(&[0x8000_0031, encoded.len() as u32, 120, 0]),
         &body,
     );
     let mut header = b"3DGLOBAL".to_vec();
-    header.extend_from_slice(&words(&[1, 72]));
+    header.extend_from_slice(&words(&[1, 120]));
     let view = framed(0x22, 0, &header, &block);
     let set = framed(0x21, 8, &words(&[1, 0]), &view);
     let tail = framed(0x10, 0, &[], &framed(0x20, 0, &[], &set));
@@ -228,6 +236,13 @@ fn trailer_framing_is_little_endian_in_either_byte_order() -> Result<(), Inspect
         assert_eq!(block.payload, payload);
         assert_eq!(block.bounds, Some([-2.0, -3.0, 0.0, 5.0, 7.0, 11.0]));
         assert_eq!(block.status, Status::Partial);
+        assert_eq!((block.faces.len(), block.edges.len()), (1, 1));
+        let (face, edge) = (&block.faces[0], &block.edges[0]);
+        assert_eq!((face.source_node_id, face.surface_code), (41, 1));
+        assert_eq!(face.parameter_bounds, Some([-1.0, -2.0, 3.0, 4.0]));
+        assert_eq!((face.entry_offset, face.item_offset), (52, 112));
+        assert_eq!((edge.source_node_id, edge.faces), (57, [1, 0]));
+        assert_eq!((edge.entry_offset, edge.item_offset), (88, 116));
         // An offset that is not an indexed block start is never decoded.
         assert!(matches!(
             doc.read_trailer_block(start, TrailerLimits::default()),

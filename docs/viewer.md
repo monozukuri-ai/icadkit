@@ -22,7 +22,7 @@ reverse winding to preserve outward normals; saved final bodies preserve their
 oriented topology. Part properties show the saved mirror flag and signed
 occurrence orientation separately from the SDK-compatible coordinate frame.
 Selection and visibility remain attached to each saved owning occurrence.
-The unreleased [assembly mode](references.md) also composes external mirrors
+The [assembly mode](references.md) added in 0.3.5 also composes external mirrors
 when `--reference-root DIR` is supplied. Missing references remain selectable
 occurrences with diagnostics and no invented geometry.
 
@@ -105,7 +105,7 @@ Use the separate [resource preview](preview.md) to view a selected supported
 embedded resource. Unknown hierarchy links are retained; cycle-safe traversal
 lists each part once. This does not repair or certify the hierarchy.
 
-The current source also displays negative-height cylinders, extrusions with
+Version 0.3.5 also displays negative-height cylinders, extrusions with
 straight and circular profile segments, and revolved profiles. Profile arcs and
 revolutions use the cylinder segment control: a full turn has that many chords,
 shorter arcs proportionally fewer. Profile caps are triangulated without adding
@@ -140,7 +140,7 @@ accepts `part_limits=PartLimits(...)`, `limits=ViewerLimits(...)` and
 `cylinder_segments=64`. Optional `csg=True` and `csg_limits=CsgLimits(...)`
 enable bounded V7L7 boolean evaluation; see [CSG scope and limits](csg.md). Input/index limits also remain available on `icadkit.read`.
 The CLI exposes the read/part limits plus `--max-triangles` (default 1,000,000) and
-`--max-output-bytes` (default 128 MiB). The current source adds `--max-bodies N`
+`--max-output-bytes` (default 128 MiB). Version 0.3.5 adds `--max-bodies N`
 for `--saved-brep` and `--csg`, replacing the default body count of
 `SavedBodyLimits` and `CsgLimits`; it is rejected without one of those modes. Limits do not cap total process/browser
 memory or CPU time. Files are prepared and size-checked before the destination

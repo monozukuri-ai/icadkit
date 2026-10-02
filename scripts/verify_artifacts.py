@@ -265,16 +265,16 @@ def sdist(path):
         lock = tomllib.loads(read("Cargo.lock").decode())
         dep = next(p for p in lock["package"] if p["name"] == "parasolid-core")
         require(
-            dep["version"] == "0.3.4" and dep["source"].startswith("registry+"),
-            "backend must be registry 0.3.4",
+            dep["version"] == "0.3.5" and dep["source"].startswith("registry+"),
+            "backend must be registry 0.3.5",
         )
         manifest = tomllib.loads(read("Cargo.toml").decode())
         require(
-            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.3.4",
+            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.3.5",
             "backend manifest pin changed",
         )
         require(
-            b'PARASOLID_CORE_VERSION: &str = "0.3.4"'
+            b'PARASOLID_CORE_VERSION: &str = "0.3.5"'
             in read("crates/icad-core/src/lib.rs"),
             "reported backend version changed",
         )

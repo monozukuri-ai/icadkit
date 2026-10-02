@@ -65,9 +65,35 @@ pub struct TrailerIndex {
     pub status: Status,
 }
 
+/// One 36-byte face entry of a block. A saved face that is closed in a
+/// parameter direction is stored as several entries with one identifier.
+/// `parameter_bounds` is `(u_min, v_min, u_max, v_max)` on the face's surface;
+/// it is absent when the stored values are not finite and ordered.
+#[derive(Debug, Clone)]
+pub struct TrailerFace {
+    pub source_node_id: u32,
+    pub surface_code: u8,
+    pub parameter_bounds: Option<[f32; 4]>,
+    pub entry_offset: u32,
+    pub item_offset: u32,
+}
+
+/// One 24-byte edge entry of a block. `faces` are one-based face entry
+/// numbers, zero for none. The identifier is that of a saved edge, or of the
+/// saved face for an edge that only separates two entries of that face.
+#[derive(Debug, Clone)]
+pub struct TrailerEdge {
+    pub source_node_id: u32,
+    pub faces: [u16; 2],
+    pub entry_offset: u32,
+    pub item_offset: u32,
+}
+
 /// A decoded block. `bounds` are stored single-precision values in the owning
 /// entity's saved local frame; they are exposed only for the qualified layout.
 /// The box encloses the saved body but is not always the smallest such box.
+/// The face and edge tables give identity and adjacency; their geometry items
+/// and link fields stay in `payload`.
 #[derive(Debug, Clone)]
 pub struct TrailerBlockData {
     pub source_id: u32,
@@ -75,6 +101,8 @@ pub struct TrailerBlockData {
     pub payload_sha256: String,
     pub raw_kind: Option<u32>,
     pub bounds: Option<[f32; 6]>,
+    pub faces: Vec<TrailerFace>,
+    pub edges: Vec<TrailerEdge>,
     pub status: Status,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -90,6 +118,59 @@ struct Frame {
 
 fn word(data: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]])
+}
+
+/// Two fixed-size tables follow the 52-byte header: 36-byte faces, then
+/// 24-byte edges. Their geometry items, tags and link fields stay uninterpreted.
+fn tables(payload: &[u8]) -> Option<(Vec<TrailerFace>, Vec<TrailerEdge>)> {
+    let face_count = (word(payload, 44) & 0xffff) as usize;
+    let edge_count = (word(payload, 44) >> 16) as usize;
+    let edges_at = 52 + 36 * face_count;
+    let items_at = edges_at + 24 * edge_count;
+    if word(payload, 40) as usize != edges_at
+        || word(payload, 48) as usize != items_at
+        || items_at > payload.len()
+    {
+        return None;
+    }
+    let in_items = |at: u32| (items_at..=payload.len()).contains(&(at as usize));
+    let mut faces = Vec::with_capacity(face_count);
+    for at in (52..edges_at).step_by(36) {
+        let mut values = [0f32; 4];
+        for (i, value) in values.iter_mut().enumerate() {
+            *value = f32::from_bits(word(payload, at + 20 + 4 * i));
+        }
+        let ordered = values.iter().all(|v| v.is_finite())
+            && values[0] <= values[2]
+            && values[1] <= values[3];
+        let item_offset = word(payload, at + 12);
+        if !in_items(item_offset) {
+            return None;
+        }
+        faces.push(TrailerFace {
+            source_node_id: word(payload, at + 4),
+            surface_code: payload[at + 10],
+            parameter_bounds: ordered.then_some(values),
+            entry_offset: at as u32,
+            item_offset,
+        });
+    }
+    let mut edges = Vec::with_capacity(edge_count);
+    for at in (edges_at..items_at).step_by(24) {
+        let pair = word(payload, at + 8);
+        let adjacent = [(pair & 0xffff) as u16, (pair >> 16) as u16];
+        let item_offset = word(payload, at + 20);
+        if !in_items(item_offset) || adjacent.iter().any(|f| *f as usize > face_count) {
+            return None;
+        }
+        edges.push(TrailerEdge {
+            source_node_id: word(payload, at + 4),
+            faces: adjacent,
+            entry_offset: at as u32,
+            item_offset,
+        });
+    }
+    Some((faces, edges))
 }
 
 /// Read one frame that must end at or before `limit`.
@@ -551,6 +632,8 @@ impl Document {
             payload_sha256: sha256(&payload),
             raw_kind: None,
             bounds: None,
+            faces: Vec::new(),
+            edges: Vec::new(),
             status: Status::Unsupported,
             diagnostics: Vec::new(),
             payload,
@@ -602,7 +685,18 @@ impl Document {
             return Ok(result);
         }
         result.bounds = Some(bounds);
-        // Face and edge tables after the header remain uninterpreted.
+        let Some((faces, edges)) = tables(payload) else {
+            result.bounds = None;
+            result.status = Status::Invalid;
+            result.diagnostics.push(issue(
+                ErrorKind::Invalid,
+                "trailer.block_tables",
+                "Face or edge table disagrees with its counts and offsets",
+            ));
+            return Ok(result);
+        };
+        result.faces = faces;
+        result.edges = edges;
         result.status = Status::Partial;
         Ok(result)
     }

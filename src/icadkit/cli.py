@@ -126,8 +126,10 @@ def _trailer_command(args: argparse.Namespace) -> int:
             for block in index.blocks:
                 data = document.read_trailer_block(block.block_id, limits=policy)
                 row = asdict(data)
-                # Decoded bytes stay available through the Python API.
+                # Decoded bytes and entries stay available through the Python API.
                 row["payload_bytes"] = len(row.pop("payload"))
+                row["face_count"] = len(row.pop("faces"))
+                row["edge_count"] = len(row.pop("edges"))
                 decoded.append(row)
                 if data.status == "invalid":
                     code = 1

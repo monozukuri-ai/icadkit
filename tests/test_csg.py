@@ -32,6 +32,37 @@ def component(sid, *, linked=False, kind="box", origin=(0, 0, 0), parameters=Non
     return bytes(b)
 
 
+def prism(
+    sid, *, linked=False, origin=(0, 0, 0), height=5.0, points=None, flags=0x101E1
+):
+    # Six XY vertices after a signed height. The default is a regular hexagon
+    # of circumradius 10: area 150 * sqrt(3), perimeter 60.
+    if points is None:
+        points = [
+            (10 * math.cos(k * math.pi / 3), 10 * math.sin(k * math.pi / 3))
+            for k in range(6)
+        ]
+    b = bytearray(224)
+    struct.pack_into("<7I", b, 0, 224, 1, 0, 70 << 24 | flags, sid, 0, 0x584400C8)
+    struct.pack_into("<I", b, 32, RESULT if linked else 0)
+    struct.pack_into("<I", b, 40, 0x180)
+    struct.pack_into(
+        "<22d",
+        b,
+        48,
+        *origin,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        height,
+        *(v for q in points for v in q),
+    )
+    return bytes(b)
+
+
 def program(tokens, *, hidden=False, attributes=False):
     pos = 376 if attributes else 160
     b = bytearray(pos + 16 + 4 * len(tokens))
@@ -341,6 +372,90 @@ def test_through_hole_and_root_frame_applied_once():
             for a, b in zip(points, points[1:] + points[:1], strict=True)
         ]
         assert not (min(signs) > 1e-8 or max(signs) < -1e-8)
+
+
+@pytest.mark.parametrize("height", [5.0, -5.0])
+def test_prism_operand_keeps_profile_and_moves_base_for_negative_height(height):
+    b = body(operands=[prism(LEFT, linked=True, height=height), component(RIGHT)])
+    assert b.status == "complete" and not b.diagnostics
+    p = b.operands[0].primitive
+    assert p.kind == "polygon_extrusion" and p.height == 5
+    assert len(p.profile_points) == 6
+    assert p.profile_points[0] == (10, 0)
+    assert p.profile_points[3] == pytest.approx((-10, 0))
+    # The root sits at the origin; only the base moves, and no axis is reversed.
+    assert [row[3] for row in p.world_transform[:3]] == [0, 0, min(height, 0)]
+    assert [row[:3] for row in p.world_transform[:3]] == [
+        (1, 0, 0),
+        (0, 1, 0),
+        (0, 0, 1),
+    ]
+    assert p.raw_bytes == prism(LEFT, height=height)[48:]
+    assert p.x_bounds is None and p.radius is None
+
+
+@pytest.mark.parametrize(
+    "change,status,code",
+    [
+        ({"height": 0.0}, "invalid", "csg.operand_dimensions"),
+        ({"height": math.nan}, "invalid", "csg.operand_frame"),
+        (
+            {"points": [(10, 0), (10, 0), (-5, 9), (-10, 0), (-5, -9), (5, -9)]},
+            "invalid",
+            "csg.operand_dimensions",
+        ),
+        # A notch, a twice-wound triangle and a straight corner are not convex.
+        (
+            {"points": [(10, 0), (5, 9), (0, 2), (-10, 0), (-5, -9), (5, -9)]},
+            "unsupported",
+            "csg.operand_layout",
+        ),
+        (
+            {"points": [(10, 0), (-5, 9), (-5, -9), (10, 0.5), (-5, 9.5), (-5.5, -9)]},
+            "unsupported",
+            "csg.operand_layout",
+        ),
+        (
+            {"points": [(10, 0), (10, 5), (10, 9), (-10, 9), (-10, -9), (5, -9)]},
+            "unsupported",
+            "csg.operand_layout",
+        ),
+        ({"flags": 0x111E1}, "unsupported", "csg.operand_layout"),
+        ({"flags": 0x100E1}, "unsupported", "csg.operand_layout"),
+    ],
+)
+def test_prism_operand_guards(change, status, code):
+    b = body(operands=[prism(LEFT, linked=True, **change), component(RIGHT)])
+    assert b.status == status and not b.operands
+    assert b.diagnostics[0].code == code
+
+
+@pytest.mark.parametrize("height", [5.0, -5.0])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_prism_with_through_hole_has_independent_mass(height, reverse):
+    runtime()
+    points = [
+        (10 * math.cos(k * math.pi / 3), 10 * math.sin(k * math.pi / 3))
+        for k in range(6)
+    ]
+    operands = [
+        prism(
+            LEFT,
+            linked=True,
+            origin=(4, -3, 2),
+            height=height,
+            points=points[::-1] if reverse else points,
+        ),
+        component(RIGHT, kind="cylinder", origin=(4, -3, -20), parameters=(3, 40)),
+    ]
+    mesh = icadkit.evaluate_csg(body(operands=operands))
+    hexagon = 150 * math.sqrt(3)
+    assert mesh.volume_mm3 == pytest.approx(5 * (hexagon - 9 * math.pi))
+    assert mesh.area_mm2 == pytest.approx(
+        2 * (hexagon - 9 * math.pi) + 60 * 5 + 6 * math.pi * 5
+    )
+    assert mesh.centroid_mm == pytest.approx((4, -3, 2 + height / 2))
+    assert mesh.solid_count == 1
 
 
 def test_checkpoint_disjoint_empty_and_limits():

@@ -10,14 +10,14 @@ fields. It does not evaluate native B-Rep, CSG, tessellation or a complete scene
 
 The 0.3.0 [native viewer](viewer.md) can tessellate the supported
 box/cylinder/full-sphere/cone/torus parameters for an explicitly partial display with a part tree.
-The current source also decodes qualified V7L6/V7L7/V8L1/V8L2 standalone primitive
+Version 0.3.5 also decodes qualified V7L6/V7L7/V8L1/V8L2 standalone primitive
 owners and saved entity appearance. These profiles require a complete saved hierarchy/index and
 an entire internal owner's list of qualified primitive
 headers. An unknown or CSG record keeps the whole owner's list opaque; primitive
 operands are never drawn as a completed boolean result. Qualified internal
 mirrors are included; external owners and unsupported layouts remain unavailable.
 
-The current source also accepts negative heights in qualified nonmirrored boxes
+It also accepts negative heights in qualified nonmirrored boxes
 and in cylinders, and adds the bounded polygon extrusion, profile extrusion and
 revolution layouts described below.
 
@@ -82,7 +82,7 @@ axis of revolution. `radius` and `height` are `None`. Partial sweeps, horn/spind
 tori and unknown extents remain unsupported. These added fields are `None` for
 other primitive kinds. Boxes remain the only kind with non-null box bounds.
 
-The unreleased `polygon_extrusion` kind exposes six distinct XY vertices in
+The `polygon_extrusion` kind, added in 0.3.5, exposes six distinct XY vertices in
 `profile_points` and a positive `height`. Its qualified 368-byte record stores
 two identical closed straight profiles and a zero trailer. Concave and convex
 simple polygons are accepted in either winding. The viewer triangulates both
@@ -232,14 +232,15 @@ Incorrect unit scaling, repeated part transforms and transposed rotation are
 negative controls. CAD files, SDK binaries and vendor catalogs are not distributed;
 public tests use independently authored synthetic records and malformed inputs.
 
-For the unreleased cylinder sign, profile extrusion and revolution layouts,
+For the 0.3.5 cylinder sign, profile extrusion and revolution layouts,
 saved SDK observations match volume, area and centroid for 290 negative-height
 cylinders (30 of them mirrored), 83 profile extrusions (19 mirrored) and 133
 revolutions (58 mirrored). In a local sample all 6,638 extrusion records of this
 layout have a closed profile under the rule above; 987 standalone extrusions and
 217 standalone revolutions decode and tessellate with the expected volume.
-Records used as operands of a saved boolean body stay opaque, and hexagonal
-prism records occur only as such operands in the checked inputs.
+Records used as operands of a saved boolean body stay opaque in the part
+inventory. Hexagonal prism records occur only as such operands in the checked
+inputs; the [CSG reader](csg.md) decodes them as operands.
 
 The v0.3 additions have offline checks against saved/reopened SDK
 observations for ten cone/frustum/torus files, including oblique and dimension

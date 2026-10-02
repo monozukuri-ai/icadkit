@@ -1,84 +1,128 @@
 # Changelog
 
-## Unreleased
+## 0.3.5
 
-- Add `Document.read_trailer()`, `Document.read_trailer_block()` and the
+### Added
+
+- `read_views()` / `read_drawing()` with the `views` / `drawing` CLI commands:
+  direct old-format view/registered-part inventories and bounded big-endian
+  V6L1/V6L2/V7L1 internal part inventories. Saved 2D points, lines, circles and
+  arcs use view-local millimetres. UTF-16LE text content is exposed separately
+  from unsupported text layout. See [views and 2D entities](drawing.md) for
+  exact profiles and limits.
+- Explicit `read_assembly()` resolution and `assembly` / `view --reference-root`
+  CLI support for qualified V7L6/V7L7/V8L1/V8L2/V8L3 external assemblies,
+  including mirrored references. Separate document/occurrence identities,
+  dependency hashes, bounded per-call caches and explicit
+  missing/ambiguous/cycle/limit states preserve provenance. Single-file reads
+  keep their existing behavior. See [external references](references.md).
+- Internal mirror occurrence orientation in V7L6/V7L7 and V8L1/V8L2/V8L3.
+  SDK-compatible part frames remain separate from signed orientation; stored
+  raw coordinates and parameters are preserved. Qualified native mirrors and
+  saved final B-Reps display without applying reflection twice. Reflected
+  box/cone meshes preserve outward triangle winding.
+- `read_parameters()` for [saved 3D parameter tables](parameters.md) in
+  qualified V8L1 standard-part templates, their V8L3 resaves and V7L7/V8L3
+  internal placements. Root-owned template entities appear in the part
+  inventory. Expressions are retained, not executed.
+- `Document.read_trailer()`, `Document.read_trailer_block()` and the
   `icadkit trailer` command for the container after the indexed records. Its
   framing is the same in both byte orders. Each compressed block is stored under
   a saved entity identifier; revisions 7 and 8 expose a stored single-precision
   enclosing box in the entity's local frame, which is not always the smallest
-  one. Face/edge tables, older revisions and the named table remain opaque. See
+  one, and their face and edge tables as `TrailerBlockData.faces` and `.edges`:
+  saved node identifiers, the stored surface type code, a parameter-space box
+  per face entry and the two face entries of each edge. Surface and curve
+  parameters, older revisions and the named table remain opaque. See
   [trailing container](trailer.md).
-- Expose V8 association records as `Document.resource_associations` and bind V8
-  saved final bodies through them. The word at marker `+32` no longer selects a
-  resource: it is not a resource reference. This removes
-  `saved.owner_resource_keys`, binds bodies previously left with
-  `saved.binding`, and corrects bodies that were bound to another body's
-  resource. `SavedBody.binding_kind` is now `resource_association` for V8 and
+- V8 association records as `Document.resource_associations`.
+- Qualified six-vertex polygon extrusions, including concave profiles, negative
+  heights and negative-height mirrored records, decoded and displayed. Local
+  SDK comparisons cover 21 mirrored records. Other polygon layouts, holes and
+  tapers remain unsupported.
+- Standalone extrusions with straight and circular profile segments
+  (`profile_extrusion`, `NativePrimitive.profile`) and revolved profiles
+  (`revolution`, `NativePrimitive.revolution_profile`), displayed in the native
+  viewer. See [native primitives](native.md).
+- Negative heights in qualified cylinders, with or without the mirror flag:
+  the solid extends along the frame's negative Z. `height` stays positive and
+  the exposed Z column is reversed once. Qualified nonmirrored boxes accept
+  negative heights too, retaining the source sign and reversing the display
+  frame's Z axis once.
+- Saved bodies with elliptical edges, source-identified intersection curves and
+  cone apexes convert. Other curve kinds, vertex loops away from a cone apex
+  and non-solid bodies remain unsupported. See [saved bodies](saved-bodies.md).
+- Six-vertex convex prism operands, with a signed height, in the bounded CSG
+  reader. In the checked inputs these records occur only in owners outside the
+  CSG scope, so no additional body is evaluated yet.
+- `icadkit view --max-bodies` for `--saved-brep` and `--csg`.
+
+### Changed
+
+- V8 saved final bodies bind through the saved association records. The word
+  at marker `+32` no longer selects a resource: it is not a resource reference.
+  This binds bodies previously left with `saved.binding` and corrects bodies
+  that were bound to another body's resource. `SavedBody.binding_kind` is now
+  `resource_association` for V8, replacing `saved_resource_key`, and
   `PartProfile.saved_body_layout` is `v8_resource_association`. A frame conflict
   yields `saved.association_frame`.
-- Bind V7L2–V7L5 saved final bodies by native source ID
+- V7L2–V7L5 saved final bodies bind by native source ID
   (`saved_body_layout="v7_legacy_source_id"`), as V7L6 already did. Their entity
   geometry, appearance and mirrors keep the existing limits.
-- Convert saved bodies with elliptical edges, source-identified intersection
-  curves and cone apexes. Other curve kinds, vertex loops away from a cone apex
-  and non-solid bodies remain unsupported. See [saved bodies](saved-bodies.md).
-- Accept negative heights in qualified cylinders, with or without the mirror
-  flag: the solid extends along the frame's negative Z. `height` stays positive
-  and the exposed Z column is reversed once.
-- Decode standalone extrusions with straight and circular profile segments
-  (`profile_extrusion`, `NativePrimitive.profile`) and revolved profiles
-  (`revolution`, `NativePrimitive.revolution_profile`), and display them in the
-  native viewer. See [native primitives](native.md).
-- Retain attribute records with several fragments, or with the saved
-  visibility bit, as `Part.opaque_attributes` instead of geometry entities.
-  Text fragments inside them are not promoted to extended text.
-- Add `icadkit view --max-bodies` for `--saved-brep` and `--csg`.
-
-- Accept negative heights in qualified nonmirrored boxes, retaining the source
-  sign and reversing the display frame's Z axis once.
-- Traverse repeated 264-byte view-control records under a qualified
-  `40000000` metadata group in either byte order. Unknown framing still stops.
-- Traverse the observed big-endian V5L1/V5L3 `50000001` groups of 112/192-byte
-  records while keeping their links and names opaque. Ten more real files have
-  complete view framing; part/assembly semantics remain separately qualified.
-- Bind observed type-85 final-result variants `03` and `04` with the existing
+- Observed type-85 final-result variants `03` and `04` bind with the existing
   unique-ID/resource/frame checks. Ambiguous V8 associations remain unsupported.
-  Also accept the observed `+28=0` state, adding 2,305 bound records in the local
-  installed corpus with the same guards.
-- Update the registry dependency to `parasolid-core 0.3.4` and use its
-  eighteen further exact iCAD profiles for catalog-free raw parsing and source
-  B-Rep mapping: thirteen embedded keys and five standard keys for schema
-  revisions 20000, 28002, 28101, 32001 and 33103. Remove the temporary icadkit
-  raw-only profile and B-Rep gate. In a local sample of 33,943 resources,
-  33,078 now parse without a catalog and agree with the catalog path; the
-  others keep their diagnostics. Profile IDs and hashes come from the backend;
-  see [supported schemas](support.md#schemas).
-- Decode and display qualified six-vertex polygon extrusions, including concave
-  profiles, negative heights and negative-height mirrored records. Local SDK
-  comparisons cover 21 mirrored records. Other polygon layouts, holes, curved
-  segments and tapers remain unsupported.
+  The observed `+28=0` state is accepted with the same guards, adding 2,305
+  bound records in the local installed corpus.
+- The registry dependency is `parasolid-core 0.3.5`. Its twenty-six further
+  exact iCAD profiles give catalog-free raw parsing and source B-Rep mapping
+  for fifteen embedded keys and eleven standard keys. Offset surfaces are read
+  under the keys where they were observed, and a trimmed curve on a line with
+  unset parameters is mapped from its end points. In a local sample of 33,943
+  resources, 33,913 parse without a catalog and agree with the catalog path;
+  the others keep their diagnostics. Profile IDs and hashes come from the
+  backend; see [supported schemas](support.md#schemas).
+- Attribute records with several fragments, or with the saved visibility bit,
+  are retained as `Part.opaque_attributes` instead of geometry entities. Text
+  fragments inside them are not promoted to extended text.
+- View framing traverses repeated 264-byte view-control records under a
+  qualified `40000000` metadata group in either byte order. Unknown framing
+  still stops. The observed big-endian V5L1/V5L3 `50000001` groups of
+  112/192-byte records are traversed while keeping their links and names
+  opaque. Ten more real files have complete view framing; part/assembly
+  semantics remain separately qualified.
 
-- Version-support P6 adds direct old-format view/registered-part inventories,
-  bounded big-endian V6L1/V6L2/V7L1 internal part inventories, and separate
-  `read_views()` / `read_drawing()` APIs with `views` / `drawing` CLI commands.
-  Saved 2D points, lines, circles and arcs use view-local millimetres. UTF-16LE
-  text content is exposed separately from unsupported text layout. See
-  [views and 2D entities](drawing.md) for exact profiles and limits.
+### Upgrade from 0.3.0
 
-- Version-support P5 adds explicit `read_assembly()` resolution and
-  `assembly` / `view --reference-root` CLI support for qualified
-  V7L6/V7L7/V8L1/V8L2/V8L3 external assemblies, including mirrored references.
-  Separate document/occurrence identities, dependency hashes, bounded per-call
-  caches and explicit missing/ambiguous/cycle/limit states preserve provenance.
-  Single-file reads keep their existing behavior. See [external references](references.md).
-- Version-support P4 qualifies internal mirror occurrence orientation in
-  V7L6/V7L7 and V8L1/V8L2/V8L3. SDK-compatible part frames remain separate from
-  signed orientation; stored raw coordinates and parameters are preserved.
-- Qualified native mirrors and saved final B-Reps display without applying
-  reflection twice. Reflected box/cone meshes preserve outward triangle winding.
-- Mirrored CSG history remains unsupported. See the [source roadmap](roadmap.md)
-  for the preceding version-support stages and local validation scope.
+Existing APIs keep their signatures and no public name is removed. The package
+still has no mandatory Python runtime dependencies. The `preview` extra remains
+pinned to `parasolid-kit[occt]==0.2.0`; the compiled Rust reader uses
+`parasolid-core 0.3.5`.
+
+V8 saved bodies may bind to a different resource than before, or bind where
+they were rejected. Results that depended on the earlier marker-word rule
+should be read again. Their `binding_kind` is `resource_association` instead of
+`saved_resource_key`.
+
+`NativePrimitive.kind` now also includes `polygon_extrusion`,
+`profile_extrusion` and `revolution`. The new fields `profile_points`,
+`profile`, `revolution_profile` and `mirror_convention` are `None` where they do
+not apply. JSON consumers must allow additional fields while continuing to
+check each scope's status.
+
+The exact V34 built-in profile is now `icad-sch34101-13006-r3` and the embedded
+V30 profile `icad-sch30000-13006-r6`. Consumers pinning the old profile IDs or
+hashes must update their expectations; `icadkit.build_info()` lists the
+identifiers and `GeometryResult.schema` reports the selected hash. Nearby
+schema keys and unknown base types do not gain implicit support.
+
+### Scope
+
+Mirrored CSG history, complete assembly geometry, inherited attributes and
+complete drawing reconstruction remain unsupported. Offset surfaces are read
+from the source but not converted to solids. Trailer surface and curve
+parameters stay opaque. See the [support boundaries](support.md) and the
+[source roadmap](roadmap.md) for the version-support stages and their local
+validation scope.
 
 ## 0.3.0
 

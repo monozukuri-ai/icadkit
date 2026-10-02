@@ -45,6 +45,8 @@ from .models import (
 from .trailer import (
     TrailerBlock,
     TrailerBlockData,
+    TrailerEdge,
+    TrailerFace,
     TrailerIndex,
     TrailerLimits,
     TrailerTable,
@@ -60,6 +62,8 @@ __all__ = [
     "DrawingText",
     "TrailerBlock",
     "TrailerBlockData",
+    "TrailerEdge",
+    "TrailerFace",
     "TrailerIndex",
     "TrailerLimits",
     "TrailerTable",

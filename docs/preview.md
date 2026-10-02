@@ -8,7 +8,7 @@ The preview API, introduced in 0.2.0, renders one selected embedded Parasolid re
 write a GLB plus an offline browser viewer. Install the optional dependencies:
 
 ```sh
-python -m pip install 'icadkit[preview]==0.3.0'
+python -m pip install 'icadkit[preview]==0.3.5'
 icadkit resources model.icd --json
 icadkit preview model.icd --resource RESOURCE_ID --source-unit m --output preview
 ```
@@ -126,8 +126,8 @@ The preview extra pins `parasolid-kit[occt]==0.2.0`; its OCCT extra selects
 `cadquery-ocp-novtk` 7.9.3.1 through versions below 7.10.
 The locked OCCT 7.9.3.1.1 wheels require glibc 2.31+ on Linux x86_64 and
 macOS 11+ on ARM64; Windows x86_64 wheels are also used in CI. Preview CI uses
-standard CPython 3.12; the base reader is tested separately on 3.10–3.14. The icadkit reader still
-uses Rust `parasolid-core 0.3.0`. An explicit adapter maps icadkit B-Rep objects
+standard CPython 3.12; the base reader is tested separately on 3.10–3.14. The icadkit reader itself
+uses Rust `parasolid-core 0.3.5`. An explicit adapter maps icadkit B-Rep objects
 into the optional package's public types. It does not reparse the stream or
 substitute a schema key. A `parser_version` in the backend conversion report
 identifies that backend package, not the reader used on the ICD resource.

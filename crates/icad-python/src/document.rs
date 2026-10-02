@@ -196,6 +196,27 @@ impl DocumentHandle {
         result.set_item("payload_sha256", block.payload_sha256)?;
         result.set_item("raw_kind", block.raw_kind)?;
         result.set_item("bounds", block.bounds.map(|b| b.map(f64::from)))?;
+        let faces = PyList::empty(py);
+        for face in block.faces {
+            faces.append((
+                face.source_node_id,
+                face.surface_code,
+                face.parameter_bounds.map(|b| b.map(f64::from)),
+                face.entry_offset,
+                face.item_offset,
+            ))?;
+        }
+        result.set_item("faces", faces)?;
+        let edges = PyList::empty(py);
+        for edge in block.edges {
+            edges.append((
+                edge.source_node_id,
+                edge.faces,
+                edge.entry_offset,
+                edge.item_offset,
+            ))?;
+        }
+        result.set_item("edges", edges)?;
         result.set_item("status", block.status.as_str())?;
         let diagnostics = PyList::empty(py);
         for d in block.diagnostics {

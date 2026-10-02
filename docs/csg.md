@@ -41,6 +41,11 @@ not interpret those feature operations.
 - Saved postfix union, difference and intersection of positive-height boxes and
   cylinders, including the qualified saved checkpoints between operations.
   Multiple independent owners and disconnected solid results are supported.
+- Version 0.3.5 also accepts six-vertex prism operands: a frame, a signed
+  height along its Z axis and six XY vertices of a strictly convex profile. A
+  negative height moves the base along the axis; the frame stays rigid and the
+  profile is used as saved. The operand is exposed as a `polygon_extrusion`
+  primitive with `profile_points`. Other profiles are `csg.operand_layout`.
 - A single box/cylinder leaf with its explicit saved tree can also be evaluated.
 - Explicit source identifiers, same-owner operands, tree/result binding and
   component backlinks are checked. Resource ordering and cached Parasolid streams
@@ -58,7 +63,7 @@ unchanged: component records are not promoted to finished standalone primitives.
 it does not mean that all model entities have geometry. `model_status` stays
 `partial`, even when every candidate is evaluated.
 
-Negative extrusion heights, spheres/cones, profile extrusions, fillets, mirrors,
+Negative box and cylinder heights, spheres/cones, profile extrusions, fillets, mirrors,
 additional history/transformation opcodes, imported B-Rep markers, multiple trees
 per owner, unknown metadata layouts and automatic external-file loading remain
 unsupported. Empty or lower-dimensional boolean results are also unsupported.
