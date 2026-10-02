@@ -94,12 +94,17 @@ def test_component_marker_does_not_become_a_final_body():
     assert len(icadkit.read_csg(doc).bodies) == 1
 
 
-@pytest.mark.parametrize("variant", [0x03000044, 0x03800044, 0x04000044, 0x04800044])
+@pytest.mark.parametrize(
+    "variant",
+    [0x01000044, 0x01800044, 0x03000044, 0x03800044, 0x04000044, 0x04800044],
+)
+@pytest.mark.parametrize("state", [0, 0x01000000])
 @pytest.mark.parametrize("profile", ["v7l7", "v8l1", "v8l2", "v8l3"])
-def test_saved_result_variants_keep_exact_binding_and_frame(variant, profile):
+def test_saved_result_variants_keep_exact_binding_and_frame(variant, state, profile):
     doc = document() if profile == "v7l7" else v8_document(profile=profile)
     before = icadkit.read_saved_bodies(doc).bodies[0]
     raw = bytearray(doc.source_bytes(icadkit.ByteRange(0, doc.file_size)))
+    struct.pack_into("<I", raw, before.byte_range.start + 28, state)
     struct.pack_into("<I", raw, before.byte_range.start + 44, variant)
     changed = icadkit.read(bytes(raw))
     body = icadkit.read_saved_bodies(changed).bodies[0]
@@ -109,9 +114,19 @@ def test_saved_result_variants_keep_exact_binding_and_frame(variant, profile):
     assert body.world_transform == before.world_transform
     assert body.appearance.color_index == before.appearance.color_index
     assert changed.source_bytes(body.byte_range)[44:48] == struct.pack("<I", variant)
+    assert changed.source_bytes(body.byte_range)[28:32] == struct.pack("<I", state)
     # Nearby flags remain unqualified; no broad mask is used.
     struct.pack_into("<I", raw, before.byte_range.start + 44, variant | 0x20000000)
     body = icadkit.read_saved_bodies(icadkit.read(bytes(raw))).bodies[0]
+    assert body.status == "unsupported" and body.resource_id is None
+    assert body.diagnostics[0].code == "saved.result_layout"
+
+
+@pytest.mark.parametrize("state", [1, 0x02000000, 0x01000001])
+def test_unreviewed_saved_marker_states_remain_unsupported(state):
+    marker = bytearray(result())
+    struct.pack_into("<I", marker, 28, state)
+    body = icadkit.read_saved_bodies(document(markers=[marker])).bodies[0]
     assert body.status == "unsupported" and body.resource_id is None
     assert body.diagnostics[0].code == "saved.result_layout"
 
@@ -127,11 +142,17 @@ def test_saved_result_variants_keep_exact_binding_and_frame(variant, profile):
         ({"resources": [resource(bad_frame=True)]}, "saved.frame"),
     ],
 )
-def test_ambiguous_missing_or_unqualified_binding(kwargs, code):
-    b = icadkit.read_saved_bodies(document(**kwargs)).bodies[0]
+@pytest.mark.parametrize("state", [0, 0x01000000])
+def test_ambiguous_missing_or_unqualified_binding(kwargs, code, state):
+    doc = document(**kwargs)
+    raw = bytearray(doc.source_bytes(icadkit.ByteRange(0, doc.file_size)))
+    for marker in icadkit.read_saved_bodies(doc).bodies:
+        struct.pack_into("<I", raw, marker.byte_range.start + 28, state)
+    doc = icadkit.read(bytes(raw))
+    b = icadkit.read_saved_bodies(doc).bodies[0]
     assert b.status == "unsupported" and b.diagnostics[0].code == code
     with pytest.raises(icadkit.UnsupportedFormatError):
-        icadkit.evaluate_saved_body(document(**kwargs), b)
+        icadkit.evaluate_saved_body(doc, b)
 
 
 def test_index_profile_and_body_limit():
@@ -373,13 +394,18 @@ def test_v8_ambiguous_or_missing_resources_never_fall_back_to_order(kwargs):
 
 
 @pytest.mark.parametrize("profile", ["v8l1", "v8l2", "v8l3"])
-def test_v8_distinct_keys_in_one_owner_require_qualified_associations(profile):
+@pytest.mark.parametrize("state", [0, 0x01000000])
+def test_v8_distinct_keys_in_one_owner_require_qualified_associations(profile, state):
     doc = v8_document(
         profile=profile,
         keys=(901, 902),
         references=(901, 902),
         origins=((10, 20, 30), (-10, 50, 90)),
     )
+    raw = bytearray(doc.source_bytes(icadkit.ByteRange(0, doc.file_size)))
+    for marker in icadkit.read_saved_bodies(doc).bodies:
+        struct.pack_into("<I", raw, marker.byte_range.start + 28, state)
+    doc = icadkit.read(bytes(raw))
     index = icadkit.read_saved_bodies(doc)
     assert index.status == "partial" and len(index.bodies) == 2
     assert [b.resource_source_id for b in index.bodies] == [901, 902]

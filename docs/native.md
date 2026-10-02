@@ -85,8 +85,10 @@ The unreleased `polygon_extrusion` kind exposes six distinct XY vertices in
 `profile_points` and a positive `height`. Its qualified 368-byte record stores
 two identical closed straight profiles and a zero trailer. Concave and convex
 simple polygons are accepted in either winding. The viewer triangulates both
-caps and preserves outward winding. Holes, curved segments, tapers, other vertex
-counts and mirrored extrusion records remain unsupported; degenerate or
+caps and preserves outward winding. Mirrored records with the qualified negative
+height use the same signed-height convention as mirrored boxes. Local checks
+match 21 mirrored records to saved SDK volume, area and centroid observations.
+Holes, curved segments, tapers and other vertex counts remain unsupported; degenerate or
 self-intersecting profiles are invalid. `profile_points` is `None` for other
 kinds. As with other primitives, older versions require a complete qualified
 standalone owner before any member is exposed as geometry.
@@ -132,12 +134,14 @@ flag is independent of its owning part flag; a mirrored entity can belong to an
 unmirrored part. Its saved frame/parameters already incorporate the operation.
 Neither the part frame nor its orientation matrix is applied a second time.
 
-For the observed mirrored box/cone layouts, the saved height is negative.
+For the observed mirrored box/cone/polygon layouts, the saved height is negative.
 `height` exposes its positive magnitude and `world_transform` reverses the
 stored Z column, preserving the same geometry with a negative determinant.
 `mirror_convention="signed_height"` identifies this normalization. The raw
-negative height remains available in `raw_bytes`. A negative nonmirrored height
-or positive mirrored box/cone height is not repaired and remains invalid.
+negative height remains available in `raw_bytes`. Positive mirrored box/cone/polygon
+heights remain unqualified and are rejected. Nonmirrored boxes and qualified
+polygons accept either height sign as described above; nonmirrored cones retain
+their positive-height requirement.
 
 Full cylinders, full spheres and full ring tori use
 `mirror_convention="symmetric_frame"`: their stored frames already place the

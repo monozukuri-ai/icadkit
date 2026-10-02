@@ -228,7 +228,21 @@ impl Document {
             let mut cursor = at + 240;
             let mut group = false;
             let mut control_group = false;
+            let mut reference_group = false;
             let mut owner = None;
+            // The observed V5 reference envelopes have one group tag followed
+            // by length-framed 112/192-byte records. Their links and optional
+            // name bytes remain opaque; they do not establish part ownership.
+            let reference_profile = is_3d
+                && order == ByteOrder::Big
+                && matches!(header.raw_version, [0, 5, 0, 1] | [0, 5, 0, 3]);
+            let reference_record = |start: usize| {
+                end.saturating_sub(start) >= 20
+                    && matches!(u(start), 112 | 192)
+                    && u(start) as usize <= end - start
+                    && u(start + 4) != 0
+                    && u(start + 16) == 0x40000000
+            };
             let control_record = |start: usize| {
                 end - start >= 264
                     && u(start) == 264
@@ -274,6 +288,7 @@ impl Document {
                     }
                     group = true;
                     control_group = false;
+                    reference_group = false;
                     cursor += 4;
                     continue;
                 }
@@ -281,10 +296,16 @@ impl Document {
                     0x61000001..=0x61000003 if is_3d => (4, "part"),
                     0x60000001 | 0x60000002 if is_3d => (4, "legacy_owner"),
                     0x20000000 | 0x21000000 | 0x40000000 => (4, "metadata"),
+                    0x50000001 if reference_profile && reference_record(cursor + 4) => {
+                        (4, "metadata")
+                    }
                     // A 0x40000000 marker owns a sequence of fixed, length-
                     // framed view-control records. Only the first has a tag.
                     // Their payload supplies neither geometry nor ownership.
                     264 if !group && control_group && control_record(cursor) => (0, "metadata"),
+                    112 | 192 if !group && reference_group && reference_record(cursor) => {
+                        (0, "metadata")
+                    }
                     _ if group => (0, "entity"),
                     _ => {
                         view.stop(
@@ -327,6 +348,7 @@ impl Document {
                 if prefix != 0 {
                     group = false;
                     control_group = tag == 0x40000000 && control_record(cursor + prefix);
+                    reference_group = tag == 0x50000001;
                 }
                 if kind == "part" || kind == "legacy_owner" {
                     owner = Some(base + cursor as u64);

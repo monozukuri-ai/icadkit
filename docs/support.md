@@ -46,10 +46,10 @@ require complete standalone primitive owners; unknown/CSG records keep the
 owner's list opaque. The [native viewer](viewer.md) displays these parameters
 without optional dependencies and labels every view as a partial model.
 
-The unreleased native reader additionally supports nonmirrored six-vertex
-straight polygon extrusions and negative heights in qualified boxes. The
-polygon scope includes concave profiles; holes, curves, tapers and other
-vertex counts remain unsupported.
+The unreleased native reader additionally supports six-vertex straight polygon
+extrusions and negative heights in qualified boxes. The polygon scope includes
+concave profiles and qualified negative-height mirrors; holes, curves, tapers
+and other vertex counts remain unsupported.
 
 With the `preview` extra, [V7L7 CSG](csg.md) evaluates bounded box/cylinder
 programs, while [saved final bodies](saved-bodies.md) place qualified V7L6/V7L7/V8L1/V8L2/V8L3
@@ -99,27 +99,37 @@ for display without producing B-Rep or GLB.
 
 Version 0.3.0 uses `parasolid-core 0.3.1` and the exact
 `SCH_3401212_34101_13006` profile `icad-sch34101-13006-r2` (revision 2).
-`icadkit.build_info()` reports its identity and hash. Revision 2 adds the reviewed
+`icadkit.build_info()` reports the backend version and profile IDs;
+`GeometryResult.schema` also reports the selected profile's hash. Revision 2 adds the reviewed
 TORUS (54) declaration, so qualified trimmed-torus/swept-arc resources no longer
 need an external catalog. Version 0.2.0 used core 0.3.0 and profile revision 1.
 An explicit compatible catalog remains authoritative.
 
-The current source adds `icad-legacy-13006-raw-r1` for these exact keys:
+The current unreleased source uses the published `parasolid-core 0.3.3`
+registry crate. Its reviewed profiles replace icadkit's temporary
+`icad-legacy-13006-raw-r1` profile and support both raw parsing and B-Rep mapping:
 
-- `SCH_1500137_15003_13006`
-- `SCH_1500245_15003_13006`
-- `SCH_1700223_16100_13006`
-- `SCH_1700256_16100_13006`
-- `SCH_1901315_19008_13006`
+| Exact key | Built-in profile (revision 1) |
+| --- | --- |
+| `SCH_1500137_15003_13006` | `icad-1500137-15003-13006-r1` |
+| `SCH_1500245_15003_13006` | `icad-1500245-15003-13006-r1` |
+| `SCH_1700223_16100_13006` | `icad-1700223-16100-13006-r1` |
+| `SCH_1700256_16100_13006` | `icad-1700256-16100-13006-r1` |
+| `SCH_1901315_19008_13006` | `icad-1901315-19008-13006-r1` |
 
-This profile reuses the public reviewed 13006 subset and qualifies **raw node
-parsing only**. In a local sample of 539 resource occurrences, 531 matched the
-explicit catalog path in decoded values and source boundaries; eight stopped
-at uncompiled base types (59, 68 or 137). `schema.brep_profile` explains the
-separate B-Rep gate after successful raw parsing. Supply an explicit compatible
-13006 catalog for B-Rep roles. No schema key or provider provenance is rewritten,
-and no vendor catalog is bundled. Use `require_complete("raw_geometry")` when
-that is the intended scope. These changes are unreleased.
+In a local sample of 539 resource occurrences from 214 files, all 539 parse
+without a catalog; 535 have complete source B-Reps and four remain partial due
+to unsupported SPUN_SURF (68) geometry. All 539 match the explicit catalog path
+in raw values/boundaries, B-Rep parameters, source references and topology status.
+Base types 59, 68 and 137 are admitted only by their reviewed exact profiles.
+SPUN_SURF parameters remain available as raw fields; a catalog does not make
+that geometry supported. `require_complete()` rejects these partial B-Reps,
+while `require_complete("raw_geometry")` succeeds.
+
+Profile IDs and hashes now come directly from parasolid-core. No schema key or
+provider provenance is rewritten, and no vendor catalog is bundled. These checks
+qualify resource parsing and source B-Rep mapping; OCCT conversion, saved-body
+ownership and whole-model display have separate requirements.
 
 Profile availability does not mean that every geometry type or every ICD file
 using that schema is supported. A missing exact profile produces a diagnostic;

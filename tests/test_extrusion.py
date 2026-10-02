@@ -88,14 +88,52 @@ def test_concave_polygon_mesh_matches_independent_prism(profile, height, reverse
     assert all(count == 1 and edges[(b, a)] == 1 for (a, b), count in edges.items())
 
 
-@pytest.mark.parametrize(
-    "defect", ["open", "taper", "trailer", "mirror", "curve", "extent"]
-)
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("reverse", [False, True])
+def test_mirrored_polygon_reflects_signed_height_once(profile, reverse):
+    points = POINTS[::-1] if reverse else POINTS
+    doc = document(extrusion(points, -13, mirror=True), profile)
+    entity = doc.read_parts().parts[1].entities[0]
+    p = entity.primitive
+    assert entity.geometry_status == "complete" and entity.is_mirror is True
+    assert p.kind == "polygon_extrusion" and p.profile_points == points
+    assert p.height == 13 and p.mirror_convention == "signed_height"
+    assert struct.unpack_from("<d", p.raw_bytes, 72)[0] == -13
+    mirrored = _mesh(p, 24)
+    original = _mesh(
+        document(extrusion(points, 13), profile)
+        .read_parts()
+        .parts[1]
+        .entities[0]
+        .primitive,
+        24,
+    )
+
+    def coords(mesh):
+        return set(zip(*[iter(mesh["positions"])] * 3, strict=True))
+
+    # The authored native Z axis is global +Y. Reflect about Y=-11.
+    assert coords(mirrored) == {(x, -22 - y, z) for x, y, z in coords(original)}
+    assert signed_volume(mirrored) == pytest.approx(24 * 13)
+    edges = Counter()
+    for at in range(0, len(mirrored["triangles"]), 3):
+        a, b, c = mirrored["triangles"][at : at + 3]
+        edges.update(((a, b), (b, c), (c, a)))
+    assert all(n == 1 and edges[(b, a)] == 1 for (a, b), n in edges.items())
+
+
+def test_positive_mirrored_polygon_height_remains_unqualified():
+    entity = (
+        document(extrusion(height=13, mirror=True)).read_parts().parts[1].entities[0]
+    )
+    assert entity.primitive is None and entity.geometry_status == "invalid"
+
+
+@pytest.mark.parametrize("defect", ["open", "taper", "trailer", "curve", "extent"])
 def test_unknown_extrusion_layout_stays_opaque(defect):
-    raw = extrusion(mirror=defect == "mirror")
+    raw = extrusion()
     offsets = {"open": 224, "taper": 256, "trailer": 360, "curve": 24, "extent": 40}
-    if defect != "mirror":
-        raw[offsets[defect]] ^= 1
+    raw[offsets[defect]] ^= 1
     entity = document(raw).read_parts().parts[1].entities[0]
     assert entity.primitive is None and entity.geometry_status == "unsupported"
 

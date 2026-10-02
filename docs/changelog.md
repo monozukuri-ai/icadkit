@@ -6,14 +6,23 @@
   sign and reversing the display frame's Z axis once.
 - Traverse repeated 264-byte view-control records under a qualified
   `40000000` metadata group in either byte order. Unknown framing still stops.
+- Traverse the observed big-endian V5L1/V5L3 `50000001` groups of 112/192-byte
+  records while keeping their links and names opaque. Ten more real files have
+  complete view framing; part/assembly semantics remain separately qualified.
 - Bind observed type-85 final-result variants `03` and `04` with the existing
   unique-ID/resource/frame checks. Ambiguous V8 associations remain unsupported.
-- Add exact raw-node profiles for five legacy embedded Parasolid keys using
-  the public reviewed 13006 subset. These profiles require an explicit matching
-  catalog for B-Rep mapping; see [supported schemas](support.md#schemas).
-- Decode and display qualified nonmirrored six-vertex polygon extrusions,
-  including concave profiles and negative heights. Other polygon layouts,
-  holes, curved segments, tapers and mirrored records remain unsupported.
+  Also accept the observed `+28=0` state, adding 2,305 bound records in the local
+  installed corpus with the same guards.
+- Update the registry dependency to `parasolid-core 0.3.3` and use its five
+  exact legacy iCAD profiles for catalog-free raw parsing and source B-Rep
+  mapping. Remove the temporary icadkit raw-only profile and B-Rep gate.
+  Local checks cover 539 resources: all parse, 535 map completely and four
+  retain explicit SPUN_SURF partial diagnostics. Profile IDs and hashes now
+  come from the backend; see [supported schemas](support.md#schemas).
+- Decode and display qualified six-vertex polygon extrusions, including concave
+  profiles, negative heights and negative-height mirrored records. Local SDK
+  comparisons cover 21 mirrored records. Other polygon layouts, holes, curved
+  segments and tapers remain unsupported.
 
 - Version-support P6 adds direct old-format view/registered-part inventories,
   bounded big-endian V6L1/V6L2/V7L1 internal part inventories, and separate

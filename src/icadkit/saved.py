@@ -233,7 +233,9 @@ def _read_saved_bodies(
                     or sid & 0xF0000000 != 0x80000000
                     or words[5]
                     or words[6] != (0xFD000018 if v7 else 0xFD000080)
-                    or words[7] != 0x01000000
+                    # Both states occur on SDK-enumerated final solids. Keep
+                    # their meaning opaque; neither state establishes binding.
+                    or words[7] not in (0, 0x01000000)
                     or not words[8]
                     or words[9]
                     # Observed final-result states; these bits do not establish

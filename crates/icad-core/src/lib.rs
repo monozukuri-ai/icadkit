@@ -13,7 +13,6 @@ mod reader;
 mod record;
 mod resource;
 mod schema;
-mod schema_profiles;
 mod views;
 
 pub use document::Document;
@@ -38,13 +37,13 @@ pub use resource::{Encoding, ResourceRef};
 pub use schema::SchemaCatalog;
 pub use views::{ViewEntry, ViewIndex, ViewLimits, ViewRecord};
 
-use parasolid_core::ParseError;
+use parasolid_core::{BuiltinProfileRegistry, ParseError};
 
 /// Version of this Rust crate, in Cargo SemVer notation.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Exact registry dependency; checked against the manifest and lock in CI.
-pub const PARASOLID_CORE_VERSION: &str = "0.3.1";
+pub const PARASOLID_CORE_VERSION: &str = "0.3.3";
 
 /// Metadata of the compiled Parasolid backend, not ICD format coverage.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +57,7 @@ pub struct BackendInfo {
 /// # Errors
 /// Returns the backend error if its compiled profile table is inconsistent.
 pub fn backend_info() -> Result<BackendInfo, ParseError> {
-    let registry = schema_profiles::registry()?;
+    let registry = BuiltinProfileRegistry::compiled()?;
     let mut builtin_profile_ids: Vec<_> = registry
         .profiles()
         .map(|profile| profile.metadata().profile_id.clone())
@@ -79,7 +78,7 @@ mod tests {
     fn registry_initializes_and_keeps_exact_key_selection() -> Result<(), ParseError> {
         let info = backend_info()?;
         assert!(!info.builtin_profile_ids.is_empty());
-        let registry = schema_profiles::registry()?;
+        let registry = BuiltinProfileRegistry::compiled()?;
         let covered = SchemaKey::parse("SCH_3000310_30000_13006")?;
         let uncovered = SchemaKey::parse("SCH_2601246_26105_13006")?;
         assert!(registry.provider_for_key(&covered).is_some());

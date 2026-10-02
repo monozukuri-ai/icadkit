@@ -175,6 +175,100 @@ def test_unqualified_view_control_never_resynchronizes(defect):
     assert not doc.read_drawing().entities
 
 
+def reference_envelope(size=112, source=17):
+    raw = bytearray(size)
+    struct.pack_into(">5I", raw, 0, size, source, 3, 29, 0x40000000)
+    # Opaque payload may resemble record tags. Only the declared boundary counts.
+    raw[40:48] = bytes.fromhex("6100000130010000")
+    if size == 192:
+        raw[112:] = b"authored reference".ljust(80, b" ")
+    return bytes(raw)
+
+
+@pytest.mark.parametrize("version", [b"\0\x05\0\x01", b"\0\x05\0\x03"])
+def test_legacy_reference_group_preserves_bounds_and_following_owner(version):
+    first, long, last = (
+        reference_envelope(),
+        reference_envelope(192),
+        reference_envelope(source=31),
+    )
+    owner = struct.pack(">II", 0x60000002, 240) + b"\0" * 236
+    stream = bytes.fromhex("50000001") + first + long + last + owner
+    stream += bytes.fromhex("30010000") + entity()
+    doc = icadkit.read(drawing(stream=stream, name=b"3DGLOBAL", version=version))
+    vi = doc.read_views()
+    assert vi.status == "complete"
+    a, b, c, part, shape = vi.views[0].entries
+    assert a.tag == 0x50000001 and b.tag is None and c.tag is None
+    assert all(r.kind == "metadata" and r.owner_offset is None for r in (a, b, c))
+    assert doc.source_bytes(a.byte_range) == bytes.fromhex("50000001") + first
+    assert doc.source_bytes(b.byte_range) == long
+    assert doc.source_bytes(c.byte_range) == last
+    assert part.kind == "legacy_owner" and doc.source_bytes(part.byte_range) == owner
+    assert shape.kind == "entity" and shape.owner_offset == part.byte_range.start
+    assert doc.source_bytes(shape.byte_range) == entity()
+    assert all(
+        left.byte_range.end == right.byte_range.start
+        for left, right in ((a, b), (b, c), (c, part))
+    )
+    assert not doc.read_parts().parts  # Framing does not qualify old part semantics.
+    with pytest.raises(icadkit.LimitExceededError):
+        doc.read_views(limits=icadkit.ViewLimits(max_records=2))
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "first_type",
+        "type",
+        "size",
+        "zero_id",
+        "untagged",
+        "reset",
+        "truncated",
+        "version",
+        "2d",
+        "endian",
+    ],
+)
+def test_legacy_reference_group_fails_closed(defect):
+    record = bytearray(reference_envelope())
+    if defect in ("first_type", "type"):
+        struct.pack_into(">I", record, 16, 0x40000001)
+    elif defect == "size":
+        struct.pack_into(">I", record, 0, 116)
+    elif defect == "zero_id":
+        struct.pack_into(">I", record, 4, 0)
+    elif defect == "truncated":
+        record = record[:28]
+    stream = bytes.fromhex("50000001") + reference_envelope()
+    if defect == "first_type":
+        stream = bytes.fromhex("50000001")
+    elif defect == "untagged":
+        stream = b""
+    elif defect == "reset":
+        stream += struct.pack(">II", 0x20000000, 4)
+    stream += record
+    stream += bytes.fromhex("30010000") + entity()
+    doc = icadkit.read(
+        drawing(
+            stream=stream,
+            name=b"!!GLOBAL" if defect == "2d" else b"3DGLOBAL",
+            version=b"\0\x05\0\x02"
+            if defect == "version"
+            else b"\0\x08\0\x03"
+            if defect == "endian"
+            else b"\0\x05\0\x03",
+            order="little" if defect == "endian" else "big",
+        )
+    )
+    vi = doc.read_views()
+    assert vi.status == "partial"
+    assert vi.views[0].diagnostics[0].code == "views.record"
+    assert not any(e.kind == "entity" for e in vi.views[0].entries)
+    assert vi.views[0].opaque_ranges[-1].end == vi.views[0].byte_range.end - 4
+
+
 @pytest.mark.parametrize(
     "stream,end,code",
     [

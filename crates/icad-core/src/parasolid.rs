@@ -316,7 +316,7 @@ impl Document {
             }
             parse_xb(&extraction.payload, catalog.provider(), limits.backend())
         } else {
-            match crate::schema_profiles::registry() {
+            match parasolid_core::BuiltinProfileRegistry::compiled() {
                 Ok(registry) => {
                     if let Some(provider) = registry.provider_for_key(&key) {
                         use parasolid_core::SchemaProvider;
@@ -359,32 +359,6 @@ impl Document {
             }
         };
         result.status.raw_geometry = Status::Complete;
-        if result.schema.as_ref().is_some_and(|s| {
-            s.profile_id.as_deref() == Some(crate::schema_profiles::LEGACY_PROFILE)
-        }) {
-            result.status.brep = Status::Unsupported;
-            result.diagnose(GeometryDiagnostic {
-                category: ErrorKind::Unsupported,
-                code: "schema.brep_profile",
-                message: "This exact legacy profile qualifies raw nodes only; supply the explicit matching catalog for B-Rep roles".into(),
-                scope: "brep",
-                resource_id: resource_id.into(),
-                container_range: range,
-                byte_offset: None,
-                decoded_offset: None,
-                backend_code: None,
-                node_type: None,
-                node_index: None,
-            })?;
-            result.node_positions = raw
-                .nodes
-                .iter()
-                .enumerate()
-                .map(|(i, n)| (n.index, i))
-                .collect();
-            result.raw = Some(raw);
-            return Ok(result);
-        }
         match map_xb_brep_with_diagnostic_limit(&raw, limits.max_diagnostics) {
             Ok(brep) => {
                 result.status.brep = if brep.complete {

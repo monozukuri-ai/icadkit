@@ -160,7 +160,6 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
             // The upper word is retained as opaque producer metadata.
             && word(bytes, 40) & 0xffff == if kind == "polygon_extrusion" { 0x1b0 } else { 0x180 }
             && word(bytes, 44) == 0
-            && (kind != "polygon_extrusion" || word(bytes, 12) & 0x1000 == 0)
     });
     if !layout {
         result.issue(

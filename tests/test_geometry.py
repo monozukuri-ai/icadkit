@@ -2,6 +2,7 @@ import gc
 import hashlib
 import json
 import math
+import struct
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
@@ -114,21 +115,27 @@ def test_icad_v34_rejects_nearby_key_and_unknown_base(geometry_doc):
         b"SCH_1901315_19008_13006",
     ],
 )
-def test_legacy_exact_profile_qualifies_raw_only(geometry_doc, key):
+def test_legacy_exact_profile_qualifies_brep_without_catalog(geometry_doc, key):
     payload = wire_payload(embedded=True).replace(b"SCH_3401212_34101_13006", key)
     doc = geometry_doc(payload)
-    g = doc.read_geometry(doc.resources[0].resource_id)
-    assert g.schema.profile_id == "icad-legacy-13006-raw-r1"
+    g = doc.read_geometry(doc.resources[0].resource_id).require_complete()
+    expected_profile = "icad-" + key.decode()[4:].replace("_", "-") + "-r1"
+    assert g.schema.kind == "builtin" and g.schema.profile_id == expected_profile
+    assert g.schema.profile_revision == 1
     assert len(g.schema.profile_sha256) == 64
     assert g.raw.schema_key == key.decode() and g.raw.to_bytes() == payload
     assert g.raw.node_count == 11 and g.raw.terminator_range.end == len(payload)
     assert g.raw.field_values(11, 7) == ((2.0, -1.0, 3.0),)
     assert g.status.raw_geometry == "complete"
-    assert g.status.brep == "unsupported" and g.brep is None
-    assert g.status.topology == "not_checked"
-    assert g.diagnostics[0].code == "schema.brep_profile"
-    with pytest.raises(ic.IncompleteGeometryError):
-        g.require_complete()
+    assert g.status.brep == g.status.topology == "complete"
+    assert g.brep.counts["edges"] == 1 and g.brep.topology_valid
+    assert g.brep.vertex_bounds == ((2.0, -1.0, 3.0), (5.0, 3.0, 3.0))
+    curve = g.brep.entities("curves")[0]
+    assert curve.attributes["direction"] == (0.6, 0.8, 0.0)
+    assert (
+        curve.source.decoded_range == g.raw.node(curve.source.node_index).decoded_range
+    )
+    assert not g.diagnostics
     with pytest.raises(ic.LimitExceededError):
         doc.read_geometry(
             doc.resources[0].resource_id, limits=ic.GeometryLimits(max_nodes=1)
@@ -146,8 +153,56 @@ def test_legacy_exact_profile_qualifies_raw_only(geometry_doc, key):
         assert result.raw is None and result.diagnostics[0].code == code
 
 
-def test_icad_v34_cli_uses_builtin(geometry_doc, tmp_path):
-    doc = geometry_doc(wire_payload(embedded=True))
+@pytest.mark.parametrize(
+    "key",
+    [b"SCH_1500245_15003_13006", b"SCH_1700256_16100_13006"],
+)
+def test_legacy_spun_surface_preserves_raw_but_requires_partial_brep(geometry_doc, key):
+    # Authored SPUN_SURF scalar order from the public XT reference, pp. 74-76.
+    # This surface references the wire curve; no vendor fixture/catalog is used.
+    record = (
+        struct.pack(">H B H i", 68, 255, 21, 120)
+        + struct.pack(">5H", 1, 1, 1, 1, 1)
+        + b"+"
+        + struct.pack(">H", 12)
+        + struct.pack(">12d", 2, 3, 4, 0, 0, 1, 2, 3, 6, 2, 3, 9)
+        + struct.pack(">2d", -0.25, 1.75)
+        + struct.pack(">4d", 1, 0, 0, 1.5)
+    )
+    wire = wire_payload(embedded=True).replace(b"SCH_3401212_34101_13006", key)
+    payload = wire[:-4] + record + wire[-4:]
+    doc = geometry_doc(payload)
+    g = doc.read_geometry(doc.resources[0].resource_id)
+    assert g.status.raw_geometry == g.status.topology == "complete"
+    assert g.status.brep == "partial" and not g.brep.complete
+    assert g.raw.to_bytes() == payload and g.raw.node_count == 12
+    assert g.raw.field_values(20, 7) == (11,)
+    assert g.raw.field_values(20, 8) == ((2.0, 3.0, 4.0),)
+    assert g.raw.field_values(20, 12) == (-0.25,)
+    assert g.raw.field_values(20, 13) == (1.75,)
+    assert g.raw.field_values(20, 15) == (1.5,)
+    surface = g.brep.entities("surfaces")[0]
+    assert surface.source.node_type == 68
+    assert surface.source.decoded_range == g.raw.node(20).decoded_range
+    assert surface.attributes["kind"] == "unsupported"
+    assert surface.attributes["type_name"] == "SPUN_SURF"
+    assert [d.code for d in g.diagnostics] == ["geometry.unsupported_surface"]
+    assert g.require_complete("raw_geometry") is g
+    with pytest.raises(ic.IncompleteGeometryError):
+        g.require_complete()
+
+
+@pytest.mark.parametrize(
+    ("key", "profile"),
+    [
+        (b"SCH_3401212_34101_13006", "icad-sch34101-13006-r2"),
+        (b"SCH_1700256_16100_13006", "icad-1700256-16100-13006-r1"),
+    ],
+)
+def test_icad_cli_uses_builtin(geometry_doc, tmp_path, key, profile):
+    doc = geometry_doc(
+        wire_payload(embedded=True).replace(b"SCH_3401212_34101_13006", key)
+    )
     source = tmp_path / "v34.icd"
     source.write_bytes(doc.source_bytes(ic.ByteRange(0, doc.file_size)))
     result = subprocess.run(
@@ -166,7 +221,7 @@ def test_icad_v34_cli_uses_builtin(geometry_doc, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     row = json.loads(result.stdout)
-    assert row["schema"]["profile_id"] == "icad-sch34101-13006-r2"
+    assert row["schema"]["profile_id"] == profile
     assert row["status"]["brep"] == "complete"
     assert row["status"]["model"] == "not_checked"
 

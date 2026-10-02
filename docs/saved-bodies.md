@@ -51,8 +51,11 @@ separately from feature replay.
 The observed final-result state words at marker offset `+44` include
 `01000004`, `01800004`, `03000004`, `03800004`, `04000004` and `04800004`,
 with the saved visibility bit `40` added when present. Their other bits are
-retained without assigning semantics. Nearby flags and markers with an
-unqualified `+28` word remain unsupported. Accepting a marker does not qualify
+retained without assigning semantics. Offset `+28` admits the observed words
+`00000000` and `01000000`, with the same unique-ID, owner, resource and frame
+checks for both. Other states remain unsupported. Local checks add 2,305 bound
+records in the installed corpus; separate SDK comparisons match five newly
+bound records in volume, area and centroid. Accepting a marker does not qualify
 its resource's schema, surfaces or tessellation.
 
 | Profile | Binding | Frame applied after scaling resource metres to mm |
@@ -102,6 +105,12 @@ uses `parasolid-core 0.3.1` and exact V34 profile revision 2, which adds
 TORUS (54): qualified trimmed-torus and swept-arc solids no longer require a
 catalog. Other uncompiled types retain a diagnostic when no catalog is supplied.
 Catalogs are not bundled.
+
+The unreleased source uses `parasolid-core 0.3.3`, which also supplies reviewed
+B-Rep mappings for [five legacy schema keys](support.md#schemas). This removes
+their catalog requirement within the qualified subsets. SPUN_SURF remains
+unsupported. Resource parsing does not establish a saved-body binding or extend
+the converter's supported surfaces and topology.
 
 ## Saved mirrors
 

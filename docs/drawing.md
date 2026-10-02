@@ -59,6 +59,13 @@ continuation must match the fixed length and internal markers. Records retain
 their exact ranges as `metadata`, without geometry or part ownership. This
 qualifies traversal only; projection-control semantics remain unavailable.
 
+Big-endian V5L1/V5L3 3D views also admit the observed `50000001` group of
+112/192-byte records. The first record carries the tag; subsequent records must
+match the qualified length and internal marker at the next exact boundary.
+Their numeric links and optional name bytes remain opaque `metadata` with no
+owner or geometry assigned. Local checks traverse the ten previously stopped
+files; this does not qualify legacy assembly or external-reference semantics.
+
 ## Drawing scope
 
 `DrawingIndex` contains the view inventory and bounded 2D `DrawingEntity` records.
