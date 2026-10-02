@@ -198,8 +198,10 @@ its local frame, and it is tight for 6,040 of them.
 
 Of 29,703 distinct bound resources in the sample, 26,925 convert to valid
 solids. An explicit schema catalog is needed only where no built-in profile
-applies. The others keep their diagnostics: unsupported curve or surface kinds,
-kernel validation failures, null source parameters and SPUN_SURF surfaces.
+applies: for 596 of these resources, compared with 27,796 under core 0.3.3,
+with identical results. The others keep their diagnostics: unsupported curve or
+surface kinds, kernel validation failures, null source parameters and SPUN_SURF
+surfaces.
 
 Saved SDK observations cover 1,789 evaluated bodies from V7L2–V7L7 and
 V8L1–V8L3 inputs: volume, area and centroid match for all of them, including
