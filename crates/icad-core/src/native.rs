@@ -139,6 +139,18 @@ pub(crate) fn read_parametric_entity(bytes: &[u8], byte_range: ByteRange) -> Nat
 }
 
 pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
+    decode_entity(bytes, byte_range, false)
+}
+
+/// A component record of a saved boolean body: the standalone layout with the
+/// component bit set, an optional explicit-result bit, and a result backlink
+/// where a standalone record stores zero. The caller checks that backlink and
+/// the saved program; nothing here establishes a finished solid.
+pub(crate) fn read_component_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
+    decode_entity(bytes, byte_range, true)
+}
+
+fn decode_entity(bytes: &[u8], byte_range: ByteRange, component: bool) -> NativeEntityRecord {
     let mut result = undecoded_entity(bytes, byte_range);
     // Layer, saved visibility and palette index are qualified only for these
     // exact native layouts. A Parasolid body has a different attribute layout.
@@ -168,11 +180,18 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
         bytes.len() == length
             && word(bytes, 4) > 0
             && word(bytes, 8) == 0
-            && matches!(word(bytes, 12) & 0x00ffefff, 0x000100c1 | 0x00010081)
+            && if component {
+                // Operands carry the component bit 0x20 and, under an explicit
+                // result marker, bit 0x100. The mirror bit stays separate.
+                word(bytes, 12) & 0x20 != 0
+                    && matches!(word(bytes, 12) & 0x00ffeedf, 0x000100c1 | 0x00010081)
+            } else {
+                matches!(word(bytes, 12) & 0x00ffefff, 0x000100c1 | 0x00010081)
+            }
             && word(bytes, 16) & 0xf0000000 == 0x80000000
             && word(bytes, 20) == 0
             && word(bytes, 24) == marker
-            && word(bytes, 32) == 0
+            && (component || word(bytes, 32) == 0)
             // The upper word is retained as opaque producer metadata.
             && word(bytes, 40) & 0xffff == if kind == "polygon_extrusion" { 0x1b0 } else { 0x180 }
             && word(bytes, 44) == 0
@@ -622,4 +641,76 @@ fn simple_polygon(values: &[f64]) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A closed rectangle profile of five straight elements with a flag trailer.
+    fn record(flags: u32, backlink: u32) -> Vec<u8> {
+        let mut bytes = vec![0_u8; 216];
+        for (at, value) in [
+            (0, 216_u32),
+            (4, 1),
+            (12, 76 << 24 | flags),
+            (16, 0x8000_0003),
+            (24, 0x5944_00c0),
+            (32, backlink),
+            (40, 0x180),
+        ] {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes[29] = 0x11;
+        let values: [f64; 20] = [
+            0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 13.0, 0.0, 0.0, 10.0, 0.0, 10.0, 5.0, 0.0,
+            5.0, 0.0, 0.0,
+        ];
+        for (i, value) in values.iter().enumerate() {
+            bytes[48 + 8 * i..56 + 8 * i].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes
+    }
+
+    const RANGE: ByteRange = ByteRange {
+        start: 1000,
+        end: 1216,
+    };
+
+    fn decoded(entity: &NativeEntityRecord) -> Option<(&'static str, usize)> {
+        entity
+            .primitive
+            .as_ref()
+            .map(|p| (p.kind, p.parameters.len()))
+    }
+
+    #[test]
+    fn component_flags_select_the_reader() {
+        let implicit = record(0x100e1, 0);
+        assert!(read_entity(&implicit, RANGE).primitive.is_none());
+        assert_eq!(
+            read_entity(&implicit, RANGE).diagnostics[0].code,
+            "native.layout"
+        );
+        let component = read_component_entity(&implicit, RANGE);
+        assert_eq!(decoded(&component), Some(("profile_extrusion", 29)));
+        assert_eq!(component.source_id, Some(0x8000_0003));
+        assert_eq!(component.is_mirror, Some(false));
+        // An explicit component keeps its result backlink; a standalone record
+        // with the same word, or without the component bit, is not an operand.
+        let explicit = record(0x101e1, 0x8000_0009);
+        assert_eq!(
+            decoded(&read_component_entity(&explicit, RANGE)),
+            Some(("profile_extrusion", 29))
+        );
+        assert!(read_entity(&explicit, RANGE).primitive.is_none());
+        assert!(read_entity(&record(0x100c1, 1), RANGE).primitive.is_none());
+        let standalone = read_component_entity(&record(0x100c1, 0), RANGE);
+        assert!(standalone.primitive.is_none());
+        assert_eq!(standalone.diagnostics[0].code, "native.layout");
+        assert_eq!(
+            decoded(&read_entity(&record(0x100c1, 0), RANGE)),
+            Some(("profile_extrusion", 29))
+        );
+    }
 }

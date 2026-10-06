@@ -112,10 +112,10 @@ def _backend() -> Any:
             "preview.missing_dependency",
             'Install "icadkit[preview]" to create previews',
         ) from exc
-    if version != "0.2.0":
+    if version != "0.3.6":
         raise _error(
             "preview.backend_version",
-            "Preview requires the qualified parasolid-kit 0.2.0 adapter",
+            "Preview requires the qualified parasolid-kit 0.3.6 adapter",
         )
     return import_module("parasolid_kit.interop.preview")
 

@@ -58,7 +58,7 @@ def verify(wheel, source, versions, *, preview=False):
                         "from dataclasses import asdict; "
                         "from importlib.metadata import distribution; "
                         "assert distribution('icadkit').requires == "
-                        + repr(["parasolid-kit[occt]==0.2.0 ; extra == 'preview'"])
+                        + repr(["parasolid-kit[occt]==0.3.6 ; extra == 'preview'"])
                         + "; "
                         "assert sys.prefix in icadkit._core.__file__; "
                         "print(json.dumps(dict(python=platform.python_version(), "
@@ -88,7 +88,7 @@ def verify(wheel, source, versions, *, preview=False):
                         "-c",
                         "import parasolid_kit,OCP; "
                         "from importlib.metadata import version; "
-                        "assert version('parasolid-kit') == '0.2.0'",
+                        "assert version('parasolid-kit') == '0.3.6'",
                     ],
                     cwd=work,
                     env=env,

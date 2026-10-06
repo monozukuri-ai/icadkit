@@ -54,8 +54,19 @@ def bridge(brep: Brep, *, saved_surfaces: bool = False) -> Any:
         "sphere": geom.SphereSurface,
     }
     if saved_surfaces:
-        surfaces.update(cone=geom.ConeSurface, torus=geom.TorusSurface)
-        curves.update(ellipse=geom.EllipseCurve, intersection=geom.IntersectionCurve)
+        surfaces.update(
+            cone=geom.ConeSurface,
+            torus=geom.TorusSurface,
+            nurbs=geom.NurbsSurface,
+            offset=geom.OffsetSurface,
+            spun=geom.SpunSurface,
+        )
+        curves.update(
+            ellipse=geom.EllipseCurve,
+            intersection=geom.IntersectionCurve,
+            nurbs=geom.NurbsCurve,
+            surface_parametric=geom.SurfaceParametricCurve,
+        )
 
     def entity(collection: str, value: BrepEntity) -> Any:
         attrs: dict[str, Any] = dict(value.attributes)
@@ -107,6 +118,20 @@ def bridge(brep: Brep, *, saved_surfaces: bool = False) -> Any:
                 attrs[name] = source(attrs[name])
             for name in ("chart_points", "start_points", "end_points"):
                 attrs[name] = tuple(vector(p) for p in attrs[name])
+        if kind == "spun":
+            # Spin axis point and direction, with optional degeneracy points.
+            for name in ("base", "start", "end"):
+                if attrs.get(name) is not None:
+                    attrs[name] = vector(attrs[name])
+        if kind == "nurbs":
+            # Control vertices, knots and multiplicities are passed as stored.
+            attrs["sources"] = tuple(source(item) for item in attrs["sources"])
+            for name in attrs:
+                if isinstance(attrs[name], tuple):
+                    attrs[name] = tuple(
+                        tuple(row) if isinstance(row, tuple) else row
+                        for row in attrs[name]
+                    )
         definition = constructors[kind](**attrs)
         if collection == "curves":
             return geom.CurveGeometry(

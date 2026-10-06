@@ -49,6 +49,8 @@ from .trailer import (
     TrailerFace,
     TrailerIndex,
     TrailerLimits,
+    TrailerParameterLine,
+    TrailerSurface,
     TrailerTable,
 )
 from .views import View, ViewEntry, ViewIndex, ViewLimits
@@ -64,6 +66,8 @@ __all__ = [
     "TrailerBlockData",
     "TrailerEdge",
     "TrailerFace",
+    "TrailerParameterLine",
+    "TrailerSurface",
     "TrailerIndex",
     "TrailerLimits",
     "TrailerTable",

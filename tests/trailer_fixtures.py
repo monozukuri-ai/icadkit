@@ -27,12 +27,18 @@ def payload(
 ):
     """A block with a face table, an edge table and their items.
 
-    faces are (node id, surface code, parameter box, item bytes) and edges are
-    (node id, (face, face), item bytes). The packed fields stay little-endian
-    in a big-endian document. shift moves every stored item offset.
+    faces are (node id, surface code, parameter box, item bytes[, tag bytes])
+    and edges are (node id, (face, face), item bytes[, tag bytes[, flag bytes]]).
+    The packed fields stay little-endian in a big-endian document. shift moves
+    every stored item offset.
     """
+    faces = [(*f[:4], *(f[4:] or ((0x10, 0, 0, 0),))) for f in faces]
+    edges = [
+        (*e[:3], *(e[3:4] or ((0x10, 0, 0, 0),)), *(e[4:5] or ((1, 1, 0, 2),)))
+        for e in edges
+    ]
     table_end = 52 + 36 * len(faces) + 24 * len(edges)
-    items = [item for *_, item in faces] + [item for *_, item in edges]
+    items = [f[3] for f in faces] + [e[2] for e in edges]
     offsets = [table_end + sum(map(len, items[:i])) + shift for i in range(len(items))]
     head = struct.pack("<I6f", kind, *bounds) + struct.pack(
         "<5I",
@@ -43,11 +49,13 @@ def payload(
         table_end if items_at is None else items_at,
     )
     body = b"".join(
-        struct.pack("<4BI4BIHH4f", 0x10, 0, 0, 0, node, 0, 0, code, 1, at, 0, 0, *box)
-        for (node, code, box, _), at in zip(faces, offsets, strict=False)
+        struct.pack("<4BI4BIHH4f", *tag, node, 0, 0, code, 1, at, 0, 0, *box)
+        for (node, code, box, _, tag), at in zip(faces, offsets, strict=False)
     ) + b"".join(
-        struct.pack("<4BI4H4BI", 0x10, 0, 0, 0, node, *pair, 0, 0, 1, 1, 0, 2, at)
-        for (node, pair, _), at in zip(edges, offsets[len(faces) :], strict=True)
+        struct.pack("<4BI4H4BI", *tag, node, *pair, 0, 0, *flags, at)
+        for (node, pair, _, tag, flags), at in zip(
+            edges, offsets[len(faces) :], strict=True
+        )
     )
     data = head + body + b"".join(items) + extra
     return struct.pack("<I", 4 + len(data)) + data

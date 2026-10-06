@@ -1,6 +1,6 @@
 # Supported capabilities
 
-icadkit 0.3.5 is an experimental reader for selected iCAD SX ICD structures and
+icadkit 0.3.6 is an experimental reader for selected iCAD SX ICD structures and
 embedded Parasolid X_B resources. Support follows the actual record layout and
 exact schema key, not a product-version label alone.
 
@@ -51,8 +51,9 @@ extrusions, extrusions whose profile has straight and circular segments,
 revolved profiles, and negative heights in qualified boxes and cylinders.
 Holes, tapers, partial revolutions and other layouts remain unsupported.
 
-With the `preview` extra, [V7L7 CSG](csg.md) evaluates bounded box/cylinder
-programs, while [saved final bodies](saved-bodies.md) place qualified V7L6/V7L7/V8L1/V8L2/V8L3
+With the `preview` extra, [V7L7 CSG](csg.md) evaluates bounded programs of
+boxes, cylinders, convex six-vertex prisms and line/arc profile extrusions,
+while [saved final bodies](saved-bodies.md) place qualified V7L6/V7L7/V8L1/V8L2/V8L3
 solids through explicit resource bindings; V7L2–V7L5 bind the same way.
 V8 bodies bind through saved association records, not through the marker word
 that earlier source treated as a resource key. Saved spherical, conical and
@@ -108,8 +109,9 @@ TORUS (54) declaration, so qualified trimmed-torus/swept-arc resources no longer
 need an external catalog. Version 0.2.0 used core 0.3.0 and profile revision 1.
 An explicit compatible catalog remains authoritative.
 
-Version 0.3.5 uses the published `parasolid-core 0.3.5` registry crate. Its
-reviewed profiles support both raw parsing and B-Rep mapping.
+Version 0.3.6 uses the published `parasolid-core 0.3.6` registry crate, which
+keeps the profiles of 0.3.5 and adds the SPUN_SURF (68) mapping. Its reviewed
+profiles support both raw parsing and B-Rep mapping.
 The V34 profile is now `icad-sch34101-13006-r3` and the embedded V30 profile
 `icad-sch30000-13006-r6`: both admit further base types observed under their
 keys. The other exact keys are:
@@ -153,15 +155,20 @@ Every one of them has the same raw, B-Rep and topology status as the explicit
 catalog path: 33,836 complete source B-Reps, 66 partial due to unsupported
 SPUN_SURF (68) geometry, and 11 that fail B-Rep mapping in both paths, ten of
 them for an intersection curve with a limit kind the mapper does not accept.
+Version 0.3.6 uses `parasolid-core 0.3.6`, which maps SPUN_SURF: the same
+sample then has 33,902 complete source B-Reps and the same 11 failures.
 The other 30 are not covered: keys of schema revisions 8008 and 12103, six
 resources under the standard V30 key with a blend or offset type, and two that
 no catalog reads either. Base types beyond the shared subset, including
 OFFSET_SURF (60), are admitted only by the exact profiles that reviewed them.
 A trimmed curve on a line whose two parameters are stored as null is mapped
 from its stored end points; other unset parameters remain errors.
-SPUN_SURF parameters remain available as raw fields; a catalog does not make
-that geometry supported. `require_complete()` rejects these partial B-Reps,
-while `require_complete("raw_geometry")` succeeds.
+In version 0.3.5, SPUN_SURF parameters remain available as raw fields and a
+catalog does not make that geometry supported: `require_complete()` rejects
+these partial B-Reps, while `require_complete("raw_geometry")` succeeds. With
+`parasolid-core 0.3.6` the surface maps as `spun` (profile curve, spin axis,
+degeneracy points and parameters, x axis), and its [saved
+bodies](saved-bodies.md) convert within the adapter's limits.
 
 Profile IDs and hashes now come directly from parasolid-core. No schema key or
 provider provenance is rewritten, and no vendor catalog is bundled. These checks

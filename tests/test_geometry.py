@@ -211,7 +211,7 @@ def test_standard_exact_profile_qualifies_brep_without_catalog(geometry_doc, key
     "key",
     [b"SCH_1500245_15003_13006", b"SCH_1700256_16100_13006"],
 )
-def test_legacy_spun_surface_preserves_raw_but_requires_partial_brep(geometry_doc, key):
+def test_legacy_spun_surface_maps_its_profile_axis_and_degeneracies(geometry_doc, key):
     # Authored SPUN_SURF scalar order from the public XT reference, pp. 74-76.
     # This surface references the wire curve; no vendor fixture/catalog is used.
     record = (
@@ -228,7 +228,7 @@ def test_legacy_spun_surface_preserves_raw_but_requires_partial_brep(geometry_do
     doc = geometry_doc(payload)
     g = doc.read_geometry(doc.resources[0].resource_id)
     assert g.status.raw_geometry == g.status.topology == "complete"
-    assert g.status.brep == "partial" and not g.brep.complete
+    assert g.status.brep == "complete" and g.brep.complete
     assert g.raw.to_bytes() == payload and g.raw.node_count == 12
     assert g.raw.field_values(20, 7) == (11,)
     assert g.raw.field_values(20, 8) == ((2.0, 3.0, 4.0),)
@@ -238,12 +238,23 @@ def test_legacy_spun_surface_preserves_raw_but_requires_partial_brep(geometry_do
     surface = g.brep.entities("surfaces")[0]
     assert surface.source.node_type == 68
     assert surface.source.decoded_range == g.raw.node(20).decoded_range
-    assert surface.attributes["kind"] == "unsupported"
-    assert surface.attributes["type_name"] == "SPUN_SURF"
-    assert [d.code for d in g.diagnostics] == ["geometry.unsupported_surface"]
-    assert g.require_complete("raw_geometry") is g
-    with pytest.raises(ic.IncompleteGeometryError):
-        g.require_complete()
+    # parasolid-core 0.3.6 maps the spun surface: the profile curve, the spin
+    # axis, the degeneracy points with their parameters and the x axis. The
+    # internal scale field stays a raw value only.
+    attributes = surface.attributes
+    assert attributes["kind"] == "spun"
+    curves = g.brep.entities("curves")
+    assert len(curves) == 1 and attributes["profile"] == curves[0].id
+    assert list(attributes["base"]) == [2.0, 3.0, 4.0]
+    assert list(attributes["axis"]) == [0.0, 0.0, 1.0]
+    assert list(attributes["start"]) == [2.0, 3.0, 6.0]
+    assert list(attributes["end"]) == [2.0, 3.0, 9.0]
+    assert attributes["start_parameter"] == -0.25
+    assert attributes["end_parameter"] == 1.75
+    assert list(attributes["x_axis"]) == [1.0, 0.0, 0.0]
+    assert "scale" not in attributes
+    assert g.diagnostics == ()
+    assert g.require_complete() is g
 
 
 @pytest.mark.parametrize(

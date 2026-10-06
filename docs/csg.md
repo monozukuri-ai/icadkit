@@ -46,7 +46,17 @@ not interpret those feature operations.
   negative height moves the base along the axis; the frame stays rigid and the
   profile is used as saved. The operand is exposed as a `polygon_extrusion`
   primitive with `profile_points`. Other profiles are `csg.operand_layout`.
-- A single box/cylinder leaf with its explicit saved tree can also be evaluated.
+- Version 0.3.6 also accepts profile extrusion operands: the
+  variable-length line/arc layout of [native primitives](native.md), with a
+  frame, a signed height and a closed profile decoded by the same core rules as
+  a standalone record. A negative height moves the base along the axis, as for
+  prisms; the frame stays rigid and the saved profile is unchanged. The operand
+  is exposed as a `profile_extrusion` primitive with `profile`, and evaluation
+  sweeps the exact arcs. In the local sample these records occur as single-leaf
+  bodies: an owner whose only record is the extrusion and whose saved tree
+  names it. Mirrored leaves remain unsupported.
+- A single box, cylinder or profile-extrusion leaf with its explicit saved tree
+  can also be evaluated.
 - Explicit source identifiers, same-owner operands, tree/result binding and
   component backlinks are checked. Resource ordering and cached Parasolid streams
   are not used to infer body ownership.
@@ -63,7 +73,8 @@ unchanged: component records are not promoted to finished standalone primitives.
 it does not mean that all model entities have geometry. `model_status` stays
 `partial`, even when every candidate is evaluated.
 
-Negative box and cylinder heights, spheres/cones, profile extrusions, fillets, mirrors,
+Negative box and cylinder heights, sphere/cone/torus and revolution operands,
+fillets, mirrors,
 additional history/transformation opcodes, imported B-Rep markers, multiple trees
 per owner, unknown metadata layouts and automatic external-file loading remain
 unsupported. Empty or lower-dimensional boolean results are also unsupported.
@@ -103,4 +114,7 @@ and CSG diagnostics; the original saved-record diagnostics remain available.
 Qualification uses synthetic malformed programs and independent analytic checks,
 plus local saved/reopened SDK comparisons for boolean operations, repeated cuts,
 compound programs, disconnected results, transformed roots, held-out dimensions
-and final appearance. This does not establish general V7L7 compatibility.
+and final appearance. Single-leaf profile extrusions are compared with 21 saved
+SDK observations of volume, area and centroid, including one negative height;
+in the local sample all 125 nonmirrored leaves evaluate. This does not
+establish general V7L7 compatibility.

@@ -127,7 +127,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -152,7 +152,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "parasolid-kit", extras = ["occt"], marker = "extra == 'preview'", specifier = "==0.2.0" }]
+requires-dist = [{ name = "parasolid-kit", extras = ["occt"], marker = "extra == 'preview'", specifier = "==0.3.6" }]
 provides-extras = ["preview"]
 
 [package.metadata.requires-dev]
@@ -413,14 +413,14 @@ wheels = [
 
 [[package]]
 name = "parasolid-kit"
-version = "0.2.0"
+version = "0.3.6"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/50/13/3e6acfea40277685d3b50787096d5f71ae79b365b736ec1273dad2fdbb28/parasolid_kit-0.2.0.tar.gz", hash = "sha256:08e6346f3259e7fb5719f3381bda918c21ea1929c10738609a57cb601aa12b66", size = 1168801, upload-time = "2026-09-16T01:39:06.259Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/d4/d11ae2c3e98e3d95ec3643c8c95376d860d40637f10ed089ca6f6de0e0a2/parasolid_kit-0.3.6.tar.gz", hash = "sha256:ea6a397ca3fa68691586f2422b4d5cddab5a56e2acc4d76f7376fd473aa5603d", size = 1203227, upload-time = "2026-10-06T02:09:35.623Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/64/f84ff60906acac8bfa924b07b6d89582553ab9b8df09f06053e62e252056/parasolid_kit-0.2.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:bf3ac9d0f20c7a79f639cee1e159c21388d38a5e7d12e186f95b5027e93b5dc9", size = 1283296, upload-time = "2026-09-16T01:39:00.581Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/16/1f7ddd3a3dd11dd832248c1809895d131ec16a32983e8283eb8e572944c2/parasolid_kit-0.2.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:6ba58c033fa0af10b8766edd738005ca8ae333ef1ce4b255a7b69645a248c1c1", size = 1270450, upload-time = "2026-09-16T01:39:01.934Z" },
-    { url = "https://files.pythonhosted.org/packages/05/da/c92192d6472d7215b93e033ae45c478b837105f5dc6743fc288867d919fb/parasolid_kit-0.2.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f9deecccdf226518447530e3581c949dc52841eeb6728df4435c2c5ba7f7b99f", size = 1345980, upload-time = "2026-09-16T01:39:03.389Z" },
-    { url = "https://files.pythonhosted.org/packages/be/21/544f60183f225a347e7be011df0693716b3e93a67d7f827c94f59657316d/parasolid_kit-0.2.0-cp310-abi3-win_amd64.whl", hash = "sha256:7ebc976cefd8233e2c7472bc9319c4a6fb52337203922e2f510f46b33310e052", size = 1183479, upload-time = "2026-09-16T01:39:04.921Z" },
+    { url = "https://files.pythonhosted.org/packages/06/83/a3c2dd89981a684fde02092348c2122a9a0651a362cffbfa1af0cc08fd89/parasolid_kit-0.3.6-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:0ed2ff5cb0a954e950e14d5bcee52688372bec1c3036a5019222e7da0980fd60", size = 1304520, upload-time = "2026-10-06T02:09:29.274Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/c9/12813a9e720e693be0c4f68b838e95ba62807a56dc5152e815d3de23f8de/parasolid_kit-0.3.6-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:f21a916afcc9c988ebfc8ca30530d790079ec275300d34bdb3c345bd0f1bfae1", size = 1294224, upload-time = "2026-10-06T02:09:30.958Z" },
+    { url = "https://files.pythonhosted.org/packages/48/b2/c5ceb557432ea48a0ee4c22332968aec7c77c05def484e50676d7e79058d/parasolid_kit-0.3.6-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b845f9c0f1bfce7bd26c17ca6929ec37aeada430cd26b9f49d42e27d3f6a17da", size = 1372103, upload-time = "2026-10-06T02:09:32.54Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/78/1e4c6282490c79ac7a2dcbb2beee865e500b2cae82cff80ae07002010f72/parasolid_kit-0.3.6-cp310-abi3-win_amd64.whl", hash = "sha256:ec53eac0082337490b3e084f21cc2670e0b2e5fd3dfccccda3e0002f91e16b6d", size = 1207480, upload-time = "2026-10-06T02:09:34.074Z" },
 ]
 
 [package.optional-dependencies]

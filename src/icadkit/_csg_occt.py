@@ -15,8 +15,8 @@ from .parts import _frame
 
 def _runtime() -> dict[str, Any]:
     try:
-        if metadata.version("parasolid-kit") != "0.2.0":
-            _fail("csg.backend_version", "CSG evaluation requires parasolid-kit 0.2.0")
+        if metadata.version("parasolid-kit") != "0.3.6":
+            _fail("csg.backend_version", "CSG evaluation requires parasolid-kit 0.3.6")
         import_module("parasolid_kit.interop.occt").load_runtime()
     except IcadError:
         raise
@@ -89,6 +89,73 @@ def _check(shape: Any, limits: CsgLimits, api: dict[str, Any]) -> int:
     return solids
 
 
+def _profile_prism(
+    p: NativePrimitive, m: tuple[tuple[float, ...], ...], axes: Any, api: dict[str, Any]
+) -> Any:
+    """Extrude a closed line/arc profile; arcs are exact circles, not chords."""
+    if p.height is None or not p.profile:
+        _fail("csg.operand_dimensions", "Missing extrusion profile", category="invalid")
+    assert p.height is not None
+    gp = api["gp"]
+    builder = api["BRepBuilderAPI"]
+
+    def point(x: float, y: float) -> Any:
+        q = [m[i][0] * x + m[i][1] * y + m[i][3] for i in range(3)]
+        if not all(math.isfinite(v) for v in q):
+            _fail(
+                "csg.operand_frame", "Operand position overflowed", category="invalid"
+            )
+        return gp.gp_Pnt(*q)
+
+    wire = builder.BRepBuilderAPI_MakeWire()
+    for segment in p.profile or ():
+        if segment.kind == "line":
+            edge = builder.BRepBuilderAPI_MakeEdge(
+                point(*segment.start), point(*segment.end)
+            )
+        else:
+            if segment.center is None or segment.sweep_angle is None:
+                _fail(
+                    "csg.operand_dimensions",
+                    "Arc segment without centre or sweep",
+                    category="invalid",
+                )
+            assert segment.center is not None and segment.sweep_angle is not None
+            # A positive sweep turns from +X toward +Y about the frame Z axis;
+            # a negative one turns about the reversed axis.
+            normal = axes.Direction()
+            if segment.sweep_angle < 0:
+                normal = normal.Reversed()
+            circle = gp.gp_Circ(
+                gp.gp_Ax2(point(*segment.center), normal, axes.XDirection()),
+                math.dist(segment.start, segment.center),
+            )
+            if abs(abs(segment.sweep_angle) - math.tau) <= 1e-9:
+                edge = builder.BRepBuilderAPI_MakeEdge(circle)
+            else:
+                edge = builder.BRepBuilderAPI_MakeEdge(
+                    circle, point(*segment.start), point(*segment.end)
+                )
+        if not edge.IsDone():
+            _fail(
+                "csg.operand_dimensions",
+                "Invalid extrusion profile segment",
+                category="invalid",
+            )
+        wire.Add(edge.Edge())
+    if not wire.IsDone():
+        _fail(
+            "csg.operand_dimensions",
+            "Extrusion profile is not a connected wire",
+            category="invalid",
+        )
+    face = builder.BRepBuilderAPI_MakeFace(wire.Wire(), True)
+    if not face.IsDone():
+        _fail("csg.operand_dimensions", "Invalid extrusion profile", category="invalid")
+    sweep = gp.gp_Vec(*(m[i][2] * p.height for i in range(3)))
+    return api["BRepPrimAPI"].BRepPrimAPI_MakePrism(face.Face(), sweep).Shape()
+
+
 def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
     m = p.world_transform
     if (
@@ -140,6 +207,8 @@ def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
             _fail("csg.operand_dimensions", "Invalid prism profile", category="invalid")
         sweep = gp.gp_Vec(*(m[i][2] * p.height for i in range(3)))
         return api["BRepPrimAPI"].BRepPrimAPI_MakePrism(face.Face(), sweep).Shape()
+    if p.kind == "profile_extrusion":
+        return _profile_prism(p, m, axes, api)
     if p.kind == "box":
         dimensions = p.box_dimensions
         if dimensions is None or not all(

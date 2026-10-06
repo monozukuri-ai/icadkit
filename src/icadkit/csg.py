@@ -20,7 +20,7 @@ from .errors import (
     UnsupportedFormatError,
 )
 from .models import ByteRange, Diagnostic, ErrorCategory, Status
-from .native import NativeAppearance, NativePrimitive
+from .native import NativeAppearance, NativePrimitive, ProfileSegment
 from .parts import Part, PartIndex, PartLimits, _frame, _relative
 
 if TYPE_CHECKING:
@@ -204,15 +204,21 @@ def _operand(
     implicit: bool,
 ) -> CsgOperand:
     b = doc.source_bytes(span)
-    spec = {
-        75: (160, 0x56440088, "box"),
-        71: (136, 0x50440070, "cylinder"),
-        70: (224, 0x584400C8, "prism"),
-    }.get(b[15] if len(b) >= 16 else -1)
+    raw_type = b[15] if len(b) >= 16 else -1
+    spec: tuple[int, int, str] | None
+    if raw_type == 76 and len(b) >= 184 and (len(b) - 136) % 16 == 0 and b[27] == 0x59:
+        # The profile layout carries its own length in the marker word.
+        spec = (len(b), 0x59440000 | (len(b) - 24), "profile")
+    else:
+        spec = {
+            75: (160, 0x56440088, "box"),
+            71: (136, 0x50440070, "cylinder"),
+            70: (224, 0x584400C8, "prism"),
+        }.get(raw_type)
     if spec is None:
         _fail(
             "csg.operand_layout",
-            "CSG operand is not a qualified box, cylinder or prism",
+            "CSG operand is not a qualified box, cylinder, prism or profile extrusion",
             span.start,
         )
     assert spec is not None
@@ -235,9 +241,13 @@ def _operand(
         _fail(
             "csg.operand_layout", "Unqualified component header or mirror", span.start
         )
-    values = struct.unpack(f"<{(size - 48) // 8}d", b[48:])
+    numeric = b[48 : size - 8] if kind == "profile" else b[48:]
+    values = struct.unpack(f"<{len(numeric) // 8}d", numeric)
     frame = _frame(list(values[:9]))
-    if frame is None or not all(math.isfinite(v) for v in values):
+    # A profile validates its own elements: the second value of a sweep element
+    # is arbitrary in saved files.
+    checked = values[:10] if kind == "profile" else values
+    if frame is None or not all(math.isfinite(v) for v in checked):
         _fail(
             "csg.operand_frame",
             "Nonfinite or non-rigid component frame",
@@ -255,6 +265,8 @@ def _operand(
         )
     assert world is not None
     p = values[9:]
+    if kind == "profile":
+        return CsgOperand(_word(b, 16), entity_id, _profile(doc, world, span, b[48:]))
     if kind == "prism":
         return CsgOperand(_word(b, 16), entity_id, _prism(world, p, span, b[48:]))
     height = p[0] if kind == "box" else p[1]
@@ -329,16 +341,7 @@ def _prism(
             span.start + 128,
         )
     if signed < 0:
-        world = tuple((*row[:3], row[3] + signed * row[2]) for row in world[:3]) + (
-            world[3],
-        )
-        if not all(math.isfinite(row[3]) for row in world):
-            _fail(
-                "csg.operand_frame",
-                "Component global frame overflowed",
-                span.start + 48,
-                "invalid",
-            )
+        world = _moved_base(world, signed, span)
     return NativePrimitive(
         "polygon_extrusion",
         world,
@@ -349,6 +352,74 @@ def _prism(
         ByteRange(span.start + 48, span.end),
         raw,
         profile_points=points,
+    )
+
+
+def _moved_base(
+    world: tuple[tuple[float, ...], ...], signed: float, span: ByteRange
+) -> tuple[tuple[float, ...], ...]:
+    # A negative height moves the base along the frame axis instead of
+    # reversing it: the frame stays rigid and the saved profile is unchanged.
+    moved = tuple((*row[:3], row[3] + signed * row[2]) for row in world[:3]) + (
+        world[3],
+    )
+    if not all(math.isfinite(row[3]) for row in moved):
+        _fail(
+            "csg.operand_frame",
+            "Component global frame overflowed",
+            span.start + 48,
+            "invalid",
+        )
+    return moved
+
+
+def _profile(
+    doc: Document,
+    world: tuple[tuple[float, ...], ...],
+    span: ByteRange,
+    raw: bytes,
+) -> NativePrimitive:
+    # The closed line/arc profile is validated by the same core decoder as a
+    # standalone extrusion; only the component header differs.
+    record = doc._handle.read_component(span.start, span.end)
+    primitive = record["primitive"]
+    if primitive is None:
+        # The geometry diagnostic is the last one; a zero palette index only
+        # concerns appearance, which the CSG result reports separately.
+        issues = [d for d in record["diagnostics"] if d["code"] != "native.color"]
+        issue = issues[-1] if issues else None
+        invalid = record["geometry_status"] == "invalid"
+        _fail(
+            "csg.operand_dimensions" if invalid else "csg.operand_layout",
+            issue["message"] if issue else "Unqualified profile extrusion component",
+            issue["byte_offset"] if issue else span.start,
+            "invalid" if invalid else "unsupported",
+        )
+    assert primitive is not None
+    p = primitive["parameters"]
+    signed = p[0]
+    segments = tuple(
+        ProfileSegment(
+            "arc" if p[i + 6] else "line",
+            (p[i], p[i + 1]),
+            (p[i + 2], p[i + 3]),
+            (p[i + 4], p[i + 5]) if p[i + 6] else None,
+            p[i + 6] or None,
+        )
+        for i in range(1, len(p), 7)
+    )
+    if signed < 0:
+        world = _moved_base(world, signed, span)
+    return NativePrimitive(
+        "profile_extrusion",
+        world,
+        abs(signed),
+        None,
+        None,
+        None,
+        ByteRange(span.start + 48, span.end),
+        raw,
+        profile=segments,
     )
 
 

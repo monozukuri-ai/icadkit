@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 from part_fixtures import ROOT, A, B, part, view_parts
 from test_native import native
+from test_profile_shapes import SLOT, SLOT_ARCS, SLOT_AREA, SLOT_PERIMETER
 
 import icadkit
 from icadkit.cli import main
@@ -60,6 +61,46 @@ def prism(
         height,
         *(v for q in points for v in q),
     )
+    return bytes(b)
+
+
+def extrusion(
+    sid,
+    elements=None,
+    arcs=None,
+    *,
+    height=13.0,
+    flags=0x100E1,
+    linked=False,
+    origin=(0, 0, 0),
+    tag=0x59,
+):
+    """Profile component: frame, signed height, XY elements and a flag trailer."""
+    if elements is None:
+        elements = SLOT
+    if arcs is None:
+        arcs = SLOT_ARCS
+    b = bytearray(136 + 16 * len(elements))
+    struct.pack_into(
+        "<7I",
+        b,
+        0,
+        len(b),
+        1,
+        0,
+        76 << 24 | flags,
+        sid,
+        0,
+        tag << 24 | 0x440000 | (len(b) - 24),
+    )
+    struct.pack_into("<I", b, 32, RESULT if linked else 0)
+    struct.pack_into("<I", b, 40, 0x180)
+    flat = [v for element in elements for v in element]
+    struct.pack_into(
+        f"<{10 + len(flat)}d", b, 48, *origin, 0, 0, 1, 1, 0, 0, height, *flat
+    )
+    for i in arcs or ():
+        b[len(b) - 8 + i // 8] |= 0x80 >> (i % 8)
     return bytes(b)
 
 
@@ -456,6 +497,105 @@ def test_prism_with_through_hole_has_independent_mass(height, reverse):
     )
     assert mesh.centroid_mm == pytest.approx((4, -3, 2 + height / 2))
     assert mesh.solid_count == 1
+
+
+@pytest.mark.parametrize("height", [13.0, -13.0])
+def test_single_leaf_profile_extrusion_keeps_segments_and_moves_base(height):
+    record = extrusion(LEFT, height=height, origin=(4, -3, 2))
+    b = body(tokens=(LEFT,), operands=[record], marker=b"")
+    assert b.status == "complete" and not b.diagnostics
+    assert b.operands[0].entity_id == b.body_id
+    p = b.operands[0].primitive
+    assert p.kind == "profile_extrusion" and p.height == 13
+    assert [s.kind for s in p.profile] == ["line", "arc", "line", "arc"]
+    assert p.profile[0].start == (13, 5) and p.profile[0].end == (13, 15)
+    assert p.profile[1].center == (10, 15)
+    assert p.profile[1].sweep_angle == pytest.approx(math.pi)
+    assert p.profile[1].end == pytest.approx((7, 15))
+    assert p.profile[3].end == pytest.approx((13, 5))
+    # The root sits at the origin; only the base moves, and no axis is reversed.
+    assert [row[3] for row in p.world_transform[:3]] == [4, -3, 2 + min(height, 0)]
+    assert [row[:3] for row in p.world_transform[:3]] == [
+        (1, 0, 0),
+        (0, 1, 0),
+        (0, 0, 1),
+    ]
+    assert p.raw_bytes == record[48:]
+    assert p.profile_points is None and p.radius is None and p.x_bounds is None
+    assert p.mirror_convention is None
+
+
+# The same slot traced clockwise, closed by an explicit final vertex.
+CLOCKWISE_SLOT = [
+    (13, 5),
+    (10, 5),
+    (-math.pi, 0),
+    (7, 15),
+    (10, 15),
+    (-math.pi, 0),
+    (13, 5),
+]
+
+
+@pytest.mark.parametrize("height", [13.0, -13.0])
+@pytest.mark.parametrize(
+    "elements,arcs", [(SLOT, SLOT_ARCS), (CLOCKWISE_SLOT, (1, 2, 4, 5))]
+)
+def test_single_leaf_profile_extrusion_mass_and_root_frame(height, elements, arcs):
+    runtime()
+    record = extrusion(LEFT, elements, arcs, height=height, origin=(4, -3, 2))
+    b = body(tokens=(LEFT,), operands=[record], marker=b"", root_position=(13, -17, 19))
+    mesh = icadkit.evaluate_csg(b)
+    assert mesh.volume_mm3 == pytest.approx(SLOT_AREA * 13)
+    assert mesh.area_mm2 == pytest.approx(2 * SLOT_AREA + SLOT_PERIMETER * 13)
+    assert mesh.centroid_mm == pytest.approx((1, 24, -17 + height / 2))
+    assert mesh.solid_count == 1
+
+
+def test_profile_disc_component_cuts_a_through_hole():
+    runtime()
+    disc = extrusion(
+        RIGHT,
+        [(8, 5), (5, 5), (math.tau, 0)],
+        (1, 2),
+        height=14,
+        origin=(0, 0, -2),
+        flags=0x101E1,
+    )
+    mesh = icadkit.evaluate_csg(body(operands=[component(LEFT, linked=True), disc]))
+    assert mesh.volume_mm3 == pytest.approx(1000 - 90 * math.pi)
+    assert mesh.area_mm2 == pytest.approx(600 + 42 * math.pi)
+    assert mesh.centroid_mm == pytest.approx((5, 5, 5))
+
+
+@pytest.mark.parametrize(
+    "change,status,code",
+    [
+        ({"height": 0.0}, "invalid", "csg.operand_dimensions"),
+        ({"height": math.nan}, "invalid", "csg.operand_frame"),
+        # An open profile, a nonfinite vertex and a flagged first element.
+        (
+            {"elements": [(0, 0), (10, 0), (10, 5), (0, 5)], "arcs": ()},
+            "invalid",
+            "csg.operand_dimensions",
+        ),
+        (
+            {"elements": [(0, 0), (10, math.inf), (10, 5), (0, 0)], "arcs": ()},
+            "invalid",
+            "csg.operand_dimensions",
+        ),
+        ({"arcs": (0, 1, 2, 3, 5, 6)}, "unsupported", "csg.operand_layout"),
+        # Mirror, standalone and explicit-component headers are not a leaf.
+        ({"flags": 0x110E1}, "unsupported", "csg.operand_layout"),
+        ({"flags": 0x100C1}, "unsupported", "csg.operand_layout"),
+        ({"flags": 0x101E1}, "unsupported", "csg.operand_layout"),
+        ({"tag": 0x5A}, "unsupported", "csg.operand_layout"),
+    ],
+)
+def test_profile_operand_guards(change, status, code):
+    b = body(tokens=(LEFT,), operands=[extrusion(LEFT, **change)], marker=b"")
+    assert b.status == status and not b.operands
+    assert b.diagnostics[0].code == code
 
 
 def test_checkpoint_disjoint_empty_and_limits():

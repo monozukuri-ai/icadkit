@@ -69,7 +69,7 @@ def wheel(path):
         require(metadata["Requires-Python"] == ">=3.10", "Python range changed")
         require(
             metadata.get_all("Requires-Dist")
-            == ["parasolid-kit[occt]==0.2.0 ; extra == 'preview'"],
+            == ["parasolid-kit[occt]==0.3.6 ; extra == 'preview'"],
             "unexpected base or optional runtime dependency",
         )
         require(
@@ -265,16 +265,16 @@ def sdist(path):
         lock = tomllib.loads(read("Cargo.lock").decode())
         dep = next(p for p in lock["package"] if p["name"] == "parasolid-core")
         require(
-            dep["version"] == "0.3.5" and dep["source"].startswith("registry+"),
-            "backend must be registry 0.3.5",
+            dep["version"] == "0.3.6" and dep["source"].startswith("registry+"),
+            "backend must be registry 0.3.6",
         )
         manifest = tomllib.loads(read("Cargo.toml").decode())
         require(
-            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.3.5",
+            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.3.6",
             "backend manifest pin changed",
         )
         require(
-            b'PARASOLID_CORE_VERSION: &str = "0.3.5"'
+            b'PARASOLID_CORE_VERSION: &str = "0.3.6"'
             in read("crates/icad-core/src/lib.rs"),
             "reported backend version changed",
         )

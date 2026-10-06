@@ -144,6 +144,153 @@ def test_tables_expose_identity_adjacency_and_parameter_boxes(document_factory, 
         result.faces[0].index = 2
 
 
+def floats(*values):
+    return struct.pack(f"<{len(values)}f", *values)
+
+
+BOX = (0, 0, 1, 1)
+# Authored items: aligned layouts code the axes in the entry tag bytes
+# (0..2 = +x/+y/+z, 4..6 = -x/-y/-z); general layouts store the vectors.
+ITEM_FACES = [
+    (1, 1, BOX, floats(10, 15, 23), (0x10, 0, 2, 0)),
+    (2, 1, BOX, floats(1, 2, 3, 0, 0.6, 0.8, 1, 0, 0), (0x00, 0, 0, 0)),
+    (3, 2, BOX, floats(-1.5, 2.5, -6, 6), (0x12, 0, 2, 0)),
+    (4, 2, BOX, floats(10, -40, -165, -1, 0, 0, 0, 0.6, -0.8, 27.5), (0x02, 0, 0, 0)),
+    (5, 3, BOX, floats(0, 5.5, 0, 4, 1.75), (0x16, 0, 6, 0)),
+    (6, 4, BOX, floats(1, 2, 3, 7, 7), (0x18, 0, 2, 0)),
+    (7, 5, BOX, floats(0, 0, 0, 19, 4), (0x10, 0, 2, 0)),
+    (
+        8,
+        5,
+        BOX,
+        floats(-13, -32, 0, 0, 0, -1, -0.8, -0.6, 0, 32.5, 25.25),
+        (0x06, 0, 0, 0),
+    ),
+]
+ITEM_EDGES = [
+    (21, (1, 2), floats(-23, 30, 40), (0x10, 0, 5, 0), (1, 1, 0, 2)),
+    (22, (2, 1), floats(0, 20, -0.6, -0.8, 20.5), (0x00, 0, 0, 0), (1, 1, 2, 0)),
+    (23, (3, 4), floats(3.1416, 6, 1.5708), (0x12, 0, 4, 0), (1, 3, 0, 2)),
+]
+
+
+def test_qualified_items_decode_surfaces_and_parameter_lines(document_factory):
+    data = payload(faces=ITEM_FACES, edges=ITEM_EDGES, extra=b"")
+    doc = document(document_factory, trailer([view("3DGLOBAL", [block(A, data)])]))
+    result = doc.read_trailer_block(doc.read_trailer().blocks[0].block_id)
+    assert result.status == "partial"
+    surfaces = [f.surface for f in result.faces]
+    assert [s.kind for s in surfaces] == ["plane"] * 2 + ["cylinder"] * 2 + [
+        "cone",
+        "sphere",
+        "torus",
+        "torus",
+    ]
+    assert surfaces[0] == icadkit.TrailerSurface(
+        "plane", (10, 15, 23), (0, 0, 1), (1, 0, 0)
+    )
+    assert surfaces[1].point == (1, 2, 3)
+    assert surfaces[1].axis == pytest.approx((0, 0.6, 0.8))
+    assert surfaces[1].x_axis == (1, 0, 0)
+    assert surfaces[2] == icadkit.TrailerSurface(
+        "cylinder", (-1.5, 2.5, -6), (0, 0, 1), (1, 0, 0), radius=6
+    )
+    assert surfaces[3].axis == (-1, 0, 0)
+    assert surfaces[3].x_axis == pytest.approx((0, 0.6, -0.8))
+    assert surfaces[3].radius == 27.5
+    assert surfaces[4] == icadkit.TrailerSurface(
+        "cone", (0, 5.5, 0), (0, 0, -1), (1, 0, 0), radius=4, half_angle_tangent=1.75
+    )
+    assert surfaces[5] == icadkit.TrailerSurface("sphere", (1, 2, 3), None, None, 7)
+    assert surfaces[6] == icadkit.TrailerSurface(
+        "torus", (0, 0, 0), (0, 0, 1), (1, 0, 0), major_radius=19, minor_radius=4
+    )
+    assert surfaces[7].axis == (0, 0, -1) and surfaces[7].major_radius == 32.5
+    assert surfaces[7].x_axis == pytest.approx((-0.8, -0.6, 0))
+    lines = [e.parameter_line for e in result.edges]
+    assert lines[0] == icadkit.TrailerParameterLine((-23, 30), (0, -1), 40)
+    assert lines[1].start == (0, 20) and lines[1].extent == 20.5
+    assert lines[1].direction == pytest.approx((-0.6, -0.8))
+    assert lines[2].start == pytest.approx((3.1416, 6))
+    assert lines[2].direction == (-1, 0) and lines[2].extent == pytest.approx(1.5708)
+    # Raw entry bytes and items stay available next to the decoded values.
+    assert result.faces[0].raw_bytes[:4] == bytes((0x10, 0, 2, 0))
+    assert data[result.faces[0].item_offset :][:12] == floats(10, 15, 23)
+
+
+@pytest.mark.parametrize(
+    "face",
+    [
+        (1, 1, BOX, floats(10, 15, 23), (0x10, 0, 3, 0)),  # no such axis code
+        (1, 1, BOX, floats(10, 15, 23), (0x10, 0, 2, 2)),  # axes not perpendicular
+        (1, 1, BOX, floats(10, 15, 23, 0), (0x10, 0, 2, 0)),  # wrong item size
+        (1, 1, BOX, floats(1, 2, 3, 0, 0.6, 0.9, 1, 0, 0), (0x00, 0, 0, 0)),  # not unit
+        (3, 2, BOX, floats(0, 0, 0, -6), (0x12, 0, 2, 0)),  # negative radius
+        (5, 3, BOX, floats(0, 5.5, 0, 4, -1.75), (0x16, 0, 6, 0)),  # negative tangent
+        (6, 4, BOX, floats(1, 2, 3, 7, 8), (0x18, 0, 2, 0)),  # radii disagree
+        (7, 5, BOX, floats(0, 0, 0, 19, 0), (0x10, 0, 2, 0)),  # zero minor radius
+        (9, 10, BOX, floats(0, 0, 0), (0x20, 0, 0, 0)),  # free-form code
+        (1, 1, BOX, floats(float("nan"), 15, 23), (0x10, 0, 2, 0)),  # nonfinite
+    ],
+)
+def test_unqualified_surface_items_stay_raw(document_factory, face):
+    data = payload(faces=[face], extra=b"")
+    doc = document(document_factory, trailer([view("3DGLOBAL", [block(A, data)])]))
+    result = doc.read_trailer_block(doc.read_trailer().blocks[0].block_id)
+    assert result.status == "partial"
+    assert result.faces[0].surface is None
+    assert result.faces[0].surface_code == face[1]
+
+
+@pytest.mark.parametrize(
+    "edge",
+    [
+        (
+            21,
+            (1, 0),
+            floats(-23, 30, 40),
+            (0x10, 0, 5, 0),
+            (3, 1, 0, 2),
+        ),  # curved image
+        (
+            21,
+            (1, 0),
+            floats(-23, 30, 40),
+            (0x30, 0, 5, 0),
+            (1, 1, 0, 2),
+        ),  # other family
+        (
+            21,
+            (0, 1),
+            floats(-23, 30, 40),
+            (0x10, 0, 5, 0),
+            (1, 1, 0, 2),
+        ),  # no first face
+        (21, (1, 0), floats(-23, 30, 40), (0x10, 0, 2, 0), (1, 1, 0, 2)),  # no 2D code
+        (21, (1, 0), floats(-23, 30, 0), (0x10, 0, 5, 0), (1, 1, 0, 2)),  # zero extent
+        (21, (1, 0), floats(0, 20, -0.6, -0.9, 20.5), (0x00, 0, 0, 0), (1, 1, 2, 0)),
+        (21, (1, 0), floats(0, 20, -0.6, -0.8), (0x00, 0, 0, 0), (1, 1, 2, 0)),  # size
+    ],
+)
+def test_unqualified_edge_items_stay_raw(document_factory, edge):
+    data = payload(faces=ITEM_FACES[:1], edges=[edge], extra=b"")
+    doc = document(document_factory, trailer([view("3DGLOBAL", [block(A, data)])]))
+    result = doc.read_trailer_block(doc.read_trailer().blocks[0].block_id)
+    assert result.status == "partial"
+    assert result.edges[0].parameter_line is None
+    assert result.faces[0].surface is not None
+
+
+def test_edge_items_on_other_first_faces_stay_raw(document_factory):
+    cone = ITEM_FACES[4]
+    edge = (21, (1, 0), floats(0, 3.9, 0.72), (0x10, 0, 1, 0), (1, 1, 0, 2))
+    data = payload(faces=[cone], edges=[edge], extra=b"")
+    doc = document(document_factory, trailer([view("3DGLOBAL", [block(A, data)])]))
+    result = doc.read_trailer_block(doc.read_trailer().blocks[0].block_id)
+    assert result.faces[0].surface.kind == "cone"
+    assert result.edges[0].parameter_line is None
+
+
 @pytest.mark.parametrize(
     "box",
     [(1, 0, 0, 1), (0, 1, 1, 0), (0, 0, float("nan"), 1), (float("-inf"), 0, 1, 1)],

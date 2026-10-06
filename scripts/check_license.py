@@ -21,7 +21,7 @@ PINNED_TEXTS = {
         "f6e2a77034e7fd3c2d82b44600b45bf362d6c9b941299d696a7e234525979291"
     ),
     "LICENSES/rust-dependencies.txt": (
-        "d2203723c28df9396658de151cd52ef6945a3d1e6ebd74b53c662c48682a84a4"
+        "154c07b0ceec2c410d57e5ed2cb3e1f22a32d897a0cff0b392b883ab4d4f1275"
     ),
 }
 LICENSE_PATHS = (

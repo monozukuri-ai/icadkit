@@ -305,6 +305,25 @@ fn surfacekind(py: Python<'_>, d: &Bound<'_, PyDict>, kind: &SurfaceKind) -> PyR
             d.set_item("basis_surface", basis_surface)?;
             d.set_item("offset", offset)?;
         }
+        SurfaceKind::Spun {
+            profile,
+            base,
+            axis,
+            start,
+            end,
+            start_parameter,
+            end_parameter,
+            x_axis,
+        } => {
+            d.set_item("profile", profile)?;
+            d.set_item("base", base.to_array())?;
+            d.set_item("axis", axis.to_array())?;
+            d.set_item("start", start.as_ref().map(|v| v.to_array()))?;
+            d.set_item("end", end.as_ref().map(|v| v.to_array()))?;
+            d.set_item("start_parameter", *start_parameter)?;
+            d.set_item("end_parameter", *end_parameter)?;
+            d.set_item("x_axis", x_axis.as_ref().map(|v| v.to_array()))?;
+        }
         SurfaceKind::Unsupported { type_name } => {
             d.set_item("type_name", type_name)?;
         }

@@ -628,6 +628,57 @@ def test_vertex_loops_off_the_apex_or_on_other_surfaces_stay_unqualified():
         _preflight(replace(model, faces=(model.faces[0], lone)), limits)
 
 
+def test_spun_face_closes_at_its_axis_end_with_one_degenerated_boundary():
+    backend()
+    from saved_fixtures import spun_dome_model
+
+    mesh, operations = _solid(spun_dome_model())
+    # A dome of radius 6 mm: half a sphere on a disc.
+    assert mesh.volume_mm3 == pytest.approx(2 * math.pi * 216 / 3, rel=1e-6)
+    assert mesh.area_mm2 == pytest.approx(3 * math.pi * 36, rel=1e-6)
+    assert mesh.centroid_mm == pytest.approx((0, 0, 2.25), abs=1e-6)
+    assert "degenerated_spun_axis_boundary" in operations
+    assert "degenerated_cone_apex_boundary" not in operations
+
+
+def test_spun_vertex_loops_off_the_axis_or_the_profile_ends_stay_unqualified():
+    backend()
+    from dataclasses import replace
+
+    from parasolid_kit.brep.topology import Vector3
+    from saved_fixtures import spun_dome_model
+
+    from icadkit._saved_occt import _preflight
+
+    limits = icadkit.SavedBodyLimits()
+    # A vertex loop on a planar face is never a degeneracy.
+    with pytest.raises(icadkit.UnsupportedFormatError, match="saved.half_edge"):
+        _preflight(spun_dome_model(planar=True), limits)
+    # Off the axis, or on the axis but not at an end of the profile.
+    for pole in (Vector3(0.001, 0.0, 0.006), Vector3(0.0, 0.0, 0.004)):
+        with pytest.raises(icadkit.UnsupportedFormatError, match="saved.half_edge"):
+            _solid(spun_dome_model(pole=pole))
+    # Two vertex loops are admitted on a spun face (one per profile end),
+    # never a third.
+    model = spun_dome_model()
+    extra_loops = tuple(replace(model.loops[2], id=i, half_edges=(i,)) for i in (3, 4))
+    extra_fins = tuple(
+        replace(model.half_edges[2], id=i, loop=i, forward=i, backward=i)
+        for i in (3, 4)
+    )
+    face = replace(model.faces[1], loops=(1, 2, 3, 4))
+    with pytest.raises(icadkit.UnsupportedFormatError, match="saved.half_edge"):
+        _preflight(
+            replace(
+                model,
+                faces=(model.faces[0], face),
+                loops=(*model.loops, *extra_loops),
+                half_edges=(*model.half_edges, *extra_fins),
+            ),
+            limits,
+        )
+
+
 def test_bridge_maps_ellipse_and_intersection_for_saved_bodies_only():
     backend()
     from types import SimpleNamespace

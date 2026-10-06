@@ -101,14 +101,26 @@ class RawTrailerIndex(TypedDict):
     opaque_ranges: list[tuple[int, int]]
     diagnostics: list[RawDiagnostic]
 
+class RawTrailerSurface(TypedDict):
+    kind: Literal["plane", "cylinder", "cone", "sphere", "torus"]
+    point: list[float]
+    axis: list[float] | None
+    x_axis: list[float] | None
+    radius: float | None
+    half_angle_tangent: float | None
+    major_radius: float | None
+    minor_radius: float | None
+
 class RawTrailerBlock(TypedDict):
     source_id: int
     payload: bytes
     payload_sha256: str
     raw_kind: int | None
     bounds: list[float] | None
-    faces: list[tuple[int, int, list[float] | None, int, int]]
-    edges: list[tuple[int, list[int], int, int]]
+    faces: list[tuple[int, int, list[float] | None, int, int, RawTrailerSurface | None]]
+    edges: list[
+        tuple[int, list[int], int, int, tuple[list[float], list[float], float] | None]
+    ]
     status: Status
     diagnostics: list[RawDiagnostic]
 
@@ -119,6 +131,7 @@ class DocumentHandle:
         self, block_start: int, policy: tuple[int, int]
     ) -> RawTrailerBlock: ...
     def read_parts(self, policy: tuple[int, int, int, int]) -> RawPartIndex: ...
+    def read_component(self, start: int, end: int) -> RawNativeEntity: ...
     def read_geometry(
         self,
         resource_id: str,

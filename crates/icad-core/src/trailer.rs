@@ -76,6 +76,27 @@ pub struct TrailerFace {
     pub parameter_bounds: Option<[f32; 4]>,
     pub entry_offset: u32,
     pub item_offset: u32,
+    pub surface: Option<TrailerSurface>,
+}
+
+/// Surface parameters stored in a face entry's item, in the entity's local
+/// frame and millimetres. `kind` is "plane", "cylinder", "cone", "sphere" or
+/// "torus". `point` lies on a plane, on the axis of a cylinder or cone, or at
+/// the centre of a sphere or torus. `axis` is the plane normal or the axis of a
+/// cylinder, cone or torus and is absent for a sphere. A cone's stored axis is
+/// the direction along which its radius grows, opposite to the axis of the
+/// saved CONE node, and `half_angle_tangent` is positive. A torus axis equals
+/// the saved axis or its reverse, which describe the same surface.
+#[derive(Debug, Clone)]
+pub struct TrailerSurface {
+    pub kind: &'static str,
+    pub point: [f32; 3],
+    pub axis: Option<[f32; 3]>,
+    pub x_axis: Option<[f32; 3]>,
+    pub radius: Option<f32>,
+    pub half_angle_tangent: Option<f32>,
+    pub major_radius: Option<f32>,
+    pub minor_radius: Option<f32>,
 }
 
 /// One 24-byte edge entry of a block. `faces` are one-based face entry
@@ -87,6 +108,249 @@ pub struct TrailerEdge {
     pub faces: [u16; 2],
     pub entry_offset: u32,
     pub item_offset: u32,
+    pub parameter_line: Option<TrailerParameterLine>,
+}
+
+/// The image of an edge entry in the parameters of its first adjacent face
+/// entry, a plane or a cylinder, when that image is a straight segment: it
+/// runs from `start` to `start + extent * direction`. For a line on a plane
+/// `extent` is a length in millimetres; for a circle on a cylinder it is the
+/// swept angle and the direction follows the angular parameter.
+#[derive(Debug, Clone)]
+pub struct TrailerParameterLine {
+    pub start: [f32; 2],
+    pub direction: [f32; 2],
+    pub extent: f32,
+}
+
+fn axis_code(code: u8) -> Option<[f32; 3]> {
+    match code {
+        0 => Some([1.0, 0.0, 0.0]),
+        1 => Some([0.0, 1.0, 0.0]),
+        2 => Some([0.0, 0.0, 1.0]),
+        4 => Some([-1.0, 0.0, 0.0]),
+        5 => Some([0.0, -1.0, 0.0]),
+        6 => Some([0.0, 0.0, -1.0]),
+        _ => None,
+    }
+}
+
+fn direction_code(code: u8) -> Option<[f32; 2]> {
+    match code {
+        0 => Some([1.0, 0.0]),
+        1 => Some([0.0, 1.0]),
+        4 => Some([-1.0, 0.0]),
+        5 => Some([0.0, -1.0]),
+        _ => None,
+    }
+}
+
+/// Finite single-precision values of an item of exactly `count` floats.
+fn item_floats(payload: &[u8], at: usize, size: usize, count: usize) -> Option<Vec<f32>> {
+    if size != 4 * count || at + size > payload.len() {
+        return None;
+    }
+    let values: Vec<f32> = (0..count)
+        .map(|i| f32::from_bits(word(payload, at + 4 * i)))
+        .collect();
+    values.iter().all(|v| v.is_finite()).then_some(values)
+}
+
+fn vector(values: &[f32], at: usize) -> [f32; 3] {
+    [values[at], values[at + 1], values[at + 2]]
+}
+
+/// Two stored single-precision unit vectors that are perpendicular.
+fn frame_ok(axis: [f32; 3], x_axis: [f32; 3]) -> bool {
+    let dot = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
+    (dot(axis, axis) - 1.0).abs() <= 1e-3
+        && (dot(x_axis, x_axis) - 1.0).abs() <= 1e-3
+        && dot(axis, x_axis).abs() <= 1e-3
+}
+
+/// Decode the surface item of a face entry at `entry` with the item at
+/// `at..at + size`. Aligned layouts (tag bit 0x10) code the axes in the entry.
+fn surface_item(payload: &[u8], entry: usize, at: usize, size: usize) -> Option<TrailerSurface> {
+    let code = payload[entry + 10];
+    let aligned = payload[entry] & 0x10 != 0;
+    let codes = || {
+        Some((
+            axis_code(payload[entry + 2])?,
+            axis_code(payload[entry + 3])?,
+        ))
+    };
+    let positive = |v: f32| v > 0.0;
+    let (kind, point, axis, x_axis, radius, tangent, major, minor) = match (code, aligned, size) {
+        (1, true, 12) => {
+            let f = item_floats(payload, at, size, 3)?;
+            let (axis, x_axis) = codes()?;
+            ("plane", vector(&f, 0), axis, x_axis, None, None, None, None)
+        }
+        (1, false, 36) => {
+            let f = item_floats(payload, at, size, 9)?;
+            (
+                "plane",
+                vector(&f, 0),
+                vector(&f, 3),
+                vector(&f, 6),
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        (2, true, 16) => {
+            let f = item_floats(payload, at, size, 4)?;
+            let (axis, x_axis) = codes()?;
+            (
+                "cylinder",
+                vector(&f, 0),
+                axis,
+                x_axis,
+                Some(f[3]).filter(|v| positive(*v)),
+                None,
+                None,
+                None,
+            )
+        }
+        (2, false, 40) => {
+            let f = item_floats(payload, at, size, 10)?;
+            (
+                "cylinder",
+                vector(&f, 0),
+                vector(&f, 3),
+                vector(&f, 6),
+                Some(f[9]).filter(|v| positive(*v)),
+                None,
+                None,
+                None,
+            )
+        }
+        (3, true, 20) => {
+            let f = item_floats(payload, at, size, 5)?;
+            let (axis, x_axis) = codes()?;
+            (
+                "cone",
+                vector(&f, 0),
+                axis,
+                x_axis,
+                Some(f[3]).filter(|v| *v >= 0.0),
+                Some(f[4]).filter(|v| positive(*v)),
+                None,
+                None,
+            )
+        }
+        (3, false, 44) => {
+            let f = item_floats(payload, at, size, 11)?;
+            (
+                "cone",
+                vector(&f, 0),
+                vector(&f, 3),
+                vector(&f, 6),
+                Some(f[9]).filter(|v| *v >= 0.0),
+                Some(f[10]).filter(|v| positive(*v)),
+                None,
+                None,
+            )
+        }
+        (4, _, 20) => {
+            let f = item_floats(payload, at, size, 5)?;
+            if (f[3] - f[4]).abs() > 1e-3 * f[3].abs().max(1.0) {
+                return None;
+            }
+            let radius = Some(f[3]).filter(|v| positive(*v))?;
+            return Some(TrailerSurface {
+                kind: "sphere",
+                point: vector(&f, 0),
+                axis: None,
+                x_axis: None,
+                radius: Some(radius),
+                half_angle_tangent: None,
+                major_radius: None,
+                minor_radius: None,
+            });
+        }
+        (5, true, 20) => {
+            let f = item_floats(payload, at, size, 5)?;
+            let (axis, x_axis) = codes()?;
+            (
+                "torus",
+                vector(&f, 0),
+                axis,
+                x_axis,
+                None,
+                None,
+                Some(f[3]),
+                Some(f[4]).filter(|v| positive(*v)),
+            )
+        }
+        (5, false, 44) => {
+            let f = item_floats(payload, at, size, 11)?;
+            (
+                "torus",
+                vector(&f, 0),
+                vector(&f, 3),
+                vector(&f, 6),
+                None,
+                None,
+                Some(f[9]),
+                Some(f[10]).filter(|v| positive(*v)),
+            )
+        }
+        _ => return None,
+    };
+    if !frame_ok(axis, x_axis) {
+        return None;
+    }
+    let complete = match kind {
+        "plane" => true,
+        "cylinder" => radius.is_some(),
+        "cone" => radius.is_some() && tangent.is_some(),
+        _ => minor.is_some(),
+    };
+    complete.then_some(TrailerSurface {
+        kind,
+        point,
+        axis: Some(axis),
+        x_axis: Some(x_axis),
+        radius,
+        half_angle_tangent: tangent,
+        major_radius: major,
+        minor_radius: minor,
+    })
+}
+
+/// Decode the item of an edge entry whose image in its first face entry is
+/// straight (flag byte 1 at `+16`, tag families 0x0x and 0x1x). Only planar
+/// and cylindrical first faces are qualified: their parameters are the ones
+/// the entry's box uses.
+fn parameter_line_item(
+    payload: &[u8],
+    entry: usize,
+    at: usize,
+    size: usize,
+    first_face: Option<&TrailerSurface>,
+) -> Option<TrailerParameterLine> {
+    let tag = payload[entry];
+    if payload[entry + 16] != 1
+        || tag & 0xe0 != 0
+        || !matches!(first_face.map(|s| s.kind), Some("plane" | "cylinder"))
+    {
+        return None;
+    }
+    let (start, direction, extent) = if tag & 0x10 != 0 {
+        let f = item_floats(payload, at, size, 3)?;
+        ([f[0], f[1]], direction_code(payload[entry + 2])?, f[2])
+    } else {
+        let f = item_floats(payload, at, size, 5)?;
+        ([f[0], f[1]], [f[2], f[3]], f[4])
+    };
+    let unit = (direction[0] * direction[0] + direction[1] * direction[1] - 1.0).abs() <= 1e-3;
+    (unit && extent > 0.0).then_some(TrailerParameterLine {
+        start,
+        direction,
+        extent,
+    })
 }
 
 /// A decoded block. `bounds` are stored single-precision values in the owning
@@ -153,6 +417,7 @@ fn tables(payload: &[u8]) -> Option<(Vec<TrailerFace>, Vec<TrailerEdge>)> {
             parameter_bounds: ordered.then_some(values),
             entry_offset: at as u32,
             item_offset,
+            surface: None,
         });
     }
     let mut edges = Vec::with_capacity(edge_count);
@@ -168,7 +433,36 @@ fn tables(payload: &[u8]) -> Option<(Vec<TrailerFace>, Vec<TrailerEdge>)> {
             faces: adjacent,
             entry_offset: at as u32,
             item_offset,
+            parameter_line: None,
         });
+    }
+    // An item extends to the next item offset; the last one to the payload end.
+    let mut offsets: Vec<usize> = faces
+        .iter()
+        .map(|f| f.item_offset as usize)
+        .chain(edges.iter().map(|e| e.item_offset as usize))
+        .collect();
+    offsets.push(payload.len());
+    offsets.sort_unstable();
+    offsets.dedup();
+    let size_at = |at: usize| {
+        offsets
+            .iter()
+            .find(|o| **o > at)
+            .map_or(0, |next| next - at)
+    };
+    for face in &mut faces {
+        let at = face.item_offset as usize;
+        face.surface = surface_item(payload, face.entry_offset as usize, at, size_at(at));
+    }
+    for edge in &mut edges {
+        let at = edge.item_offset as usize;
+        let first = usize::from(edge.faces[0])
+            .checked_sub(1)
+            .and_then(|i| faces.get(i))
+            .and_then(|f| f.surface.as_ref());
+        edge.parameter_line =
+            parameter_line_item(payload, edge.entry_offset as usize, at, size_at(at), first);
     }
     Some((faces, edges))
 }

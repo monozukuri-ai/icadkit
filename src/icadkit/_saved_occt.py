@@ -39,24 +39,38 @@ def _preflight(model: Any, limits: SavedBodyLimits) -> None:
                 "Body resolution exceeds the qualified source-tolerance bound",
             )
     curves = {c.id: c for c in model.curves}
-    basis = ("line", "circle", "ellipse", "intersection")
+    basis = ("line", "circle", "ellipse", "intersection", "nurbs", "surface_parametric")
     for c in model.curves:
         if c.kind.value not in (*basis, "trimmed") or c.sense.value == "unknown":
             raise _error(
                 "curve",
                 "Only lines, circles, ellipses, source-identified surface "
-                "intersections and their explicit trims are qualified",
+                "intersections, NURBS, surface-parametric curves and their "
+                "explicit trims are qualified",
             )
         if c.kind.value == "trimmed" and (
             curves[c.definition.basis_curve].kind.value not in basis
         ):
-            raise _error("curve", "Nested or free-form curve trims are not qualified")
+            raise _error("curve", "Nested curve trims are not qualified")
     if any(
-        s.kind.value not in ("plane", "cylinder", "sphere", "cone", "torus")
+        s.kind.value
+        not in (
+            "plane",
+            "cylinder",
+            "sphere",
+            "cone",
+            "torus",
+            "nurbs",
+            "offset",
+            "spun",
+        )
         or s.sense.value == "unknown"
         for s in model.surfaces
     ):
-        raise _error("surface", "Only qualified analytic saved surfaces are supported")
+        raise _error(
+            "surface",
+            "Only analytic, spun, NURBS and offset saved surfaces are supported",
+        )
     if any(f.sense.value == "unknown" or not f.loops for f in model.faces):
         raise _error("face", "Saved faces require explicit oriented boundary loops")
     apex = {h for _, _, loop in _apex_loops(model) for h in loop.half_edges}
@@ -69,16 +83,18 @@ def _preflight(model: Any, limits: SavedBodyLimits) -> None:
 
 
 def _apex_loops(model: Any) -> list[tuple[Any, int, Any]]:
-    """Vertex-only loops on conical faces: (face, vertex id, loop).
+    """Vertex-only loops on conical and spun faces: (face, vertex id, loop).
 
-    A saved cone that ends in its apex bounds the face there with a loop of one
-    half-edge that has a vertex and no edge. Other edge-less half-edges, other
-    surfaces and faces left without an edge loop are not qualified.
+    A saved cone that ends in its apex, or a spun profile that ends on its
+    axis, bounds the face there with a loop of one half-edge that has a vertex
+    and no edge; a spun face may close at both ends of its profile. Other
+    edge-less half-edges, other surfaces and faces left without an edge loop
+    are not qualified.
     """
     half_edges = {h.id: h for h in model.half_edges}
     loops = {loop.id: loop for loop in model.loops}
     surfaces = {s.id: s for s in model.surfaces}
-    found = []
+    found: list[tuple[Any, int, Any]] = []
     for face in model.faces:
         vertex_loops = [
             loops[i]
@@ -88,31 +104,53 @@ def _apex_loops(model: Any) -> list[tuple[Any, int, Any]]:
         ]
         if not vertex_loops:
             continue
-        only = half_edges[vertex_loops[0].half_edges[0]]
+        kind = surfaces[face.surface].kind.value
+        singular = [half_edges[loop.half_edges[0]] for loop in vertex_loops]
         if (
-            len(vertex_loops) != 1
-            or len(face.loops) < 2
-            or only.dummy
-            or only.vertex is None
-            or surfaces[face.surface].kind.value != "cone"
+            kind not in ("cone", "spun")
+            or len(vertex_loops) > (2 if kind == "spun" else 1)
+            or len(face.loops) <= len(vertex_loops)
+            or any(only.dummy or only.vertex is None for only in singular)
         ):
             return []
-        found.append((face, only.vertex, vertex_loops[0]))
+        found.extend(
+            (face, only.vertex, loop)
+            for only, loop in zip(singular, vertex_loops, strict=True)
+        )
     return found
 
 
 def _add_apex(builder: Any, face: Any, vertex_id: int, api: dict[str, Any]) -> None:
-    """Close a conical face at its apex with one degenerated boundary edge."""
+    """Close a conical or spun face at its singular vertex with one degenerated edge."""
     geom2d = import_module("OCP.Geom2d")
     top = api["TopoDS"]
     surface = builder._surface_geometry(face.surface)
     vertex = builder.vertex_shapes[vertex_id]
     point = api["BRep"].BRep_Tool.Pnt_s(vertex)
     tolerance = api["BRep"].BRep_Tool.Tolerance_s(vertex)
-    if surface.Apex().Distance(point) > tolerance:
-        raise _error("half_edge", "Vertex loop is not at the apex of its cone")
-    # At the apex the radius R + v*sin(a) vanishes for every angle u.
-    v = -surface.RefRadius() / math.sin(surface.SemiAngle())
+    if builder.surfaces[face.surface].kind.value == "cone":
+        if surface.Apex().Distance(point) > tolerance:
+            raise _error("half_edge", "Vertex loop is not at the apex of its cone")
+        # At the apex the radius R + v*sin(a) vanishes for every angle u.
+        v = -surface.RefRadius() / math.sin(surface.SemiAngle())
+    else:
+        # A spun profile end on the axis degenerates that ring of the revolution:
+        # the vertex must be on the axis and at a finite end of the profile.
+        basis = surface.BasisCurve()
+        ends = [
+            t
+            for t in (basis.FirstParameter(), basis.LastParameter())
+            if math.isfinite(t)
+        ]
+        if not ends or api["gp"].gp_Lin(surface.Axis()).Distance(point) > tolerance:
+            raise _error(
+                "half_edge", "Vertex loop is not on the axis of its spun surface"
+            )
+        v = min(ends, key=lambda t: basis.Value(t).Distance(point))
+        if basis.Value(v).Distance(point) > tolerance:
+            raise _error(
+                "half_edge", "Vertex loop is not at a profile end of its spun surface"
+            )
     kernel = api["BRep"].BRep_Builder()
     edge = top.TopoDS_Edge()
     kernel.MakeEdge(edge)
@@ -128,13 +166,17 @@ def _add_apex(builder: Any, face: Any, vertex_id: int, api: dict[str, Any]) -> N
     kernel.MakeWire(wire)
     kernel.Add(wire, edge)
     kernel.Add(shape, wire)
-    builder.operations.append("degenerated_cone_apex_boundary")
+    builder.operations.append(
+        "degenerated_cone_apex_boundary"
+        if builder.surfaces[face.surface].kind.value == "cone"
+        else "degenerated_spun_axis_boundary"
+    )
 
 
 def _build(
     model: Any, options: Any, api: dict[str, Any], limits: SavedBodyLimits
 ) -> Any:
-    # These construction classes are deliberately pinned to parasolid-kit 0.2.0.
+    # These construction classes are deliberately pinned to parasolid-kit 0.3.6.
     # No dependency monkeypatch or source-data mutation is performed.
     factory = import_module("parasolid_kit.interop.occt.geometry").GeometryFactory(
         options
@@ -226,9 +268,16 @@ def convert(
     try:
         model = bridge(brep, saved_surfaces=True)
         _preflight(model, limits)
-        options = import_module(
-            "parasolid_kit.interop.occt.options"
-        ).OcctConversionOptions(source_unit="m", target_unit="mm")
+        # Source points are compared with their curves within the body's own
+        # declared linear resolution (in mm), never below the backend default.
+        # The preflight has bounded that resolution; nothing is healed.
+        resolution = min(b.linear_resolution for b in model.bodies) * 1000
+        occt = import_module("parasolid_kit.interop.occt.options")
+        options = occt.OcctConversionOptions(
+            source_unit="m",
+            target_unit="mm",
+            validation=occt.ValidationTolerances(linear_absolute=max(1e-6, resolution)),
+        )
         shape, operations = _build(model, options, api, limits)
         transform = api["gp"].gp_Trsf()
         assert body.world_transform is not None

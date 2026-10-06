@@ -38,7 +38,7 @@ pub use resource::{Encoding, ResourceAssociation, ResourceRef};
 pub use schema::SchemaCatalog;
 pub use trailer::{
     TrailerBlock, TrailerBlockData, TrailerEdge, TrailerFace, TrailerIndex, TrailerLimits,
-    TrailerTable, TrailerView,
+    TrailerParameterLine, TrailerSurface, TrailerTable, TrailerView,
 };
 pub use views::{ViewEntry, ViewIndex, ViewLimits, ViewRecord};
 
@@ -48,7 +48,7 @@ use parasolid_core::{BuiltinProfileRegistry, ParseError};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Exact registry dependency; checked against the manifest and lock in CI.
-pub const PARASOLID_CORE_VERSION: &str = "0.3.5";
+pub const PARASOLID_CORE_VERSION: &str = "0.3.6";
 
 /// Metadata of the compiled Parasolid backend, not ICD format coverage.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -86,6 +86,45 @@ class TrailerIndex:
 
 
 @dataclass(frozen=True)
+class TrailerSurface:
+    """Surface parameters stored with a face entry, in the entity's local frame.
+
+    Lengths are millimetres. point lies on a plane, on the axis of a cylinder
+    or cone, or at the centre of a sphere or torus. axis is the plane normal or
+    the axis of a cylinder, cone or torus; it is None for a sphere. A cone's
+    stored axis points along the growth of its radius, opposite to the axis of
+    the saved CONE node, with a positive half_angle_tangent. A torus axis equals
+    the saved axis or its reverse, which describe the same surface. radius is
+    the cylinder radius, the cone radius at point or the sphere radius.
+    """
+
+    kind: Literal["plane", "cylinder", "cone", "sphere", "torus"]
+    point: Point3
+    axis: Point3 | None
+    x_axis: Point3 | None
+    radius: float | None = None
+    half_angle_tangent: float | None = None
+    major_radius: float | None = None
+    minor_radius: float | None = None
+
+
+@dataclass(frozen=True)
+class TrailerParameterLine:
+    """The straight image of an edge entry in its first face entry's parameters.
+
+    The first face entry is a plane or a cylinder. The segment runs from start
+    to start + extent * direction. For a line on a plane, extent is a length in
+    millimetres; for a circle on a cylinder it is the swept angle in radians
+    along the angular parameter. An edge that crosses the face's seam is
+    stored as several entries.
+    """
+
+    start: tuple[float, float]
+    direction: tuple[float, float]
+    extent: float
+
+
+@dataclass(frozen=True)
 class TrailerFace:
     """One face entry of a block.
 
@@ -96,9 +135,10 @@ class TrailerFace:
     plane, 2 cylinder, 3 cone, 4 sphere and 5 torus in the checked inputs;
     other values are not qualified. parameter_bounds is (u_min, v_min, u_max,
     v_max) on that surface, with lengths in millimetres; it is None when the
-    stored values are not finite and ordered. The surface parameters at
-    item_offset in the payload, and the other bytes of the entry, are not
-    interpreted.
+    stored values are not finite and ordered. surface is the decoded analytic
+    surface of a qualified item layout; it is None for other layouts, whose
+    bytes stay at item_offset in the payload. The other bytes of the entry are
+    not interpreted.
     """
 
     index: int
@@ -107,6 +147,7 @@ class TrailerFace:
     parameter_bounds: tuple[float, float, float, float] | None
     raw_bytes: bytes
     item_offset: int
+    surface: TrailerSurface | None = None
 
 
 @dataclass(frozen=True)
@@ -116,7 +157,9 @@ class TrailerEdge:
     source_node_id is the node identifier of an edge in the saved body. An
     edge that only separates two entries of one saved face carries that face's
     identifier instead. faces holds the one-based numbers of the adjacent face
-    entries, 0 for none. Curve parameters and link fields are not interpreted.
+    entries, 0 for none. parameter_line is the decoded item of an entry whose
+    image in the first face entry is straight; other items and the link fields
+    are not interpreted.
     """
 
     index: int
@@ -124,6 +167,7 @@ class TrailerEdge:
     faces: tuple[int, int]
     raw_bytes: bytes
     item_offset: int
+    parameter_line: TrailerParameterLine | None = None
 
 
 @dataclass(frozen=True)
@@ -201,6 +245,24 @@ def _read_trailer(document: "Document", limits: TrailerLimits | None) -> Trailer
     )
 
 
+def _surface(raw: "_core.RawTrailerSurface | None") -> TrailerSurface | None:
+    if raw is None:
+        return None
+    point = raw["point"]
+    axis = raw["axis"]
+    x_axis = raw["x_axis"]
+    return TrailerSurface(
+        raw["kind"],
+        (point[0], point[1], point[2]),
+        (axis[0], axis[1], axis[2]) if axis is not None else None,
+        (x_axis[0], x_axis[1], x_axis[2]) if x_axis is not None else None,
+        raw["radius"],
+        raw["half_angle_tangent"],
+        raw["major_radius"],
+        raw["minor_radius"],
+    )
+
+
 def _read_trailer_block(
     document: "Document", block_id: str, limits: TrailerLimits | None
 ) -> TrailerBlockData:
@@ -241,13 +303,25 @@ def _read_trailer_block(
                 (box[0], box[1], box[2], box[3]) if box is not None else None,
                 payload[at : at + 36],
                 item,
+                _surface(surface),
             )
-            for number, (node_id, code, box, at, item) in enumerate(raw["faces"], 1)
+            for number, (node_id, code, box, at, item, surface) in enumerate(
+                raw["faces"], 1
+            )
         ),
         edges=tuple(
             TrailerEdge(
-                number, node_id, (pair[0], pair[1]), payload[at : at + 24], item
+                number,
+                node_id,
+                (pair[0], pair[1]),
+                payload[at : at + 24],
+                item,
+                TrailerParameterLine(
+                    (line[0][0], line[0][1]), (line[1][0], line[1][1]), line[2]
+                )
+                if line is not None
+                else None,
             )
-            for number, (node_id, pair, at, item) in enumerate(raw["edges"], 1)
+            for number, (node_id, pair, at, item, line) in enumerate(raw["edges"], 1)
         ),
     )

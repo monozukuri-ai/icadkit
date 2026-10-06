@@ -592,4 +592,17 @@ impl Document {
         self.limits.resource(range.end - range.start, range.start)?;
         Ok(&self.data[range.start as usize..range.end as usize])
     }
+
+    /// Decode one saved boolean component record in place, without an owner
+    /// context. The caller has already framed the record and checks its saved
+    /// program, result backlink and root frame.
+    pub fn read_component(
+        &self,
+        range: ByteRange,
+    ) -> Result<crate::native::NativeEntityRecord, InspectError> {
+        Ok(crate::native::read_component_entity(
+            self.source_bytes(range)?,
+            range,
+        ))
+    }
 }

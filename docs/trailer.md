@@ -102,11 +102,50 @@ expose their identity and adjacency:
 - `raw_bytes` is the exact entry and `item_offset` locates the entry's
   parameters in `payload`.
 
-The surface and curve parameters, the entry tags and the link fields between
+### Surface and edge items
+
+Each entry's item holds single-precision parameters in the entity's local
+frame, in millimetres. Version 0.3.6 decodes the analytic layouts
+into `TrailerFace.surface`:
+
+| Code | `TrailerSurface.kind` | Stored values |
+| --- | --- | --- |
+| 1 | `plane` | `point`; `axis` is the normal |
+| 2 | `cylinder` | `point` on the axis, `radius` |
+| 3 | `cone` | `point` on the axis, `radius` there, `half_angle_tangent` |
+| 4 | `sphere` | `point` is the centre, `radius`; no axes |
+| 5 | `torus` | `point` is the centre, `major_radius`, `minor_radius` |
+
+A plane, cylinder, cone or torus item either stores `axis` and `x_axis` as
+vectors or, when both are parallel to a frame axis, codes them in the entry
+tag bytes (`0`–`2` for `+x`/`+y`/`+z`, `4`–`6` for the negative axes) and
+stores only the scalars. A cone's stored axis is the direction along which its
+radius grows, which is opposite to the axis of the saved CONE node, and the
+tangent is positive. A torus axis equals the saved axis or its reverse; both
+describe the same surface. `surface` is `None` for other codes and layouts,
+for vectors that are not an orthonormal pair, for nonpositive radii and for
+nonfinite values; the bytes remain at `item_offset`.
+
+`TrailerEdge.parameter_line` decodes an entry whose image in the parameters of
+its first face entry (`faces[0]`) is a straight segment, when that face is a
+plane or a cylinder: it runs from `start` to `start + extent * direction`. For
+a line on a plane `extent` is a length; for a circle on a cylinder it is the
+swept angle and the direction follows the angular parameter. Aligned layouts
+code the direction in the entry tag (`0`/`1`/`4`/`5` for `+u`/`+v`/`-u`/`-v`).
+An edge that crosses the seam of a periodic face is stored as one entry per
+side, each bounded by the seam, and the angular parameter can differ from the
+face entry's box by whole turns. Entries whose image is curved (an arc on a
+plane, intersections and free-form curves) and entries whose first face is a
+cone, sphere or torus, where the item and the box use parameters that were not
+qualified, keep `parameter_line=None`.
+
+The entry tags beyond the axis and direction codes and the link fields between
 entries are not interpreted, so a block is `partial`, never `complete`. Counts
 or offsets that disagree with the tables make the block `invalid`
-(`trailer.block_tables`) and nothing is exposed. Use the saved body for
-geometry; the tables identify which saved face or edge an entry belongs to.
+(`trailer.block_tables`) and nothing is exposed. The saved body remains the
+geometry of record; the block states the entity's own classification, so a
+few saved NURBS surfaces that carry code 2 decode as the cylinder the block
+stores.
 
 The framed table group holds a linked name/value layout that is not qualified.
 `TrailerTable` exposes its byte ranges with `status="unsupported"`.
@@ -153,3 +192,14 @@ equals the vertex extent for all 32,541 planar straight-edged faces checked;
 This does not qualify the surface and curve parameters, the link fields, the
 older revisions, the other block kinds or the table group. The named table
 holds ASCII names with UTF-16 text values in a layout that was not resolved.
+
+The decoded items are checked against the saved bodies of 4,710 bound
+entities, revision 7 and 8 blocks only. Of 441,957 face entries, 440,630
+decode (224,387 planes, 166,457 cylinders, 39,012 cones, 8,295 tori and 2,479
+spheres); codes 10, 55, 4 and 40 stay raw. Every one of the 120,728 decoded
+surfaces whose saved face was read equals the saved surface within 2 µm or
+1e-6, with the documented cone axis reversal; 54 entries carry cylinder
+parameters for a saved NURBS face. Of 1,067,181 edge entries, 936,128 decode
+as parameter lines, each ending inside its first face entry's box modulo
+whole turns; the ends of all 109,759 lines on planes and of 38,848 of 39,090
+circles on cylinders with vertices equal the saved vertices or lie on the seam.

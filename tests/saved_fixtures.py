@@ -354,3 +354,98 @@ def apex_cone_model(radius=0.006, height=0.008, *, surface="cone"):
     vertices = (t.Vertex(0, 0, None, None, None),)
     points = (g.PointGeometry(0, v(0, 0, height), None, None),)
     return _assemble(surfaces, curves, faces, loops, fins, edges, vertices, points)
+
+
+def spun_dome_model(radius=0.006, *, pole=None, planar=False):
+    """A dome: the upper half of a spun sphere, closed at its pole by a loop of
+    one vertex-only half-edge, as saved resources store spun faces. The profile
+    half circle runs from the lower pole to the upper pole in the xz plane and
+    is revolved about z."""
+    from parasolid_kit.brep import geometry as g
+    from parasolid_kit.brep import topology as t
+
+    def v(x, y, z):
+        return t.Vector3(float(x), float(y), float(z))
+
+    positive, negative = t.Sense.POSITIVE, t.Sense.NEGATIVE
+    side = (
+        g.SurfaceGeometry(
+            1,
+            positive,
+            None,
+            g.SurfaceKind.PLANE,
+            g.PlaneSurface(v(0, 0, radius), v(0, 0, 1), v(1, 0, 0)),
+            None,
+        )
+        if planar
+        else g.SurfaceGeometry(
+            1,
+            positive,
+            None,
+            g.SurfaceKind.SPUN,
+            g.SpunSurface(
+                1,
+                v(0, 0, 0),
+                v(0, 0, 1),
+                v(0, 0, -radius),
+                v(0, 0, radius),
+                -math.pi / 2,
+                math.pi / 2,
+                v(1, 0, 0),
+            ),
+            None,
+        )
+    )
+    surfaces = (
+        g.SurfaceGeometry(
+            0,
+            positive,
+            None,
+            g.SurfaceKind.PLANE,
+            g.PlaneSurface(v(0, 0, 0), v(0, 0, 1), v(1, 0, 0)),
+            None,
+        ),
+        side,
+    )
+    curves = (
+        g.CurveGeometry(
+            0,
+            positive,
+            None,
+            g.CurveKind.CIRCLE,
+            g.CircleCurve(v(0, 0, 0), v(0, 0, 1), v(1, 0, 0), radius),
+            None,
+        ),
+        # The profile: C(t) = (r cos t, 0, r sin t), so t = -pi/2 and pi/2 are
+        # the poles on the spin axis.
+        g.CurveGeometry(
+            1,
+            positive,
+            None,
+            g.CurveKind.CIRCLE,
+            g.CircleCurve(v(0, 0, 0), v(0, -1, 0), v(1, 0, 0), radius),
+            None,
+        ),
+    )
+    faces = (
+        t.Face(0, 0, 1, (0,), 0, negative, None),
+        # The spun normal (profile direction x angle direction) points inward.
+        t.Face(1, 0, 1, (1, 2), 1, negative, None),
+    )
+    loops = (
+        t.Loop(0, 0, (0,), None),
+        t.Loop(1, 1, (1,), None),
+        t.Loop(2, 1, (2,), None),
+    )
+    fins = (
+        t.HalfEdge(0, 0, 0, 0, None, 1, 0, None, negative, False, None),
+        t.HalfEdge(1, 1, 1, 1, None, 0, 0, None, positive, False, None),
+        # The pole: a vertex, no edge, no curve and no orientation.
+        t.HalfEdge(2, 2, 2, 2, 0, None, None, None, t.Sense.UNKNOWN, False, None),
+    )
+    edges = (t.Edge(0, None, (0, 1), None, None, 0, None, None),)
+    vertices = (t.Vertex(0, 0, None, None, None),)
+    points = (
+        g.PointGeometry(0, v(0, 0, radius) if pole is None else pole, None, None),
+    )
+    return _assemble(surfaces, curves, faces, loops, fins, edges, vertices, points)

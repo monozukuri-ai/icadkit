@@ -4,7 +4,7 @@ icadkit project material is offered under PolyForm Noncommercial 1.0.0, with sep
 commercial licensing available from UnRobotics Inc.
 See `LICENSE` and `COMMERCIAL-LICENSE.md`.
 
-Binary distributions also contain `parasolid-core 0.3.5` (MIT AND Apache-2.0)
+Binary distributions also contain `parasolid-core 0.3.6` (MIT AND Apache-2.0)
 and PyO3 (MIT OR Apache-2.0, MIT selected). The source metadata declares
 `PolyForm-Noncommercial-1.0.0`; the combined Python distribution declares
 `PolyForm-Noncommercial-1.0.0 AND MIT AND Apache-2.0`. These expressions describe
@@ -25,7 +25,7 @@ under MIT or Apache-2.0. Third-party components are not relicensed.
   for project-authored material. Their V30 scalar layouts derive from the
   MIT/Apache-2.0 `parasolid-core` profile; see `tests/geometry_fixtures.py`
   for attribution.
-- The optional `preview` extra installs `parasolid-kit[occt] 0.2.0` and its
+- The optional `preview` extra installs `parasolid-kit[occt] 0.3.6` and its
   separately distributed OCCT runtime dependencies. These are not bundled in
   the icadkit wheel. Their own distributions retain their license terms.
   Generated viewer directories copy that package's browser assets and retain

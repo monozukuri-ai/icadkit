@@ -1,6 +1,6 @@
 # Python API and CLI
 
-icadkit 0.3.5 provides header inspection, owner-based resource indexing, lazy
+icadkit 0.3.6 provides header inspection, owner-based resource indexing, lazy
 extraction and resource-level raw geometry and B-Rep. For supported platforms
 and model boundaries, see [supported capabilities](support.md).
 
@@ -48,7 +48,8 @@ placed geometry.
 It adds the [trailing container](trailer.md):
 `Document.read_trailer()` and `Document.read_trailer_block()` return
 `TrailerIndex`, `TrailerBlock`, `TrailerTable` and `TrailerBlockData` with its
-`TrailerFace` and `TrailerEdge` entries, bounded by `TrailerLimits`. `Document.resource_associations` lists saved
+`TrailerFace` and `TrailerEdge` entries with their decoded `TrailerSurface` and
+`TrailerParameterLine` items, bounded by `TrailerLimits`. `Document.resource_associations` lists saved
 `ResourceAssociation` records. `NativePrimitive` gains the `profile_extrusion`
 and `revolution` kinds with `ProfileSegment`; see [native access](native.md).
 The optional `icadkit.preview.write_preview()` and `icadkit preview` command

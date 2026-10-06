@@ -31,7 +31,7 @@ Licensing = "https://github.com/monozukuri-ai/icadkit/blob/main/docs/license.md"
 Commercial = "https://www.un-robotics.com/#contact"
 
 [project.optional-dependencies]
-preview = ["parasolid-kit[occt]==0.2.0"]
+preview = ["parasolid-kit[occt]==0.3.6"]
 
 [dependency-groups]
 dev = ["maturin==1.15.0", "pytest>=8.3,<9", "ruff>=0.15,<1", "mypy>=1.15,<3"]

@@ -9,7 +9,7 @@ def test_installed_type_markers_and_runtime_dependencies():
     for asset in ("index.html", "viewer.js", "viewer.css"):
         assert package.joinpath("_viewer", asset).is_file()
     assert distribution("icadkit").requires == [
-        "parasolid-kit[occt]==0.2.0 ; extra == 'preview'"
+        "parasolid-kit[occt]==0.3.6 ; extra == 'preview'"
     ]
 
 

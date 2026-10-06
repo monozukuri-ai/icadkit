@@ -1,5 +1,86 @@
 # Changelog
 
+## 0.3.6
+
+### Added
+
+- Line/arc profile extrusions as CSG operands, including saved single-leaf
+  bodies whose only record is the extrusion. The profile follows the rules that
+  qualify standalone records; a negative height moves the base along the axis,
+  as for prism operands, and evaluation sweeps the exact arcs. Mirrored leaves
+  and sphere, cone, torus or revolution operands remain unsupported. In a local
+  sample, 125 of the 134 bodies rejected as `csg.operand_layout` now evaluate,
+  and 21 saved SDK observations match volume, area and centroid. See
+  [CSG](csg.md).
+- `TrailerFace.surface` and `TrailerEdge.parameter_line`, with the
+  `TrailerSurface` and `TrailerParameterLine` types, decode the analytic items
+  of qualified blocks: plane, cylinder, cone, sphere and torus parameters in
+  the entity's local millimetre frame, and the straight parameter-space image
+  of an edge entry in its first face entry. Against 4,710 bound bodies, every
+  decoded surface equals the saved one and every decoded edge image ends
+  inside its face entry's box. See
+  [trailing container](trailer.md#surface-and-edge-items).
+- Saved bodies on spun surfaces (SPUN_SURF) convert. A profile end on the spin
+  axis, stored as a loop of one vertex-only half-edge, closes the face with one
+  degenerated edge like a cone apex (`degenerated_spun_axis_boundary`). In the
+  local sample 31 of the 35 saved bodies on spun surfaces convert and two match
+  saved SDK observations; the other four fail for reasons that are not spun
+  specific. See [saved bodies](saved-bodies.md).
+
+### Changed
+
+- The registry dependency is `parasolid-core 0.3.6`. SPUN_SURF (68) maps as a
+  `spun` surface (profile curve, spin axis, degeneracy points and parameters,
+  x axis) instead of a partial B-Rep: in the local sample of 33,943 resources
+  all 66 occurrences are complete, 33,902 resources map completely and the 11
+  mapping failures are unchanged. Built-in profile IDs and hashes are
+  unchanged.
+- The `preview` extra pins `parasolid-kit[occt]==0.3.6` instead of 0.2.0. Its
+  OCCT interop fixes conversion failures that icadkit had traced to the
+  adapter: loops of a face that opposes its surface, closed intersection
+  branches, horn and apple tori, loops through a sphere pole or cone apex, and
+  the arc chosen on a closed analytic branch. Of the 2,610 bodies that failed
+  under 0.3.5, 1,770 now convert within their stored bounds, and the whole
+  sample rises from 27,093 to 28,896 of 29,703 bound bodies; the bodies that
+  converted before give the same volumes and face counts.
+- Saved-body conversion compares source vertices with their curves within the
+  body's declared linear resolution (never below 1e-6 mm) instead of the
+  backend default alone. Nothing is moved or healed. In the local sample, 101
+  of the 107 bodies rejected for a line vertex off its curve now convert and
+  lie within their stored bounds.
+
+### Upgrade from 0.3.5
+
+Existing APIs keep their signatures and no public name is removed. The package
+still has no mandatory Python runtime dependencies. The `preview` extra now
+pins `parasolid-kit[occt]==0.3.6`; environments that installed the 0.2.0 pin
+must upgrade it together with icadkit. The compiled Rust reader uses
+`parasolid-core 0.3.6` with unchanged built-in profile IDs and hashes.
+
+B-Reps that contain SPUN_SURF are complete: `require_complete()` accepts them,
+their surfaces report kind `spun` with `profile`, `base`, `axis`, `start`,
+`end`, `start_parameter`, `end_parameter` and `x_axis` attributes, and the
+`geometry.unsupported_surface` diagnostic no longer appears for them. Saved
+bodies that were rejected under 0.3.5 may now convert. Results that depended
+on either rejection should be read again.
+
+`TrailerFace.surface` and `TrailerEdge.parameter_line` are `None` for layouts
+that are not decoded. CSG bodies may contain `profile_extrusion` operands, and
+`SavedBodyMesh.representation_operations` may list
+`degenerated_spun_axis_boundary`. JSON consumers must allow the additional
+fields and values while continuing to check each scope's status.
+
+### Scope
+
+Mirrored CSG history, complete assembly geometry, inherited attributes and
+complete drawing reconstruction remain unsupported. Blend surfaces, rational
+or periodic NURBS and offset surfaces are read from the source but not
+converted to solids, and an intersection limit of kind `B` is rejected.
+Trailer edge items on cones, spheres and tori, free-form items, older block
+revisions, the `0x1x`/`0x2x` block kinds and the named table stay opaque. See
+the [support boundaries](support.md) and the [source roadmap](roadmap.md) for
+the version-support stages and their local validation scope.
+
 ## 0.3.5
 
 ### Added

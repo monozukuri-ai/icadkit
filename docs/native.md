@@ -240,7 +240,9 @@ layout have a closed profile under the rule above; 987 standalone extrusions and
 217 standalone revolutions decode and tessellate with the expected volume.
 Records used as operands of a saved boolean body stay opaque in the part
 inventory. Hexagonal prism records occur only as such operands in the checked
-inputs; the [CSG reader](csg.md) decodes them as operands.
+inputs; the [CSG reader](csg.md) decodes them as operands. A profile extrusion
+that is the only record of a saved single-leaf body is likewise read by the CSG
+reader, with the same profile rules, and not by this inventory.
 
 The v0.3 additions have offline checks against saved/reopened SDK
 observations for ten cone/frustum/torus files, including oblique and dimension

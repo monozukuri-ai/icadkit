@@ -4,27 +4,23 @@ A Rust-based Python reader for **iCAD SX `.icd` files**. Read saved part
 structure, coordinate frames, names and selected attributes; inspect native
 box/cylinder parameters; and extract embedded Parasolid geometry.
 
-Version **0.3.5** adds:
+Version **0.3.6** adds:
 
-- [View inventories and saved 2D geometry](docs/drawing.md) through
-  `read_views()` / `read_drawing()` and the `views` / `drawing` CLI commands.
-  Old originals and registered parts are read directly. Qualified 2D primitives
-  use view-local coordinates; text content is separate from unsupported layout.
-- Catalog-free raw parsing and source B-Rep mapping of
-  [twenty-six further exact iCAD schema keys](docs/support.md#schemas) through
-  `parasolid-core 0.3.5`. SPUN_SURF geometry remains partial; saved-body
-  conversion has separate limits.
-- The [trailing container](docs/trailer.md): per-entity blocks with stored
-  local bounds and the identity of their faces and edges (`read_trailer()`,
-  `icadkit trailer`).
-- [Saved final bodies](docs/saved-bodies.md) bound through saved association
-  records in V8 and by source ID in V7L2–V7L5, and converted with elliptical
-  edges, intersection curves and cone apexes.
-- More [native primitives](docs/native.md): polygon extrusions, extrusions with
-  arc profiles, revolved profiles and signed heights, in V7L6/V7L7 and
-  V8L1/V8L2/V8L3, including internal mirrors.
-- [Saved 3D parameter tables](docs/parameters.md) and explicit
-  [external-reference resolution](docs/references.md).
+- [Saved final bodies](docs/saved-bodies.md) on spun surfaces (SPUN_SURF),
+  through `parasolid-core 0.3.6` and the `preview` extra now pinned to
+  `parasolid-kit[occt]==0.3.6`. The backend's conversion fixes raise the local
+  sample from 27,093 to 28,896 of 29,703 bound bodies, with the previously
+  converted bodies unchanged.
+- Line/arc profile extrusions as [CSG](docs/csg.md) operands.
+- Decoded surface and edge items of the [trailing container](docs/trailer.md)
+  (`TrailerFace.surface`, `TrailerEdge.parameter_line`).
+
+Version 0.3.5 added [view inventories and saved 2D geometry](docs/drawing.md),
+twenty-six further catalog-free [schema keys](docs/support.md#schemas), the
+[trailing container](docs/trailer.md), saved final bodies bound through V8
+association records and V7 source IDs, more [native primitives](docs/native.md),
+[saved 3D parameter tables](docs/parameters.md) and explicit
+[external-reference resolution](docs/references.md).
 
 Version 0.3.0 added the [native file viewer](docs/viewer.md), broader
 [part access](docs/parts.md), optional [V7L7 boolean evaluation](docs/csg.md)
@@ -45,7 +41,7 @@ The base reader supports standard GIL-enabled CPython 3.10–3.14. Wheel targets
 are Linux x86_64 (glibc 2.28+), Windows x86_64 and macOS ARM64 (11+):
 
 ```sh
-python -m pip install icadkit==0.3.5
+python -m pip install icadkit==0.3.6
 ```
 
 The native extension bundles `parasolid-core` and has no mandatory Python
@@ -54,7 +50,7 @@ explicit compatible catalog is needed only for schemas absent from the built-in
 profiles. Release files are available on the
 [GitHub releases page](https://github.com/monozukuri-ai/icadkit/releases).
 
-For preview/GLB, install `python -m pip install 'icadkit[preview]==0.3.5'`.
+For preview/GLB, install `python -m pip install 'icadkit[preview]==0.3.6'`.
 The optional OCCT dependency requires glibc 2.31+ on Linux; see
 [preview requirements](docs/preview.md#dependencies-and-validation).
 To build from a source checkout or sdist, install Rust 1.88+ and a C linker,
@@ -83,8 +79,9 @@ Qualified V7L7 part frames use millimetres and are evaluated relative to the
 saved root frame. Qualified standalone primitive owners also expose geometry and saved
 entity appearance. The separate [CSG API](docs/csg.md) and
 `uv run --extra preview icadkit view model.icd --csg` evaluate qualified
-box/cylinder unions, differences and intersections. Unknown programs retain
-diagnostics without substitute geometry.
+unions, differences and intersections of boxes, cylinders, prisms and profile
+extrusions, including saved single-leaf extrusion bodies. Unknown programs
+retain diagnostics without substitute geometry.
 The [saved final body mode](docs/saved-bodies.md), `view --saved-brep`, also
 displays qualified V7L7/V8L3 final bodies and imported solids, including bounded
 spherical, conical and toroidal surfaces. V8L3 resource sharing preserves each

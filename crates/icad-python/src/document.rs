@@ -3,6 +3,45 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use std::path::PathBuf;
 
+fn entity_dict<'py>(
+    py: Python<'py>,
+    entity: icad_core::NativeEntityRecord,
+) -> PyResult<Bound<'py, PyDict>> {
+    let e = PyDict::new(py);
+    e.set_item(
+        "byte_range",
+        (entity.byte_range.start, entity.byte_range.end),
+    )?;
+    e.set_item("source_id", entity.source_id)?;
+    e.set_item("raw_type", entity.raw_type)?;
+    e.set_item("layer", entity.layer)?;
+    e.set_item("color_index", entity.color_index)?;
+    e.set_item("visible", entity.visible)?;
+    e.set_item("is_mirror", entity.is_mirror)?;
+    e.set_item("appearance_status", entity.appearance_status.as_str())?;
+    e.set_item("geometry_status", entity.geometry_status.as_str())?;
+    if let Some(primitive) = entity.primitive {
+        let value = PyDict::new(py);
+        value.set_item("kind", primitive.kind)?;
+        value.set_item("frame", primitive.frame)?;
+        value.set_item("parameters", primitive.parameters)?;
+        e.set_item("primitive", value)?;
+    } else {
+        e.set_item("primitive", py.None())?;
+    }
+    let diagnostics = PyList::empty(py);
+    for d in entity.diagnostics {
+        let value = PyDict::new(py);
+        value.set_item("category", d.kind.as_str())?;
+        value.set_item("code", d.code)?;
+        value.set_item("byte_offset", d.byte_offset)?;
+        value.set_item("message", d.message)?;
+        diagnostics.append(value)?;
+    }
+    e.set_item("diagnostics", diagnostics)?;
+    Ok(e)
+}
+
 #[pyclass(frozen, module = "icadkit._core")]
 pub struct DocumentHandle {
     inner: icad_core::Document,
@@ -198,22 +237,46 @@ impl DocumentHandle {
         result.set_item("bounds", block.bounds.map(|b| b.map(f64::from)))?;
         let faces = PyList::empty(py);
         for face in block.faces {
+            let surface = match face.surface {
+                Some(s) => {
+                    let value = PyDict::new(py);
+                    value.set_item("kind", s.kind)?;
+                    value.set_item("point", s.point.map(f64::from))?;
+                    value.set_item("axis", s.axis.map(|v| v.map(f64::from)))?;
+                    value.set_item("x_axis", s.x_axis.map(|v| v.map(f64::from)))?;
+                    value.set_item("radius", s.radius.map(f64::from))?;
+                    value.set_item("half_angle_tangent", s.half_angle_tangent.map(f64::from))?;
+                    value.set_item("major_radius", s.major_radius.map(f64::from))?;
+                    value.set_item("minor_radius", s.minor_radius.map(f64::from))?;
+                    Some(value)
+                }
+                None => None,
+            };
             faces.append((
                 face.source_node_id,
                 face.surface_code,
                 face.parameter_bounds.map(|b| b.map(f64::from)),
                 face.entry_offset,
                 face.item_offset,
+                surface,
             ))?;
         }
         result.set_item("faces", faces)?;
         let edges = PyList::empty(py);
         for edge in block.edges {
+            let line = edge.parameter_line.map(|l| {
+                (
+                    l.start.map(f64::from),
+                    l.direction.map(f64::from),
+                    f64::from(l.extent),
+                )
+            });
             edges.append((
                 edge.source_node_id,
                 edge.faces,
                 edge.entry_offset,
                 edge.item_offset,
+                line,
             ))?;
         }
         result.set_item("edges", edges)?;
@@ -319,39 +382,7 @@ impl DocumentHandle {
             p.set_item("opaque_attributes", attributes)?;
             let entities = PyList::empty(py);
             for entity in part.entities {
-                let e = PyDict::new(py);
-                e.set_item(
-                    "byte_range",
-                    (entity.byte_range.start, entity.byte_range.end),
-                )?;
-                e.set_item("source_id", entity.source_id)?;
-                e.set_item("raw_type", entity.raw_type)?;
-                e.set_item("layer", entity.layer)?;
-                e.set_item("color_index", entity.color_index)?;
-                e.set_item("visible", entity.visible)?;
-                e.set_item("is_mirror", entity.is_mirror)?;
-                e.set_item("appearance_status", entity.appearance_status.as_str())?;
-                e.set_item("geometry_status", entity.geometry_status.as_str())?;
-                if let Some(primitive) = entity.primitive {
-                    let value = PyDict::new(py);
-                    value.set_item("kind", primitive.kind)?;
-                    value.set_item("frame", primitive.frame)?;
-                    value.set_item("parameters", primitive.parameters)?;
-                    e.set_item("primitive", value)?;
-                } else {
-                    e.set_item("primitive", py.None())?;
-                }
-                let diagnostics = PyList::empty(py);
-                for d in entity.diagnostics {
-                    let value = PyDict::new(py);
-                    value.set_item("category", d.kind.as_str())?;
-                    value.set_item("code", d.code)?;
-                    value.set_item("byte_offset", d.byte_offset)?;
-                    value.set_item("message", d.message)?;
-                    diagnostics.append(value)?;
-                }
-                e.set_item("diagnostics", diagnostics)?;
-                entities.append(e)?;
+                entities.append(entity_dict(py, entity)?)?;
             }
             p.set_item("entities", entities)?;
             p.set_item("parent_source_id", part.parent_source_id)?;
@@ -528,5 +559,18 @@ impl DocumentHandle {
             .source_bytes(icad_core::ByteRange { start, end })
             .map_err(inspection_error)?;
         Ok(PyBytes::new(py, data))
+    }
+
+    fn read_component<'py>(
+        &self,
+        py: Python<'py>,
+        start: u64,
+        end: u64,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let entity = self
+            .inner
+            .read_component(icad_core::ByteRange { start, end })
+            .map_err(inspection_error)?;
+        entity_dict(py, entity)
     }
 }

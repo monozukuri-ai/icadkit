@@ -1,5 +1,75 @@
 # Release scope and follow-up work
 
+## Version 0.3.6: profile extrusion operands
+
+The [CSG reader](csg.md) accepts the line/arc profile extrusion as an operand,
+decoded by the rules that qualify standalone records. In the local sample these
+records occur as single-leaf bodies: 125 of the 134 bodies rejected for an
+operand layout now evaluate, and 21 saved SDK observations match volume, area
+and centroid. The four mirrored leaves and five bodies with sphere, cone, torus
+or revolution components remain unsupported. The 3,746 explicit component
+records of this layout sit in owners that fail for other reasons (unknown
+opcodes, mirrored or external ancestry, repeated trees or unbound results);
+they stay opaque, and such bodies can only be displayed through the
+[saved final body](saved-bodies.md) path where a resource is bound.
+
+## Version 0.3.6: trailer items
+
+The [trailing container](trailer.md#surface-and-edge-items) exposes the
+analytic surface of each face entry and the straight parameter-space image of
+each edge entry on a planar or cylindrical face. Against 4,710 bound bodies,
+every decoded surface equals the saved one and every decoded edge image ends
+inside its face entry's box. Edge items on cones, spheres and tori, whose
+parameter conventions differ from the box, free-form items, the remaining tag
+and link fields, the named table, the block kinds `0x1x`/`0x2x` (a 44-byte
+header followed by two sections, owned by saved bodies as well) and the
+revisions 1–4 and 6 (found only in V5/V6 files without bound bodies) stay
+undecoded.
+
+## Version 0.3.6: saved-body conversion
+
+[Saved body](saved-bodies.md) conversion accepts a source vertex on its curve
+within the body's declared linear resolution instead of the backend's 1e-6 mm
+default alone: in the local sample 101 of 107 bodies rejected for a line vertex
+off its curve now convert within their stored bounds. The other conversion
+failures were traced to the pinned OCCT adapter: loops of a face that opposes
+its surface were oriented about the surface normal, so periodic faces kept the
+complementary region; closed intersection branches, horn and apple tori and
+loops through a sphere pole or cone apex were rejected; and an edge on a closed
+analytic intersection branch whose source points cross the branch's parameter
+origin, or which OCCT returns in pieces, took the complementary arc. Those
+fixes shipped in `parasolid-kit 0.3.6`, which version 0.3.6 pins
+through the `preview` extra: 1,770 of the 2,610 remaining bodies convert and
+every one lies within its stored bounds (17 instances of one pipe fitting fill
+their stored box only loosely, while their source vertex box equals the
+converted box), the bodies that converted before are unchanged, and the whole
+sample rises from 27,093 to 28,896 of 29,703 bound bodies. Blend surfaces,
+rational or periodic NURBS, edges split by a seam that the adjacent face does
+not share, and cone faces whose intersection loop crosses the seam remain
+unsupported.
+
+## Version 0.3.6: spun surfaces
+
+SPUN_SURF (68), the revolution of a profile curve about an axis, is mapped by
+`parasolid-core 0.3.6` as a spun surface: the profile, the axis point and
+direction, the degeneracy points and parameters where the profile meets the
+axis, and the optional x axis. The `parasolid-kit 0.3.6` OCCT adapter revolves
+the profile, trimmed to the stored parameter range, with the axis reversed so
+that the OCCT normal agrees with the source normal. Version 0.3.6 pins
+both: all 76 SPUN_SURF nodes of the local sample (66 resources; 69
+ellipse and 7 circle profiles) map completely and agree with the catalog path,
+and the [saved-body](saved-bodies.md) adapter admits spun faces, including
+vertex-only loops at their axis ends like cone apexes
+(`degenerated_spun_axis_boundary`). It converts 31 of the 35 saved bodies that
+use them; two saved SDK observations match, and the other 29 bodies store no
+bounds to compare. The four remaining bodies fail for reasons that are not
+spun specific: two torus faces bounded by a cone intersection, one closed edge
+whose geometry exists only on its fins, and one spun face whose hole loop
+crosses the surface seam. Intersection curves whose limits are of kind `B`,
+the reference's spine boundary without a defined meaning for a surface
+intersection, remain rejected in both the built-in and the catalog path; they
+account for ten resources.
+
 ## Version 0.3.5: version coverage
 
 Qualified V8L1 standard-part templates and V8L3 resaves now expose root-owned
@@ -36,7 +106,7 @@ intersection curves and cone apexes.
 straight/arc profiles and revolved profiles. Multi-fragment attribute records
 are retained as opaque attributes instead of geometry entities. Hexagonal prism
 records were only observed as operands of saved boolean bodies; the CSG reader
-decodes them, but the owners that contain them are outside its scope. The `parasolid-core 0.3.5` dependency adds exact profiles for twenty-one
+decodes them, but the owners that contain them are outside its scope. The `parasolid-core 0.3.5` dependency adds exact profiles for twenty-six
 further schema keys; other keys and unreviewed base types still need a catalog.
 
 ## Version-support P6: old originals and 2D inventory (0.3.5)
@@ -287,8 +357,8 @@ Additional layouts and broader legacy metadata framing remain later work.
 ## V7L7 stage 4: bounded final boolean bodies
 
 The separate [CSG API](csg.md) reads explicitly bound saved postfix programs
-and evaluates box/cylinder union, difference and intersection with optional
-OCCT. The viewer opts in with `--csg`, displays final results and retains source
+and evaluates union, difference and intersection of boxes, cylinders, convex
+prisms and line/arc profile extrusions with optional OCCT. The viewer opts in with `--csg`, displays final results and retains source
 operands without drawing them. Unknown programs reject the whole body.
 SDK comparisons cover repeated cuts, mixed operations, disconnected results,
 multiple owners, root transforms, held-out cases and saved final appearance.
