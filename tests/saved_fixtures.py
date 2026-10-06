@@ -449,3 +449,64 @@ def spun_dome_model(radius=0.006, *, pole=None, planar=False):
         g.PointGeometry(0, v(0, 0, radius) if pole is None else pole, None, None),
     )
     return _assemble(surfaces, curves, faces, loops, fins, edges, vertices, points)
+
+
+def apple_torus_dome_model(major=0.001, minor=0.004):
+    """The outer sheet of an apple torus from its equator up to the axis
+    point, on a disc: the axis point bounds the toroidal face with a loop of
+    one vertex-only half-edge, as saved resources store it."""
+    from parasolid_kit.brep import geometry as g
+    from parasolid_kit.brep import topology as t
+
+    def v(x, y, z):
+        return t.Vector3(float(x), float(y), float(z))
+
+    positive, negative = t.Sense.POSITIVE, t.Sense.NEGATIVE
+    surfaces = (
+        g.SurfaceGeometry(
+            0,
+            positive,
+            None,
+            g.SurfaceKind.PLANE,
+            g.PlaneSurface(v(0, 0, 0), v(0, 0, 1), v(1, 0, 0)),
+            None,
+        ),
+        g.SurfaceGeometry(
+            1,
+            positive,
+            None,
+            g.SurfaceKind.TORUS,
+            g.TorusSurface(v(0, 0, 0), v(0, 0, 1), major, minor, v(1, 0, 0)),
+            None,
+        ),
+    )
+    curves = (
+        g.CurveGeometry(
+            0,
+            positive,
+            None,
+            g.CurveKind.CIRCLE,
+            g.CircleCurve(v(0, 0, 0), v(0, 0, 1), v(1, 0, 0), major + minor),
+            None,
+        ),
+    )
+    faces = (
+        t.Face(0, 0, 1, (0,), 0, negative, None),
+        t.Face(1, 0, 1, (1, 2), 1, positive, None),
+    )
+    loops = (
+        t.Loop(0, 0, (0,), None),
+        t.Loop(1, 1, (1,), None),
+        t.Loop(2, 1, (2,), None),
+    )
+    fins = (
+        t.HalfEdge(0, 0, 0, 0, None, 1, 0, None, negative, False, None),
+        t.HalfEdge(1, 1, 1, 1, None, 0, 0, None, positive, False, None),
+        # The axis point: a vertex, no edge, no curve and no orientation.
+        t.HalfEdge(2, 2, 2, 2, 0, None, None, None, t.Sense.UNKNOWN, False, None),
+    )
+    edges = (t.Edge(0, None, (0, 1), None, None, 0, None, None),)
+    vertices = (t.Vertex(0, 0, None, None, None),)
+    height = math.sqrt(max(0.0, minor * minor - major * major))
+    points = (g.PointGeometry(0, v(0, 0, height), None, None),)
+    return _assemble(surfaces, curves, faces, loops, fins, edges, vertices, points)

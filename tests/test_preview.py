@@ -4,7 +4,6 @@ import struct
 import subprocess
 import sys
 from dataclasses import FrozenInstanceError
-from importlib import metadata
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
@@ -127,10 +126,8 @@ def test_preview_immutable_options():
 
 
 def test_dependency_failure_is_explicit(preview_doc, tmp_path, monkeypatch):
-    def missing(_):
-        raise metadata.PackageNotFoundError("parasolid-kit")
-
-    monkeypatch.setattr("icadkit.preview.metadata.version", missing)
+    # A None entry makes the import of the backend module raise ImportError.
+    monkeypatch.setitem(sys.modules, "parasolid_kit.interop.preview", None)
     doc = preview_doc()
     with pytest.raises(PreviewError, match="icadkit\\[preview\\]") as exc:
         write_preview(
@@ -138,11 +135,6 @@ def test_dependency_failure_is_explicit(preview_doc, tmp_path, monkeypatch):
         )
     assert exc.value.diagnostic.code == "preview.missing_dependency"
     assert not (tmp_path / "out").exists()
-    monkeypatch.setattr("icadkit.preview.metadata.version", lambda _: "0.1.0")
-    with pytest.raises(PreviewError, match="qualified parasolid-kit"):
-        write_preview(
-            doc, doc.resources[0].resource_id, tmp_path / "out", source_unit="mm"
-        )
 
 
 @pytest.mark.parametrize(

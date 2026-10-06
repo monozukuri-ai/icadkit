@@ -21,7 +21,7 @@ def test_installed_cli(entrypoint, tmp_path):
     assert result.stderr == ""
     assert info["schema_version"] == 1
     assert info["version"] == icadkit.__version__
-    assert info["parasolid_core_version"] == "0.3.6"
+    assert info["parasolid_core_version"] == icadkit.build_info().parasolid_core_version
     assert info["builtin_profile_ids"]
 
 

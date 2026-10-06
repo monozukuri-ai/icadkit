@@ -1,5 +1,30 @@
 # Release scope and follow-up work
 
+## Unreleased: blends and the remaining conversion limits
+
+Of the 807 bound bodies that version 0.3.6 does not convert, 518 use
+rolling-ball blends. `parasolid-kit 0.3.7` builds such a blend
+(BLENDED_EDGE with equal offsets) as the pipe of the blend radius around the
+spine and takes an intersection with a BLEND_BOUND construction surface as
+the blend's contact curve on the support that the reference assigns to it,
+interpolated from the spine and checked against the source chart points. It
+also builds rational and stored-periodic NURBS, edges whose own geometry is
+a surface parameter curve, and parameter curves on offset surfaces. The
+icadkit adapter closes a toroidal face at its axis point like a cone apex
+(apple, horn and lemon tori) and admits blend surfaces. With it,
+29,386 of the 29,703 bound bodies
+convert (490 more than 0.3.6, none fewer, and the bodies that converted
+before are unchanged); the converted blend bodies lie within their stored
+bounds and six match saved SDK observations. The 317 remaining bodies are
+periodic faces whose loops cross the seam or are split by a neighbour's seam
+(the OCCT seam fix then returns a split or open face), edge tolerances above
+the configured bound after a seam fix, sheet bodies, the intersection limit
+kind `B`, a blend family whose NURBS support does not contain its own chart
+points and cliff-edge blends. Two attempts were withdrawn because they
+regressed bodies that converted before: re-shifting the wires of a face whose
+shared edge was split by a neighbour, and reversing a blend pipe to the
+source's natural normal.
+
 ## Version 0.3.6: profile extrusion operands
 
 The [CSG reader](csg.md) accepts the line/arc profile extrusion as an operand,

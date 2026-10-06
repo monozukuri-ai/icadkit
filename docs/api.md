@@ -1,6 +1,6 @@
 # Python API and CLI
 
-icadkit 0.3.6 provides header inspection, owner-based resource indexing, lazy
+icadkit provides header inspection, owner-based resource indexing, lazy
 extraction and resource-level raw geometry and B-Rep. For supported platforms
 and model boundaries, see [supported capabilities](support.md).
 

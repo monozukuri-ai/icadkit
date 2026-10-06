@@ -60,6 +60,8 @@ def bridge(brep: Brep, *, saved_surfaces: bool = False) -> Any:
             nurbs=geom.NurbsSurface,
             offset=geom.OffsetSurface,
             spun=geom.SpunSurface,
+            blended_edge=geom.BlendedEdgeSurface,
+            blend_boundary=geom.BlendBoundarySurface,
         )
         curves.update(
             ellipse=geom.EllipseCurve,
@@ -118,6 +120,19 @@ def bridge(brep: Brep, *, saved_surfaces: bool = False) -> Any:
                 attrs[name] = source(attrs[name])
             for name in ("chart_points", "start_points", "end_points"):
                 attrs[name] = tuple(vector(p) for p in attrs[name])
+        if kind == "blended_edge":
+            # Rolling-ball or cliff-edge blend: supports, spine, offsets and
+            # the optional degenerate limits.
+            attrs["blend_type"] = geom.BlendType(attrs["blend_type"])
+            for name in (
+                "supporting_surfaces",
+                "ranges",
+                "thumb_weights",
+                "boundary_surfaces",
+            ):
+                attrs[name] = tuple(attrs[name])
+            for name in ("start", "end"):
+                attrs[name] = source(attrs[name])
         if kind == "spun":
             # Spin axis point and direction, with optional degeneracy points.
             for name in ("base", "start", "end"):

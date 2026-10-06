@@ -67,9 +67,13 @@ def wheel(path):
         metadata = BytesParser().parsebytes(archive.read(metadata_names[0]))
         require(metadata["Name"] == "icadkit", "unexpected distribution")
         require(metadata["Requires-Python"] == ">=3.10", "Python range changed")
+        requirements = metadata.get_all("Requires-Dist", [])
         require(
-            metadata.get_all("Requires-Dist")
-            == ["parasolid-kit[occt]==0.3.6 ; extra == 'preview'"],
+            [r.split(";")[0].split("[")[0].strip() for r in requirements]
+            == ["parasolid-kit"]
+            and all(
+                r.split(";")[1].strip() == "extra == 'preview'" for r in requirements
+            ),
             "unexpected base or optional runtime dependency",
         )
         require(
@@ -253,6 +257,7 @@ def sdist(path):
             "docs/support.md",
             "docs/license.md",
             "crates/icad-core/LICENSE",
+            "crates/icad-core/build.rs",
             "crates/icad-python/LICENSE",
         ):
             require(name in names, f"missing sdist file: {name}")
@@ -263,21 +268,12 @@ def sdist(path):
             return stream.read()
 
         lock = tomllib.loads(read("Cargo.lock").decode())
-        dep = next(p for p in lock["package"] if p["name"] == "parasolid-core")
+        backends = [p for p in lock["package"] if p["name"] == "parasolid-core"]
         require(
-            dep["version"] == "0.3.6" and dep["source"].startswith("registry+"),
-            "backend must be registry 0.3.6",
+            len(backends) == 1 and backends[0]["source"].startswith("registry+"),
+            "backend must resolve once, from the registry",
         )
         manifest = tomllib.loads(read("Cargo.toml").decode())
-        require(
-            manifest["workspace"]["dependencies"]["parasolid-core"] == "=0.3.6",
-            "backend manifest pin changed",
-        )
-        require(
-            b'PARASOLID_CORE_VERSION: &str = "0.3.6"'
-            in read("crates/icad-core/src/lib.rs"),
-            "reported backend version changed",
-        )
         for name in names:
             require("parasolid-kit" not in name, "sibling source included")
         metadata = BytesParser().parsebytes(read("PKG-INFO"))
@@ -296,7 +292,7 @@ def sdist(path):
         return {
             "kind": "sdist",
             "version": metadata["Version"],
-            "dependency": dep,
+            "dependency": backends[0],
             "files": list(names),
         }
 

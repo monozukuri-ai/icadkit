@@ -52,24 +52,25 @@ def _preflight(model: Any, limits: SavedBodyLimits) -> None:
             curves[c.definition.basis_curve].kind.value not in basis
         ):
             raise _error("curve", "Nested curve trims are not qualified")
+    kinds = (
+        "plane",
+        "cylinder",
+        "sphere",
+        "cone",
+        "torus",
+        "nurbs",
+        "offset",
+        "spun",
+        "blended_edge",
+        "blend_boundary",
+    )
     if any(
-        s.kind.value
-        not in (
-            "plane",
-            "cylinder",
-            "sphere",
-            "cone",
-            "torus",
-            "nurbs",
-            "offset",
-            "spun",
-        )
-        or s.sense.value == "unknown"
-        for s in model.surfaces
+        s.kind.value not in kinds or s.sense.value == "unknown" for s in model.surfaces
     ):
         raise _error(
             "surface",
-            "Only analytic, spun, NURBS and offset saved surfaces are supported",
+            "Only analytic, spun, NURBS, offset and, with a backend that builds them, "
+            "blend saved surfaces are supported",
         )
     if any(f.sense.value == "unknown" or not f.loops for f in model.faces):
         raise _error("face", "Saved faces require explicit oriented boundary loops")
@@ -83,13 +84,14 @@ def _preflight(model: Any, limits: SavedBodyLimits) -> None:
 
 
 def _apex_loops(model: Any) -> list[tuple[Any, int, Any]]:
-    """Vertex-only loops on conical and spun faces: (face, vertex id, loop).
+    """Vertex-only loops on conical, spun and apple-torus faces.
 
-    A saved cone that ends in its apex, or a spun profile that ends on its
-    axis, bounds the face there with a loop of one half-edge that has a vertex
-    and no edge; a spun face may close at both ends of its profile. Other
-    edge-less half-edges, other surfaces and faces left without an edge loop
-    are not qualified.
+    Returns (face, vertex id, loop) triples. A saved cone that ends in its
+    apex, a spun profile that ends on its axis, or a torus whose tube reaches
+    its axis (minor radius not below the major radius) bounds the face there
+    with a loop of one half-edge that has a vertex and no edge; spun and torus
+    faces may close at both axis points. Other edge-less half-edges, other
+    surfaces and faces left without an edge loop are not qualified.
     """
     half_edges = {h.id: h for h in model.half_edges}
     loops = {loop.id: loop for loop in model.loops}
@@ -106,9 +108,13 @@ def _apex_loops(model: Any) -> list[tuple[Any, int, Any]]:
             continue
         kind = surfaces[face.surface].kind.value
         singular = [half_edges[loop.half_edges[0]] for loop in vertex_loops]
+        if kind == "torus":
+            torus = surfaces[face.surface].definition
+            if torus.minor_radius < torus.major_radius:
+                return []
         if (
-            kind not in ("cone", "spun")
-            or len(vertex_loops) > (2 if kind == "spun" else 1)
+            kind not in ("cone", "spun", "torus")
+            or len(vertex_loops) > (1 if kind == "cone" else 2)
             or len(face.loops) <= len(vertex_loops)
             or any(only.dummy or only.vertex is None for only in singular)
         ):
@@ -121,36 +127,65 @@ def _apex_loops(model: Any) -> list[tuple[Any, int, Any]]:
 
 
 def _add_apex(builder: Any, face: Any, vertex_id: int, api: dict[str, Any]) -> None:
-    """Close a conical or spun face at its singular vertex with one degenerated edge."""
+    """Close a cone, spun or torus face at its axis vertex with one degenerated edge."""
     geom2d = import_module("OCP.Geom2d")
     top = api["TopoDS"]
     surface = builder._surface_geometry(face.surface)
     vertex = builder.vertex_shapes[vertex_id]
     point = api["BRep"].BRep_Tool.Pnt_s(vertex)
     tolerance = api["BRep"].BRep_Tool.Tolerance_s(vertex)
-    if builder.surfaces[face.surface].kind.value == "cone":
+    kind = builder.surfaces[face.surface].kind.value
+    if kind == "torus" and not hasattr(surface, "MajorRadius"):
+        # A lemon torus is built as the revolution of its profile arc, whose
+        # ends are the axis points; it closes like a spun face.
+        kind = "spun"
+    if kind == "cone":
         if surface.Apex().Distance(point) > tolerance:
             raise _error("half_edge", "Vertex loop is not at the apex of its cone")
         # At the apex the radius R + v*sin(a) vanishes for every angle u.
         v = -surface.RefRadius() / math.sin(surface.SemiAngle())
-    else:
-        # A spun profile end on the axis degenerates that ring of the revolution:
-        # the vertex must be on the axis and at a finite end of the profile.
-        basis = surface.BasisCurve()
-        ends = [
-            t
-            for t in (basis.FirstParameter(), basis.LastParameter())
-            if math.isfinite(t)
+    elif kind == "torus":
+        # The tube of an apple or horn torus meets the axis where the ring
+        # radius R + r*cos(v) vanishes: at cos(v) = -R/r, on either side.
+        major, minor = surface.MajorRadius(), surface.MinorRadius()
+        axis = surface.Axis()
+        height = math.sqrt(max(0.0, minor * minor - major * major))
+        candidates = [
+            (
+                math.acos(-major / minor),
+                api["gp"].gp_Pnt(
+                    axis.Location().XYZ() + axis.Direction().XYZ() * height
+                ),
+            ),
+            (
+                math.tau - math.acos(-major / minor),
+                api["gp"].gp_Pnt(
+                    axis.Location().XYZ() - axis.Direction().XYZ() * height
+                ),
+            ),
         ]
-        if not ends or api["gp"].gp_Lin(surface.Axis()).Distance(point) > tolerance:
+        v, where = min(candidates, key=lambda item: item[1].Distance(point))
+        if where.Distance(point) > tolerance:
             raise _error(
-                "half_edge", "Vertex loop is not on the axis of its spun surface"
+                "half_edge", "Vertex loop is not at an axis point of its torus"
             )
-        v = min(ends, key=lambda t: basis.Value(t).Distance(point))
-        if basis.Value(v).Distance(point) > tolerance:
+    else:
+        # A revolved profile meets the axis at the vertex: that ring of the
+        # revolution degenerates. The profile parameter comes from projecting
+        # the vertex onto the profile, so trimmed and full profiles both work.
+        basis = surface.BasisCurve()
+        if api["gp"].gp_Lin(surface.Axis()).Distance(point) > tolerance:
             raise _error(
-                "half_edge", "Vertex loop is not at a profile end of its spun surface"
+                "half_edge", "Vertex loop is not on the axis of its revolved surface"
             )
+        projection = import_module("OCP.GeomAPI").GeomAPI_ProjectPointOnCurve(
+            point, basis
+        )
+        if projection.NbPoints() == 0 or projection.LowerDistance() > tolerance:
+            raise _error(
+                "half_edge", "Vertex loop is not on the profile of its revolved surface"
+            )
+        v = projection.LowerDistanceParameter()
     kernel = api["BRep"].BRep_Builder()
     edge = top.TopoDS_Edge()
     kernel.MakeEdge(edge)
@@ -167,16 +202,20 @@ def _add_apex(builder: Any, face: Any, vertex_id: int, api: dict[str, Any]) -> N
     kernel.Add(wire, edge)
     kernel.Add(shape, wire)
     builder.operations.append(
-        "degenerated_cone_apex_boundary"
-        if builder.surfaces[face.surface].kind.value == "cone"
-        else "degenerated_spun_axis_boundary"
+        {
+            "cone": "degenerated_cone_apex_boundary",
+            "torus": "degenerated_torus_axis_boundary",
+        }.get(
+            builder.surfaces[face.surface].kind.value, "degenerated_spun_axis_boundary"
+        )
     )
 
 
 def _build(
     model: Any, options: Any, api: dict[str, Any], limits: SavedBodyLimits
 ) -> Any:
-    # These construction classes are deliberately pinned to parasolid-kit 0.3.6.
+    # These construction classes come from the parasolid-kit release that the
+    # preview extra pins exactly.
     # No dependency monkeypatch or source-data mutation is performed.
     factory = import_module("parasolid_kit.interop.occt.geometry").GeometryFactory(
         options

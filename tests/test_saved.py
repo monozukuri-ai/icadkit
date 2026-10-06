@@ -3,6 +3,7 @@
 import json
 import math
 import struct
+import sys
 
 import pytest
 from fixture_builders import association, document_factory, resource_factory
@@ -236,12 +237,8 @@ def test_missing_catalog_retains_diagnostic_without_mesh(tmp_path):
 
 
 def test_optional_backend_failure_no_output(tmp_path, monkeypatch):
-    import icadkit._csg_occt as backend
-
-    def missing(_):
-        raise ModuleNotFoundError("missing optional backend")
-
-    monkeypatch.setattr(backend.metadata, "version", missing)
+    # A None entry makes the import of the backend module raise ImportError.
+    monkeypatch.setitem(sys.modules, "parasolid_kit.interop.occt", None)
     with pytest.raises(icadkit.UnsupportedFormatError, match=r"icadkit\[preview\]"):
         write_native_viewer(document(), tmp_path / "out", saved_brep=True)
     assert not (tmp_path / "out").exists()
@@ -677,6 +674,35 @@ def test_spun_vertex_loops_off_the_axis_or_the_profile_ends_stay_unqualified():
             ),
             limits,
         )
+
+
+def test_apple_torus_face_closes_at_its_axis_point_with_one_degenerated_boundary():
+    backend()
+    from saved_fixtures import apple_torus_dome_model
+
+    mesh, operations = _solid(apple_torus_dome_model())
+    # R = 1 mm, r = 4 mm: the sheet rises to z = r on its outer side, curls
+    # back and meets the axis at z = sqrt(r^2 - R^2). The solid of revolution
+    # is the outer profile's volume up to z = r minus the curl under it.
+    major, minor = 1.0, 4.0
+    top = math.sqrt(minor**2 - major**2)
+    angle = math.acos(-major / minor)
+
+    def volume_to(z, sign):
+        # integral of pi * (R + sign * sqrt(r^2 - z^2))^2 dz from 0 to z
+        arc = z / 2 * math.sqrt(minor**2 - z**2) + minor**2 / 2 * math.asin(z / minor)
+        return math.pi * ((major**2 + minor**2) * z - z**3 / 3 + sign * 2 * major * arc)
+
+    volume = volume_to(minor, 1) - (volume_to(minor, -1) - volume_to(top, -1))
+    lateral = 2 * math.pi * minor * (major * angle + minor * math.sin(angle))
+    assert mesh.volume_mm3 == pytest.approx(volume, rel=1e-6)
+    assert mesh.area_mm2 == pytest.approx(
+        lateral + math.pi * (major + minor) ** 2, rel=1e-6
+    )
+    assert "degenerated_torus_axis_boundary" in operations
+    # A ring torus has no axis point: its vertex loop stays unqualified.
+    with pytest.raises(icadkit.UnsupportedFormatError, match="saved.half_edge"):
+        _solid(apple_torus_dome_model(major=0.005, minor=0.004))
 
 
 def test_bridge_maps_ellipse_and_intersection_for_saved_bodies_only():

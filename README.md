@@ -41,7 +41,7 @@ The base reader supports standard GIL-enabled CPython 3.10–3.14. Wheel targets
 are Linux x86_64 (glibc 2.28+), Windows x86_64 and macOS ARM64 (11+):
 
 ```sh
-python -m pip install icadkit==0.3.6
+python -m pip install icadkit
 ```
 
 The native extension bundles `parasolid-core` and has no mandatory Python
@@ -50,7 +50,7 @@ explicit compatible catalog is needed only for schemas absent from the built-in
 profiles. Release files are available on the
 [GitHub releases page](https://github.com/monozukuri-ai/icadkit/releases).
 
-For preview/GLB, install `python -m pip install 'icadkit[preview]==0.3.6'`.
+For preview/GLB, install `python -m pip install 'icadkit[preview]'`.
 The optional OCCT dependency requires glibc 2.31+ on Linux; see
 [preview requirements](docs/preview.md#dependencies-and-validation).
 To build from a source checkout or sdist, install Rust 1.88+ and a C linker,

@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+- Saved bodies whose toroidal face reaches its axis convert: an apple or
+  horn torus (minor radius not below the major radius), or a lemon torus,
+  stores that axis point as a loop of one vertex-only half-edge, and the
+  adapter closes the face there with one degenerated edge like a cone apex
+  (`degenerated_torus_axis_boundary`).
+- The registry dependency is `parasolid-core 0.3.7` and the `preview` extra
+  pins `parasolid-kit[occt]==0.3.7` instead of 0.3.6. The crate keeps the
+  profiles, IDs and hashes of 0.3.6; the Python package's OCCT interop builds
+  rolling-ball blends as the pipe of the blend radius around the spine with
+  their contact curves interpolated from the spine, rational and
+  stored-periodic NURBS, edges whose own geometry is a surface parameter
+  curve, and parameter curves on offset surfaces.
+- Backend versions are declared only in `Cargo.toml` and `pyproject.toml`.
+  `build_info().parasolid_core_version` is read from `Cargo.lock` when the
+  crate is built, `scripts/check_license.py --write` rewrites the ledger
+  headers and crate notices from the lock, and the artifact and install
+  verifications check structure instead of literal versions. The runtime
+  checks that refused any parasolid-kit release other than the pin
+  (`csg.backend_version`, `preview.backend_version`) are gone: the `preview`
+  extra's exact requirement is what installs the qualified release. The
+  install commands in the documentation no longer pin the icadkit version.
+- The saved-body adapter admits blend surfaces (BLENDED_EDGE and
+  BLEND_BOUND), and the bridge maps their records. With the 0.3.7 pins,
+  29,386 of the 29,703 bound saved bodies in the local sample convert, 490
+  more than version 0.3.6 and none fewer, with the previously converted
+  bodies unchanged.
+
 ## 0.3.6
 
 ### Added

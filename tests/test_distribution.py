@@ -8,9 +8,11 @@ def test_installed_type_markers_and_runtime_dependencies():
     assert package.joinpath("_core.pyi").is_file()
     for asset in ("index.html", "viewer.js", "viewer.css"):
         assert package.joinpath("_viewer", asset).is_file()
-    assert distribution("icadkit").requires == [
-        "parasolid-kit[occt]==0.3.6 ; extra == 'preview'"
+    requirements = distribution("icadkit").requires or []
+    assert [r.split(";")[0].split("[")[0].strip() for r in requirements] == [
+        "parasolid-kit"
     ]
+    assert all(r.split(";")[1].strip() == "extra == 'preview'" for r in requirements)
 
 
 def test_installed_license_metadata():

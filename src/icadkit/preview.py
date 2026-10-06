@@ -12,7 +12,7 @@ import json
 import math
 import tempfile
 from dataclasses import asdict, dataclass, fields
-from importlib import import_module, metadata
+from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -106,18 +106,12 @@ def _error(
 
 def _backend() -> Any:
     try:
-        version = metadata.version("parasolid-kit")
-    except metadata.PackageNotFoundError as exc:
+        return import_module("parasolid_kit.interop.preview")
+    except ImportError as exc:
         raise _error(
             "preview.missing_dependency",
             'Install "icadkit[preview]" to create previews',
         ) from exc
-    if version != "0.3.6":
-        raise _error(
-            "preview.backend_version",
-            "Preview requires the qualified parasolid-kit 0.3.6 adapter",
-        )
-    return import_module("parasolid_kit.interop.preview")
 
 
 def _backend_error(exc: Any) -> PreviewError:

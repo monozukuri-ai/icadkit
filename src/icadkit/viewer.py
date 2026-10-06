@@ -587,9 +587,9 @@ def _native_scene(
                     ),
                 )
             except IcadError as exc:
-                if isinstance(exc, LimitExceededError) or exc.diagnostic.code in (
-                    "csg.missing_dependency",
-                    "csg.backend_version",
+                if (
+                    isinstance(exc, LimitExceededError)
+                    or exc.diagnostic.code == "csg.missing_dependency"
                 ):
                     raise
                 detail.update(
@@ -663,9 +663,9 @@ def _native_scene(
                     ),
                 )
             except IcadError as exc:
-                if isinstance(exc, LimitExceededError) or exc.diagnostic.code in (
-                    "csg.missing_dependency",
-                    "csg.backend_version",
+                if (
+                    isinstance(exc, LimitExceededError)
+                    or exc.diagnostic.code == "csg.missing_dependency"
                 ):
                     raise
                 detail.update(

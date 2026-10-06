@@ -3,6 +3,7 @@
 import json
 import math
 import struct
+import sys
 from dataclasses import replace
 
 import pytest
@@ -677,12 +678,8 @@ def test_viewer_opt_in_failure_and_cli(tmp_path, capsys):
 
 
 def test_missing_optional_runtime_never_publishes(tmp_path, monkeypatch):
-    import icadkit._csg_occt as backend
-
-    def missing(_):
-        raise ModuleNotFoundError("synthetic missing backend")
-
-    monkeypatch.setattr(backend.metadata, "version", missing)
+    # A None entry makes the import of the backend module raise ImportError.
+    monkeypatch.setitem(sys.modules, "parasolid_kit.interop.occt", None)
     with pytest.raises(icadkit.UnsupportedFormatError, match=r"icadkit\[preview\]"):
         write_native_viewer(document(), tmp_path / "out", csg=True)
     assert not (tmp_path / "out").exists()

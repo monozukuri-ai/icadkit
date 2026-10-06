@@ -47,8 +47,8 @@ use parasolid_core::{BuiltinProfileRegistry, ParseError};
 /// Version of this Rust crate, in Cargo SemVer notation.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Exact registry dependency; checked against the manifest and lock in CI.
-pub const PARASOLID_CORE_VERSION: &str = "0.3.6";
+/// Resolved registry version of the backend, read from `Cargo.lock` at build time.
+pub const PARASOLID_CORE_VERSION: &str = env!("ICAD_PARASOLID_CORE_VERSION");
 
 /// Metadata of the compiled Parasolid backend, not ICD format coverage.
 #[derive(Debug, Clone, PartialEq, Eq)]

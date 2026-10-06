@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from importlib import import_module, metadata
+from importlib import import_module
 from typing import Any
 
 from .csg import CsgBody, CsgLimits, CsgMesh, _fail
@@ -15,11 +15,7 @@ from .parts import _frame
 
 def _runtime() -> dict[str, Any]:
     try:
-        if metadata.version("parasolid-kit") != "0.3.6":
-            _fail("csg.backend_version", "CSG evaluation requires parasolid-kit 0.3.6")
         import_module("parasolid_kit.interop.occt").load_runtime()
-    except IcadError:
-        raise
     except Exception as exc:
         _fail(
             "csg.missing_dependency",

@@ -102,12 +102,14 @@ containing those surfaces. Faces require explicit boundary loops. A conical
 face that ends in its apex is stored with a loop of one vertex and no edge; the
 adapter closes it with one degenerated boundary edge when that vertex lies at
 the cone's apex. Vertex loops elsewhere, on other surfaces, or as a face's only
-loop remain unsupported (`saved.half_edge`). Intersection curves are rebuilt
+loop remain unsupported (`saved.half_edge`); the unreleased source also closes
+an apple, horn or lemon torus at its axis point the same way, with one
+degenerated edge per axis point. Intersection curves are rebuilt
 by the pinned adapter from their two support surfaces and saved chart points;
 closed or unresolved branches are rejected without a substitute curve.
 Shared source vertices/edges/loops and
 material-region shells are preserved. Surface parameter curves, periodic seams
-and wire orientation are constructed by the pinned `parasolid-kit==0.3.6` OCCT
+and wire orientation are constructed by the pinned parasolid-kit OCCT
 adapter. Generated edges/vertices retain the declared body resolution; existing
 source tolerances are preserved, and a source vertex is accepted on its curve
 within that declared resolution (never below 1e-6 mm). Surfaces and source
@@ -132,10 +134,10 @@ Catalogs are not bundled.
 
 Version 0.3.5 uses `parasolid-core 0.3.5`, which also supplies reviewed
 B-Rep mappings for [twenty-six further schema keys](support.md#schemas). This
-removes their catalog requirement within the qualified subsets. Version 0.3.6
-uses `parasolid-core 0.3.6` and `parasolid-kit 0.3.6`, which map SPUN_SURF as
-a surface of revolution; the adapter admits spun faces, closing a profile end
-on the spin axis with one degenerated edge like a cone apex
+removes their catalog requirement within the qualified subsets. Since
+version 0.3.6 the backend maps SPUN_SURF as a surface of revolution; the
+adapter admits spun faces, closing a profile end on the spin axis with one
+degenerated edge like a cone apex
 (`degenerated_spun_axis_boundary`), see the
 [roadmap](roadmap.md#version-036-spun-surfaces). Offset surfaces are read but
 not converted. Resource parsing does not establish a saved-body binding or
@@ -212,7 +214,7 @@ their diagnostics: unsupported curve or surface kinds, kernel validation
 failures, an intersection limit kind the mapper does not accept and, in
 version 0.3.5, SPUN_SURF surfaces.
 
-Version 0.3.6, with `parasolid-kit 0.3.6` and the adapter changes above,
+Version 0.3.6, with its backend release and the adapter changes above,
 converts 28,896 of the same 29,703 bodies: 1,803 more and none fewer,
 while the 27,093 that converted before keep their volumes and face counts.
 Every newly converted body with stored bounds lies within them (17 instances
@@ -222,6 +224,14 @@ blend or NURBS surfaces (518), kernel failures and invalid faces (199), edge
 tolerances above the configured bound (34), vertex loops that are not an axis
 end or apex (23), sheet bodies (16), the intersection limit kind (10) and
 seven others.
+
+The unreleased source goes further with `parasolid-kit 0.3.7`, which
+builds rolling-ball blends, rational and stored-periodic NURBS
+and surface-parametric edge curves, while the adapter closes toroidal faces
+at their axis point: 29,386 of the same bodies convert, 490 more and none
+fewer, with the previously converted bodies unchanged. See the
+[roadmap](roadmap.md#unreleased-blends-and-the-remaining-conversion-limits)
+for what remains.
 
 Saved SDK observations cover 1,789 evaluated bodies from V7L2–V7L7 and
 V8L1–V8L3 inputs: volume, area and centroid match for all of them, including

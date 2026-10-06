@@ -1,3 +1,4 @@
+import re
 from dataclasses import FrozenInstanceError
 from importlib.metadata import version
 
@@ -11,7 +12,7 @@ def test_native_backend_identity():
     assert isinstance(info, icadkit.BuildInfo)
     assert info.version == icadkit.__version__ == version("icadkit")
     assert info.rust_core_version.replace("-dev.", ".dev") == info.version
-    assert info.parasolid_core_version == "0.3.6"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", info.parasolid_core_version)
     assert any(name.startswith("icad-") for name in info.builtin_profile_ids)
     assert {"icad-sch30000-13006-r6", "icad-sch34101-13006-r3"} <= set(
         info.builtin_profile_ids
