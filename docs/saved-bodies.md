@@ -102,7 +102,7 @@ containing those surfaces. Faces require explicit boundary loops. A conical
 face that ends in its apex is stored with a loop of one vertex and no edge; the
 adapter closes it with one degenerated boundary edge when that vertex lies at
 the cone's apex. Vertex loops elsewhere, on other surfaces, or as a face's only
-loop remain unsupported (`saved.half_edge`); the unreleased source also closes
+loop remain unsupported (`saved.half_edge`); version 0.3.7 also closes
 an apple, horn or lemon torus at its axis point the same way, with one
 degenerated edge per axis point. Intersection curves are rebuilt
 by the pinned adapter from their two support surfaces and saved chart points;
@@ -225,12 +225,12 @@ tolerances above the configured bound (34), vertex loops that are not an axis
 end or apex (23), sheet bodies (16), the intersection limit kind (10) and
 seven others.
 
-The unreleased source goes further with `parasolid-kit 0.3.7`, which
+Version 0.3.7 goes further with `parasolid-kit 0.3.7`, which
 builds rolling-ball blends, rational and stored-periodic NURBS
 and surface-parametric edge curves, while the adapter closes toroidal faces
 at their axis point: 29,386 of the same bodies convert, 490 more and none
 fewer, with the previously converted bodies unchanged. See the
-[roadmap](roadmap.md#unreleased-blends-and-the-remaining-conversion-limits)
+[roadmap](roadmap.md#version-037-blends-and-the-remaining-conversion-limits)
 for what remains.
 
 Saved SDK observations cover 1,789 evaluated bodies from V7L2–V7L7 and

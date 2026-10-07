@@ -1,19 +1,34 @@
 # Changelog
 
-## Unreleased
+## 0.3.7
 
-- Saved bodies whose toroidal face reaches its axis convert: an apple or
-  horn torus (minor radius not below the major radius), or a lemon torus,
-  stores that axis point as a loop of one vertex-only half-edge, and the
-  adapter closes the face there with one degenerated edge like a cone apex
+### Added
+
+- Saved bodies on rolling-ball blend surfaces convert. A BLENDED_EDGE with
+  equal offsets is built as the pipe of the blend radius around its spine, and
+  an intersection with a BLEND_BOUND construction surface is taken as the
+  blend's contact curve on the support that the reference assigns to it,
+  interpolated from the spine and checked against the source chart points. In
+  the local sample 477 of the 518 bodies with blend surfaces convert, every
+  one with stored bounds lies within them and six match saved SDK
+  observations; the whole sample rises from 28,896 to 29,386 of 29,703 bound
+  bodies, and the bodies that converted before give the same volumes and
+  face counts. See [saved bodies](saved-bodies.md) and the
+  [roadmap](roadmap.md#version-037-blends-and-the-remaining-conversion-limits).
+- Saved bodies whose toroidal face reaches its axis convert: an apple or horn
+  torus (minor radius not below the major radius), or a lemon torus, stores
+  that axis point as a loop of one vertex-only half-edge, and the adapter
+  closes the face there with one degenerated edge like a cone apex
   (`degenerated_torus_axis_boundary`).
-- The registry dependency is `parasolid-core 0.3.7` and the `preview` extra
-  pins `parasolid-kit[occt]==0.3.7` instead of 0.3.6. The crate keeps the
-  profiles, IDs and hashes of 0.3.6; the Python package's OCCT interop builds
-  rolling-ball blends as the pipe of the blend radius around the spine with
-  their contact curves interpolated from the spine, rational and
-  stored-periodic NURBS, edges whose own geometry is a surface parameter
-  curve, and parameter curves on offset surfaces.
+
+### Changed
+
+- The registry dependency is `parasolid-core 0.3.7`, which keeps the
+  profiles, IDs and hashes of 0.3.6, and the `preview` extra pins
+  `parasolid-kit[occt]==0.3.7` instead of 0.3.6. That release's OCCT interop
+  builds rolling-ball blends, rational and stored-periodic NURBS, edges whose
+  own geometry is a surface parameter curve, and parameter curves on offset
+  surfaces.
 - Backend versions are declared only in `Cargo.toml` and `pyproject.toml`.
   `build_info().parasolid_core_version` is read from `Cargo.lock` when the
   crate is built, `scripts/check_license.py --write` rewrites the ledger
@@ -21,13 +36,44 @@
   verifications check structure instead of literal versions. The runtime
   checks that refused any parasolid-kit release other than the pin
   (`csg.backend_version`, `preview.backend_version`) are gone: the `preview`
-  extra's exact requirement is what installs the qualified release. The
-  install commands in the documentation no longer pin the icadkit version.
-- The saved-body adapter admits blend surfaces (BLENDED_EDGE and
-  BLEND_BOUND), and the bridge maps their records. With the 0.3.7 pins,
-  29,386 of the 29,703 bound saved bodies in the local sample convert, 490
-  more than version 0.3.6 and none fewer, with the previously converted
-  bodies unchanged.
+  extra's exact requirement is what installs the qualified release.
+- The install commands in the documentation no longer pin the icadkit
+  version.
+
+### Upgrade from 0.3.6
+
+Version 0.3.6 was tagged but its publication to PyPI did not complete, so
+PyPI installations move from 0.3.5 to 0.3.7 and should read the 0.3.6 notes
+as well. Existing APIs keep their signatures and no public name is removed.
+The package still has no mandatory Python runtime dependencies. The
+`preview` extra now pins `parasolid-kit[occt]==0.3.7`; environments that
+installed an earlier pin must upgrade it together with icadkit.
+`build_info().parasolid_core_version` and `icadkit info` report 0.3.7 with
+unchanged built-in profile IDs and hashes.
+
+The diagnostics `csg.backend_version` and `preview.backend_version` no longer
+occur; a missing backend still raises `csg.missing_dependency` or
+`preview.missing_dependency`. Saved bodies that 0.3.6 rejected for blend
+surfaces (`preview.geometry_kind`) or for a torus axis vertex loop
+(`saved.half_edge`) may now convert, and
+`SavedBodyMesh.representation_operations` may list further operation names
+such as `degenerated_torus_axis_boundary`. JSON consumers must allow the
+additional values while continuing to check each scope's status; results
+that depended on either rejection should be read again.
+
+### Scope
+
+Mirrored CSG history, complete assembly geometry, inherited attributes and
+complete drawing reconstruction remain unsupported. Of the bound saved bodies
+in the local sample, 317 still do not convert: periodic faces whose loops
+cross the seam or are split by a neighbour's seam, edge tolerances above the
+configured bound after a seam fix, sheet bodies, an intersection limit of
+kind `B`, a blend family whose NURBS support does not contain its own chart
+points, and cliff-edge blends. Offset surfaces are read but not converted.
+Trailer edge items on cones, spheres and tori, free-form items, older block
+revisions, the `0x1x`/`0x2x` block kinds and the named table stay opaque. See
+the [support boundaries](support.md) and the [source roadmap](roadmap.md) for
+the version-support stages and their local validation scope.
 
 ## 0.3.6
 

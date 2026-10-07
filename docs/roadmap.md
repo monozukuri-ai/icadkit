@@ -1,6 +1,6 @@
 # Release scope and follow-up work
 
-## Unreleased: blends and the remaining conversion limits
+## Version 0.3.7: blends and the remaining conversion limits
 
 Of the 807 bound bodies that version 0.3.6 does not convert, 518 use
 rolling-ball blends. `parasolid-kit 0.3.7` builds such a blend

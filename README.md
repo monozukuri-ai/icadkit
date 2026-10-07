@@ -4,16 +4,20 @@ A Rust-based Python reader for **iCAD SX `.icd` files**. Read saved part
 structure, coordinate frames, names and selected attributes; inspect native
 box/cylinder parameters; and extract embedded Parasolid geometry.
 
-Version **0.3.6** adds:
+Version **0.3.7** adds:
 
-- [Saved final bodies](docs/saved-bodies.md) on spun surfaces (SPUN_SURF),
-  through `parasolid-core 0.3.6` and the `preview` extra now pinned to
-  `parasolid-kit[occt]==0.3.6`. The backend's conversion fixes raise the local
-  sample from 27,093 to 28,896 of 29,703 bound bodies, with the previously
-  converted bodies unchanged.
-- Line/arc profile extrusions as [CSG](docs/csg.md) operands.
-- Decoded surface and edge items of the [trailing container](docs/trailer.md)
-  (`TrailerFace.surface`, `TrailerEdge.parameter_line`).
+- [Saved final bodies](docs/saved-bodies.md) on rolling-ball blend surfaces
+  and on toroidal faces that reach their axis, through `parasolid-core 0.3.7`
+  and the `preview` extra pinned to `parasolid-kit[occt]==0.3.7`. The local
+  sample rises from 28,896 to 29,386 of 29,703 bound bodies, with the
+  previously converted bodies unchanged.
+- One declaration per backend version (`Cargo.toml`, `pyproject.toml`); the
+  runtime checks of the backend version are gone.
+
+Version 0.3.6 added [saved final bodies](docs/saved-bodies.md) on spun
+surfaces (SPUN_SURF), line/arc profile extrusions as [CSG](docs/csg.md)
+operands and decoded surface and edge items of the
+[trailing container](docs/trailer.md).
 
 Version 0.3.5 added [view inventories and saved 2D geometry](docs/drawing.md),
 twenty-six further catalog-free [schema keys](docs/support.md#schemas), the
