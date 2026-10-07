@@ -37,7 +37,25 @@ pub struct ViewRecord {
     pub opaque_ranges: Vec<ByteRange>,
     pub diagnostics: Vec<Diagnostic>,
     pub status: Status,
+    /// Header word `+28` of a 2D view, qualified when it equals the number
+    /// of entity entries. 3D views keep `None`: their count has another rule.
+    pub entity_count: Option<u32>,
+    /// Record word `+24` of a 2D view, retained without an assigned meaning.
+    pub raw_entity_words: Option<u32>,
+    /// Header double `+32` of a 2D view when finite and positive.
+    pub scale: Option<f64>,
+    /// Header bytes `+96..+104` of a 2D view, such as `1/1     `.
+    pub raw_scale_text: Vec<u8>,
+    /// Header floats `+40..+56` of a 2D view: min x, min y, max x, max y in
+    /// view-local millimetres, when they form a box.
+    pub extent: Option<[f32; 4]>,
+    /// `box`, `empty` (the saved sentinel of a view without extent) or
+    /// `unqualified`.
+    pub extent_kind: &'static str,
 }
+
+/// Saved extents of a 2D view without entities store this magnitude.
+const EMPTY_EXTENT: f32 = 1e37;
 
 #[derive(Debug, Clone)]
 pub struct ViewIndex {
@@ -63,6 +81,71 @@ fn diagnostic(kind: ErrorKind, code: &'static str, at: u64, text: &str) -> Diagn
         code,
         byte_offset: at,
         message: text.to_owned(),
+    }
+}
+
+/// Qualify the saved count, scale and extents of a 2D view header at `at`.
+/// Every observed 2D view stores the entity count at `+28`, a finite positive
+/// double scale at `+32` and either a box or the empty sentinel at `+40`.
+/// A deviation keeps the field unavailable and the view partial; it never
+/// stops traversal, since the record framing is unaffected.
+fn qualify_two_d(view: &mut ViewRecord, b: &[u8], at: usize, order: ByteOrder) {
+    let base = view.byte_range.start;
+    let word = |start: usize| order.u32([b[start], b[start + 1], b[start + 2], b[start + 3]]);
+    let mut partial = |code: &'static str, offset: usize, text: &str| {
+        view.diagnostics.push(diagnostic(
+            ErrorKind::Unsupported,
+            code,
+            base + offset as u64,
+            text,
+        ));
+        if view.status == Status::Complete {
+            view.status = Status::Partial;
+        }
+    };
+    view.raw_entity_words = Some(word(24));
+    view.raw_scale_text = b[at + 96..at + 104].to_vec();
+    let count = word(at + 28);
+    let entities = view.entries.iter().filter(|e| e.kind == "entity").count();
+    if usize::try_from(count).ok() == Some(entities) {
+        view.entity_count = Some(count);
+    } else {
+        partial(
+            "views.entity_count",
+            at + 28,
+            "Saved entity count differs from the entity records",
+        );
+    }
+    let scale = order.f64(std::array::from_fn(|i| b[at + 32 + i]));
+    if scale.is_finite() && scale > 0.0 {
+        view.scale = Some(scale);
+    } else {
+        partial(
+            "views.scale",
+            at + 32,
+            "Saved view scale is not a positive number",
+        );
+    }
+    let extent: [f32; 4] =
+        std::array::from_fn(|i| order.f32(std::array::from_fn(|j| b[at + 40 + 4 * i + j])));
+    if extent[0] >= EMPTY_EXTENT
+        && extent[1] >= EMPTY_EXTENT
+        && extent[2] <= -EMPTY_EXTENT
+        && extent[3] <= -EMPTY_EXTENT
+    {
+        view.extent_kind = "empty";
+    } else if extent.iter().all(|v| v.is_finite())
+        && extent[0] <= extent[2]
+        && extent[1] <= extent[3]
+    {
+        view.extent = Some(extent);
+        view.extent_kind = "box";
+    } else {
+        partial(
+            "views.extent",
+            at + 40,
+            "Saved view extent is neither a box nor empty",
+        );
     }
 }
 
@@ -136,6 +219,12 @@ impl Document {
                 opaque_ranges: Vec::new(),
                 diagnostics: Vec::new(),
                 status: Status::Unsupported,
+                entity_count: None,
+                raw_entity_words: None,
+                scale: None,
+                raw_scale_text: Vec::new(),
+                extent: None,
+                extent_kind: "unqualified",
             };
             if !qualified {
                 view.opaque_ranges.push(record.payload_range);
@@ -363,6 +452,9 @@ impl Document {
                     owner_offset: if kind == "entity" { owner } else { None },
                 });
                 cursor += prefix + len;
+            }
+            if matches!(view.kind, "2d_global" | "2d_view" | "registered_part") {
+                qualify_two_d(&mut view, b, at, order);
             }
             out.views.push(view);
         }

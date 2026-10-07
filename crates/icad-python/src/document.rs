@@ -81,6 +81,66 @@ pub fn read_path(
     Ok(DocumentHandle { inner })
 }
 
+/// Serialize retained container parts with recomputed framing.
+#[pyfunction]
+pub fn serialize_container<'py>(
+    py: Python<'py>,
+    byte_order: &str,
+    mod_record: &[u8],
+    drw_word: &[u8],
+    view_names: Vec<Vec<u8>>,
+    records: Vec<(String, u32, Vec<u8>)>,
+    tail: Vec<u8>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let order = match byte_order {
+        "little" => icad_core::ByteOrder::Little,
+        "big" => icad_core::ByteOrder::Big,
+        other => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "byte_order must be 'little' or 'big', not {other:?}"
+            )));
+        }
+    };
+    let mod_record: [u8; 256] = mod_record.try_into().map_err(|_| {
+        pyo3::exceptions::PyValueError::new_err("mod_record must be exactly 256 bytes")
+    })?;
+    let drw_word: [u8; 4] = drw_word
+        .try_into()
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("drw_word must be exactly 4 bytes"))?;
+    let mut names = Vec::with_capacity(view_names.len());
+    for name in view_names {
+        let name: [u8; 8] = name.as_slice().try_into().map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err("each view name must be exactly 8 bytes")
+        })?;
+        names.push(name);
+    }
+    let mut parts = Vec::with_capacity(records.len());
+    for (tag, declared_words, body) in records {
+        let tag: &'static str = match tag.as_str() {
+            "RES" => "RES",
+            "V/W" => "V/W",
+            "USR" => "USR",
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "record tag must be RES, V/W or USR, not {other:?}"
+                )));
+            }
+        };
+        parts.push(icad_core::ContainerRecord {
+            tag,
+            declared_words,
+            body,
+        });
+    }
+    let data = py
+        .detach(|| {
+            icad_core::Container::new(order, mod_record, drw_word, names, parts, tail)
+                .and_then(|container| container.to_bytes())
+        })
+        .map_err(inspection_error)?;
+    Ok(PyBytes::new(py, &data))
+}
+
 #[pymethods]
 impl DocumentHandle {
     fn read_views<'py>(
@@ -121,6 +181,22 @@ impl DocumentHandle {
             value.set_item("raw_name", PyBytes::new(py, &v.raw_name))?;
             value.set_item("kind", v.kind)?;
             value.set_item("raw_view_number", v.raw_view_number)?;
+            value.set_item("entity_count", v.entity_count)?;
+            value.set_item("raw_entity_words", v.raw_entity_words)?;
+            value.set_item("scale", v.scale)?;
+            value.set_item("raw_scale_text", PyBytes::new(py, &v.raw_scale_text))?;
+            value.set_item(
+                "extent",
+                v.extent.map(|e| {
+                    (
+                        f64::from(e[0]),
+                        f64::from(e[1]),
+                        f64::from(e[2]),
+                        f64::from(e[3]),
+                    )
+                }),
+            )?;
+            value.set_item("extent_kind", v.extent_kind)?;
             value.set_item("status", v.status.as_str())?;
             value.set_item("diagnostics", diagnostics(v.diagnostics)?)?;
             value.set_item(
@@ -385,6 +461,16 @@ impl DocumentHandle {
                 entities.append(entity_dict(py, entity)?)?;
             }
             p.set_item("entities", entities)?;
+            let materials = PyList::empty(py);
+            for m in part.materials {
+                materials.append((
+                    (m.byte_range.start, m.byte_range.end),
+                    PyBytes::new(py, &m.raw_name),
+                    PyBytes::new(py, &m.raw_material_id),
+                    m.specific_gravity,
+                ))?;
+            }
+            p.set_item("materials", materials)?;
             p.set_item("parent_source_id", part.parent_source_id)?;
             p.set_item("first_child_source_id", part.first_child_source_id)?;
             p.set_item("previous_source_id", part.previous_source_id)?;
@@ -559,6 +645,49 @@ impl DocumentHandle {
             .source_bytes(icad_core::ByteRange { start, end })
             .map_err(inspection_error)?;
         Ok(PyBytes::new(py, data))
+    }
+
+    fn container_parts<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let container = py
+            .detach(|| self.inner.container())
+            .map_err(inspection_error)?;
+        let result = PyDict::new(py);
+        result.set_item("byte_order", container.byte_order.as_str())?;
+        result.set_item("mod_record", PyBytes::new(py, &container.mod_record))?;
+        result.set_item("drw_word", PyBytes::new(py, &container.drw_word))?;
+        let names = PyList::empty(py);
+        for name in &container.view_names {
+            names.append(PyBytes::new(py, name))?;
+        }
+        result.set_item("view_names", names)?;
+        let records = PyList::empty(py);
+        for record in &container.records {
+            records.append((
+                record.tag,
+                record.declared_words,
+                PyBytes::new(py, &record.body),
+            ))?;
+        }
+        result.set_item("records", records)?;
+        result.set_item("tail", PyBytes::new(py, &container.tail))?;
+        let diagnostics = PyList::empty(py);
+        for d in container.diagnostics {
+            let row = PyDict::new(py);
+            row.set_item("category", d.kind.as_str())?;
+            row.set_item("code", d.code)?;
+            row.set_item("byte_offset", d.byte_offset)?;
+            row.set_item("message", d.message)?;
+            diagnostics.append(row)?;
+        }
+        result.set_item("diagnostics", diagnostics)?;
+        Ok(result)
+    }
+
+    fn container_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let data = py
+            .detach(|| self.inner.container().and_then(|c| c.to_bytes()))
+            .map_err(inspection_error)?;
+        Ok(PyBytes::new(py, &data))
     }
 
     fn read_component<'py>(

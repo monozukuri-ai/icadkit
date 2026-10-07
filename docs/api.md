@@ -200,6 +200,39 @@ within the returned payload, `payload_sha256` and `encoding`. Do not add
 decoded offsets to compressed container offsets. `source_bytes(ByteRange(...))`
 returns bounded copies of the original input, including unknown regions.
 
+`container()` returns the same model as a frozen `Container`: the MOD record,
+the DRW word at `+8`, the saved view names, one `ContainerRecord` per indexed
+record (`tag`, `declared_words`, `body`; `records[i]` is `Document.records[i + 2]`)
+and the tail. `Container.with_record()` and `ContainerRecord.with_body()`
+return edited copies and `Container.to_bytes()` serializes them through the
+same native serializer, which validates the record order, the view-name count
+and word alignment (`container.record_order`, `container.view_names`,
+`container.alignment`). Editing a record body is byte surgery: the caller
+owns every count, offset and ID inside that body.
+
+`container()` returns the same model as a frozen `Container`: the MOD record,
+the DRW word at `+8`, the saved view names, one `ContainerRecord` per indexed
+record (`tag`, `declared_words`, `body`; `records[i]` is `Document.records[i + 2]`)
+and the tail. `Container.with_record()` and `ContainerRecord.with_body()`
+return edited copies and `Container.to_bytes()` serializes them through the
+same native serializer, which validates the record order, the view-name count
+and word alignment (`container.record_order`, `container.view_names`,
+`container.alignment`). Editing a record body is byte surgery: the caller
+owns every count, offset and ID inside that body.
+
+[`icadkit.DrawingWriter`](writing.md) builds on this model to add 2D views
+and point/line/circle/arc records to a copy of a document; its output has not
+been opened by iCAD.
+
+`to_bytes()` serializes the indexed container with its framing recomputed:
+directory offsets and lengths, `RES`/`V/W` length words and the MOD total-word
+field are derived from the retained records, while unknown header fields,
+record payloads, the `USR` length word and the tail are copied. An unmodified
+document reproduces its input byte for byte when its framing follows the
+observed rules; `scripts/verify_roundtrip.py` checks this over a directory of
+files. This is a container model, not an ICD writer: no record is interpreted,
+invented or repaired, and the output has not been opened by iCAD.
+
 Extraction checks sizes, zlib checksum and EOF, unexpected concatenated streams
 or extra data, alignment, the neutral X_B header and terminal suffix. It does
 not parse schema-dependent nodes, prove a node terminator or construct B-Rep.
@@ -356,6 +389,24 @@ Geometry and catalog limit values must be positive integers, at most
 `2**63-1` in the Python API. Document read limits also apply. Exceeding the
 diagnostic limit raises `LimitExceededError` rather than truncating diagnostics
 and reporting success.
+
+## Part shapes
+
+```python
+shape = icadkit.read_part_shape(doc, part.part_id, frame="part")  # or "world"
+index = icadkit.read_part_shapes(doc, part_ids=None, frame="part")
+shape.shape, shape.status, shape.reason, shape.volume_mm3, shape.centroid_mm
+shape.write_step("part.step"); shape.write_brep("part.brep")
+```
+
+`PartShape` holds the part ID and name, `frame`, `frame_transform`, the
+`ShapeBody` tuple (source, resource, status, diagnostics, mass properties),
+`status`, `reason`, totals and the OCCT compound in `shape`; `to_row()` is
+JSON-compatible. `PartShapeIndex` adds `shapes`, `status`, `diagnostics`,
+`shape(part_id)` and `to_rows()`. Both functions accept `schema`,
+`part_limits` and `limits=PartShapeLimits(...)`; unknown part IDs raise
+`KeyError`. The optional `preview` extra supplies the kernel. See
+[part shapes](shapes.md).
 
 ## Command line
 

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, NoReturn, cast
 
 from . import _core
 from .api import _inspection
+from .container import Container, _read_container
 from .drawing import DrawingIndex, DrawingLimits, _read_drawing
 from .errors import (
     IcadError,
@@ -79,6 +80,25 @@ class Document:
     status: InspectionStatus
     _handle: _core.DocumentHandle = field(repr=False, compare=False)
     resource_associations: tuple[ResourceAssociation, ...] = ()
+
+    def container(self) -> Container:
+        """Model the indexed container for byte-exact editing and serialization."""
+        return _read_container(self)
+
+    def to_bytes(self) -> bytes:
+        """Serialize the indexed container with its framing recomputed.
+
+        Directory offsets and lengths, ``RES``/``V/W`` length words and the
+        MOD total-word field are derived from the retained records. Unknown
+        header fields, record payloads, the ``USR`` length word and the tail
+        are copied. An unmodified document reproduces its input byte for byte
+        when its framing follows the observed rules; a stored MOD total that
+        deviates is replaced, not copied.
+        """
+        try:
+            return self._handle.container_bytes()
+        except _core.InspectionError as exc:
+            _raise_native(exc)
 
     def read_views(self, *, limits: ViewLimits | None = None) -> ViewIndex:
         """Classify directory-owned views and bound records, including old originals."""

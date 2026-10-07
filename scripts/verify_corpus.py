@@ -33,6 +33,7 @@ def verify(manifest, root):
             f"changed input: {row['id']}",
         )
         doc = icadkit.read(path)
+        require(doc.to_bytes() == payload, f"round trip: {row['id']}")
         expected = row["expected"]
         require(doc.header.byte_order == expected["byte_order"], "byte order")
         require(len(doc.resources) == expected["resources"], "resource count")

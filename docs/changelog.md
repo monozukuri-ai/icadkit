@@ -1,5 +1,96 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `Document.to_bytes()` serializes the directory-indexed container with its
+  framing recomputed (directory offsets and lengths, `RES`/`V/W` length
+  words, the MOD total-word field) while unknown fields, record payloads, the
+  `USR` length word and the tail are copied. Unmodified documents reproduce
+  their input byte for byte; `scripts/verify_roundtrip.py` checks a directory
+  of files. The Rust crate exposes the same model as `Container`. This is the
+  foundation for writing, not a writer: nothing is interpreted or invented,
+  and no output has been opened by iCAD.
+
+- `Document.container()` exposes that model as `Container` and
+  `ContainerRecord` for byte-exact editing from Python; `Container.to_bytes()`
+  serializes an edited copy through the same native serializer.
+- `Part.materials` and `Part.material` read the saved material records
+  (CP932 name, identifier such as `SS400`, specific gravity) of the counted
+  metadata block that follows a part record in the qualified little-endian
+  layouts; an all-zero record is an empty material (`is_empty`). See
+  [materials](parts.md#materials). Rows include them as `materials`.
+- `icadkit.read_part_shape()` and `read_part_shapes()` collect a part's
+  qualified solids (saved final bodies, else CSG results, else standalone
+  native primitives) into one OCCT compound in the part frame or the
+  document frame, with exact mass properties, a per-part drawability status
+  and reason, JSON rows and STEP/BREP export (`PartShape`, `ShapeBody`,
+  `PartShapeIndex`, `PartShapeLimits`). Native spheres, cones, tori and
+  revolutions and primitives with an improper frame (signed heights,
+  mirrored entities) are built for this. See [part shapes](shapes.md).
+- `DrawingWriter.delete_entities()`, `clear_view()`, `delete_view()` and
+  `entity_ids()` remove saved or added records and views; `WriteResult`
+  reports `deleted_entities` and `deleted_views`. Deleting the captured
+  text, length and diameter dimension records and the captured local view
+  reproduces iCAD's own earlier files up to save noise.
+- `add_view()` takes `origin` and writes the view's placement record into
+  the 2D global view (origin on the sheet, scale, name), as every observed
+  document stores one per 2D view; `delete_view()` removes it, keeps at
+  least one 2D view and retargets the active-view name in RES. The MOD
+  view counts and the global view's placement count are maintained.
+  `DrawingWriter.MAX_VIEW_NUMBER`, `MAX_VIEW_NAME_BYTES` and
+  `view_capacity` expose the observed bounds. See
+  [writing](writing.md#per-part-drawing-files).
+- `DrawingDimension` interprets the diameter family (record type 27) as
+  `diameter` or `radius`: the measured circle, pick point, dimension line,
+  line point and arrowheads, with arc items (`DimensionItem.kind="arc"`);
+  43 records with SDK observations agree in centre, value and line point.
+  The writer's `DiameterDimension2D` writes the observed default placement
+  and reproduces the captured pair bit for bit up to save noise.
+- `icadkit.DrawingWriter` writes a copy of a document with new 2D views and
+  point, line, circle and arc records (`Point2D`, `Line2D`, `Circle2D`,
+  `Arc2D`, `EntityStyle`, `WriteResult`), appending saved records verbatim
+  with `add_raw_entity()`. Entity IDs continue after the largest saved record
+  ID, view bookkeeping (length, group words, count, extent) is updated and the
+  container framing is recomputed. The output reproduces captured iCAD pairs
+  up to save noise but has never been opened by iCAD:
+  `WriteResult.verification` is `corpus_consistent`. See
+  [writing](writing.md).
+- `DrawingText` qualifies the saved text layout: base point, writing
+  direction, raw way code, character height, width and pitch, per-line
+  origins, scale factor and rotation, with the derived cell-based box and
+  anchor for unrotated text; 183 text entities with SDK observations match.
+  A complete layout makes the text entity `complete`, and the writer's
+  `Text2D` writes one or two lines in that layout without the glyph cache.
+  See [views and drawing](drawing.md#drawing-scope) and [writing](writing.md).
+- `DrawingDimension` frames every little-endian dimension record and
+  interprets the length layout: measured points, dimension line, line
+  point, value text, arrowheads, aux lines, value and arrow parameters;
+  126 length dimensions with SDK observations agree. The writer's
+  `LengthDimension2D` writes that layout with its rendered items. See
+  [views and drawing](drawing.md#drawing-scope) and [writing](writing.md).
+- `DrawingHatch` reads hatch records: anchor, boundary edges and the
+  rendered lines with their angle and spacing; every hatch of the local
+  corpus frames this way. The writer's `Hatch2D` hatches a simple polygon
+  in that layout. See [views and drawing](drawing.md#drawing-scope) and
+  [writing](writing.md).
+- `View` qualifies the saved entity count, scale and extent of 2D views
+  (`entity_count`, `scale`, `raw_scale_text`, `extent`, `extent_kind`) and
+  retains the record word `+24` as `raw_entity_words`. In the local corpus
+  every one of the 4,050 2D views stores the entity count, a positive scale
+  and a box or the empty sentinel; 62 views with SDK observations match
+  their scale and extent. 3D views keep these fields unqualified. See
+  [views](drawing.md#qualified-formats-and-classification).
+
+### Changed
+
+- The authored framing fixtures (`tests/fixture_builders.py`, the public
+  corpus) now store the MOD total-word count the way every observed iCAD
+  file does, so `corpus/public.jsonl` pins new hashes for the same eight
+  cases and `scripts/verify_corpus.py` additionally requires each case to
+  serialize byte for byte.
+
 ## 0.3.7
 
 ### Added

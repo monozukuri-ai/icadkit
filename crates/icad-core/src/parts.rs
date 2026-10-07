@@ -40,10 +40,24 @@ pub struct PartRecord {
     pub extra_fields: Vec<PartTextRecord>,
     pub opaque_attributes: Vec<PartAttributeRecord>,
     pub entities: Vec<crate::NativeEntityRecord>,
+    /// Materials of the metadata blocks that follow this part record, one per
+    /// saved body; see [`PartMaterialRecord`].
+    pub materials: Vec<PartMaterialRecord>,
     pub parent_source_id: u32,
     pub first_child_source_id: u32,
     pub previous_source_id: u32,
     pub next_source_id: u32,
+}
+
+/// A saved material subrecord (tag `0x7a`, 216 bytes) of the metadata block
+/// that follows its owner's part record: CP932 name, material identifier
+/// and specific gravity. Text is retained undecoded.
+#[derive(Debug, Clone)]
+pub struct PartMaterialRecord {
+    pub byte_range: ByteRange,
+    pub raw_name: Vec<u8>,
+    pub raw_material_id: Vec<u8>,
+    pub specific_gravity: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +117,38 @@ pub struct PartProfileInfo {
 
 fn word(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+}
+
+/// Collect the material subrecords of one qualified metadata block. The
+/// block's framing was validated by `metadata_layout`; every subrecord with
+/// tag `0x7a` and the observed 216-byte length is a material of the part
+/// whose record precedes the block. Other tags and lengths stay opaque.
+fn collect_materials(part: &mut PartRecord, block: &[u8], base: u64) {
+    let count = word(block, 8) as usize;
+    let mut at = 160;
+    for _ in 0..count {
+        if block.len() - at < 4 {
+            break;
+        }
+        let tag = word(block, at);
+        let length = (tag & 0x00ff_ffff) as usize;
+        if length < 4 || length > block.len() - at {
+            break;
+        }
+        if tag >> 24 == 0x7a && length == 216 {
+            let sub = &block[at..at + length];
+            part.materials.push(PartMaterialRecord {
+                byte_range: ByteRange {
+                    start: base + at as u64,
+                    end: base + (at + length) as u64,
+                },
+                raw_name: sub[16..96].to_vec(),
+                raw_material_id: sub[96..136].to_vec(),
+                specific_gravity: f64::from_le_bytes(std::array::from_fn(|i| sub[136 + i])),
+            });
+        }
+        at += length;
+    }
 }
 
 fn limit(at: u64, code: &'static str, message: &str) -> InspectError {
@@ -722,6 +768,9 @@ impl Document {
                     }
                     entities += metadata_entities;
                     result.opaque(base + at as u64, base + next as u64, "entity_metadata");
+                    if let Some(part) = result.parts.last_mut() {
+                        collect_materials(part, &bytes[at..next], base + at as u64);
+                    }
                     at = next;
                     continue;
                 }
@@ -907,6 +956,7 @@ impl Document {
                         extra_fields: Vec::new(),
                         opaque_attributes: Vec::new(),
                         entities: Vec::new(),
+                        materials: Vec::new(),
                         parent_source_id: word(bytes, at + 260),
                         first_child_source_id: word(bytes, at + 264),
                         previous_source_id: word(bytes, at + 268),
@@ -1230,6 +1280,7 @@ impl Document {
                         extra_fields: Vec::new(),
                         opaque_attributes: Vec::new(),
                         entities: Vec::new(),
+                        materials: Vec::new(),
                         parent_source_id: u(260),
                         first_child_source_id: u(264),
                         previous_source_id: u(268),

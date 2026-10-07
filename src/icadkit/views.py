@@ -40,6 +40,18 @@ class ViewEntry:
 
 
 @dataclass(frozen=True)
+class ViewExtent:
+    """Saved view-local extent in millimetres; not recomputed from entities."""
+
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+    coordinate_space: Literal["view_local"] = "view_local"
+    length_unit: Literal["mm"] = "mm"
+
+
+@dataclass(frozen=True)
 class View:
     view_id: str
     byte_range: ByteRange
@@ -52,6 +64,12 @@ class View:
     opaque_ranges: tuple[ByteRange, ...]
     diagnostics: tuple[Diagnostic, ...]
     status: Status
+    entity_count: int | None = None
+    raw_entity_words: int | None = None
+    scale: float | None = None
+    raw_scale_text: bytes = b""
+    extent: ViewExtent | None = None
+    extent_kind: Literal["box", "empty", "unqualified"] = "unqualified"
 
 
 @dataclass(frozen=True)
@@ -102,6 +120,12 @@ def _read_views(document: "Document", limits: ViewLimits | None) -> ViewIndex:
                 tuple(ByteRange(*r) for r in v["opaque_ranges"]),
                 tuple(Diagnostic(**d) for d in v["diagnostics"]),
                 v["status"],
+                entity_count=v["entity_count"],
+                raw_entity_words=v["raw_entity_words"],
+                scale=v["scale"],
+                raw_scale_text=v["raw_scale_text"],
+                extent=ViewExtent(*v["extent"]) if v["extent"] else None,
+                extent_kind=v["extent_kind"],
             )
         )
     return ViewIndex(

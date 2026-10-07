@@ -23,10 +23,24 @@ impl ByteOrder {
         }
     }
 
+    pub(crate) fn bytes(self, value: u32) -> [u8; 4] {
+        match self {
+            Self::Little => value.to_le_bytes(),
+            Self::Big => value.to_be_bytes(),
+        }
+    }
+
     pub(crate) fn u16(self, bytes: [u8; 2]) -> u16 {
         match self {
             Self::Little => u16::from_le_bytes(bytes),
             Self::Big => u16::from_be_bytes(bytes),
+        }
+    }
+
+    pub(crate) fn f32(self, bytes: [u8; 4]) -> f32 {
+        match self {
+            Self::Little => f32::from_le_bytes(bytes),
+            Self::Big => f32::from_be_bytes(bytes),
         }
     }
 

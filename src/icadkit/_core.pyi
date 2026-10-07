@@ -141,6 +141,26 @@ class DocumentHandle:
     def summary(self) -> RawDocument: ...
     def extract(self, resource_id: str) -> RawExtraction: ...
     def source_bytes(self, start: int, end: int) -> bytes: ...
+    def container_bytes(self) -> bytes: ...
+    def container_parts(self) -> RawContainer: ...
+
+class RawContainer(TypedDict):
+    byte_order: Literal["little", "big"]
+    mod_record: bytes
+    drw_word: bytes
+    view_names: list[bytes]
+    records: list[tuple[str, int, bytes]]
+    tail: bytes
+    diagnostics: list[RawDiagnostic]
+
+def serialize_container(
+    byte_order: str,
+    mod_record: bytes,
+    drw_word: bytes,
+    view_names: list[bytes],
+    records: list[tuple[str, int, bytes]],
+    tail: bytes,
+) -> bytes: ...
 
 class RawViewEntry(TypedDict):
     byte_range: tuple[int, int]
@@ -154,6 +174,12 @@ class RawView(TypedDict):
     raw_name: bytes
     kind: Literal["unknown", "3d_global", "2d_global", "2d_view", "registered_part"]
     raw_view_number: int | None
+    entity_count: int | None
+    raw_entity_words: int | None
+    scale: float | None
+    raw_scale_text: bytes
+    extent: tuple[float, float, float, float] | None
+    extent_kind: Literal["box", "empty", "unqualified"]
     entries: list[RawViewEntry]
     opaque_ranges: list[tuple[int, int]]
     diagnostics: list[RawDiagnostic]
@@ -207,6 +233,7 @@ class RawPart(TypedDict):
     raw_reference_name: bytes
     extra_fields: list[tuple[tuple[int, int], bytes]]
     opaque_attributes: list[tuple[tuple[int, int], int, int, bytes]]
+    materials: list[tuple[tuple[int, int], bytes, bytes, float]]
     parent_source_id: int
     first_child_source_id: int
     previous_source_id: int

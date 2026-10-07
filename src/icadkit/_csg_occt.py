@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from dataclasses import replace
 from importlib import import_module
 from typing import Any
 
@@ -152,6 +153,35 @@ def _profile_prism(
     return api["BRepPrimAPI"].BRepPrimAPI_MakePrism(face.Face(), sweep).Shape()
 
 
+def _mirror_y(
+    p: NativePrimitive, frame: tuple[tuple[float, ...], ...]
+) -> NativePrimitive:
+    """The primitive seen from the right-handed frame: Y-dependent data flips."""
+    changes: dict[str, Any] = {"world_transform": frame}
+    if p.y_bounds is not None:
+        changes["y_bounds"] = (-p.y_bounds[1], -p.y_bounds[0])
+    if p.profile_points is not None:
+        changes["profile_points"] = tuple((x, -y) for x, y in p.profile_points)
+    if p.profile is not None:
+        changes["profile"] = tuple(
+            replace(
+                segment,
+                start=(segment.start[0], -segment.start[1]),
+                end=(segment.end[0], -segment.end[1]),
+                center=(
+                    None
+                    if segment.center is None
+                    else (segment.center[0], -segment.center[1])
+                ),
+                sweep_angle=(
+                    None if segment.sweep_angle is None else -segment.sweep_angle
+                ),
+            )
+            for segment in p.profile
+        )
+    return replace(p, **changes)
+
+
 def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
     m = p.world_transform
     if (
@@ -161,11 +191,31 @@ def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
     ):
         _fail("csg.operand_frame", "Invalid operand matrix", category="invalid")
     rigid = _frame([m[i][j] for j in (3, 2, 0) for i in range(3)])
-    if rigid is None or any(
-        abs(m[i][j] - rigid[i][j]) > 1e-8 for i in range(4) for j in range(4)
-    ):
+    if rigid is None:
         _fail("csg.operand_frame", "Non-rigid operand matrix", category="invalid")
-    if p.height is None or not math.isfinite(p.height) or p.height <= 0:
+    proper = all(abs(m[i][j] - rigid[i][j]) <= 1e-8 for i in range(4) for j in range(4))
+    if not proper:
+        # An improper frame (reversed Z column of a signed height, or a
+        # mirrored entity) equals the right-handed frame with Y reversed, so
+        # the solid is the Y-mirrored primitive in that right-handed frame.
+        if any(
+            abs(m[i][j] - (-rigid[i][j] if j == 1 else rigid[i][j])) > 1e-8
+            for i in range(4)
+            for j in range(4)
+        ):
+            _fail("csg.operand_frame", "Non-rigid operand matrix", category="invalid")
+        p = _mirror_y(p, rigid)
+        m = rigid
+    needs_height = p.kind in (
+        "box",
+        "cylinder",
+        "cone",
+        "polygon_extrusion",
+        "profile_extrusion",
+    )
+    if needs_height and (
+        p.height is None or not math.isfinite(p.height) or p.height <= 0
+    ):
         _fail("csg.operand_dimensions", "Invalid operand height", category="invalid")
     if p.kind == "box":
         if p.x_bounds is None or p.y_bounds is None:
@@ -201,6 +251,7 @@ def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
         face = api["BRepBuilderAPI"].BRepBuilderAPI_MakeFace(polygon.Wire(), True)
         if not face.IsDone():
             _fail("csg.operand_dimensions", "Invalid prism profile", category="invalid")
+        assert p.height is not None
         sweep = gp.gp_Vec(*(m[i][2] * p.height for i in range(3)))
         return api["BRepPrimAPI"].BRepPrimAPI_MakePrism(face.Face(), sweep).Shape()
     if p.kind == "profile_extrusion":
@@ -214,6 +265,46 @@ def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
                 "csg.operand_dimensions", "Invalid box dimensions", category="invalid"
             )
         return api["BRepPrimAPI"].BRepPrimAPI_MakeBox(axes, *dimensions).Shape()
+    if p.kind == "sphere":
+        if p.radius is None or not math.isfinite(p.radius) or p.radius <= 0:
+            _fail("csg.operand_dimensions", "Invalid sphere radius", category="invalid")
+        return api["BRepPrimAPI"].BRepPrimAPI_MakeSphere(axes, p.radius).Shape()
+    if p.kind == "torus":
+        major, minor = p.major_radius, p.minor_radius
+        if (
+            major is None
+            or minor is None
+            or not math.isfinite(major)
+            or not math.isfinite(minor)
+            or not major > minor > 0
+        ):
+            _fail("csg.operand_dimensions", "Invalid torus radii", category="invalid")
+        return api["BRepPrimAPI"].BRepPrimAPI_MakeTorus(axes, major, minor).Shape()
+    if p.kind == "cone":
+        top = p.top_radius
+        if (
+            p.radius is None
+            or top is None
+            or not math.isfinite(p.radius)
+            or not math.isfinite(top)
+            or p.radius <= 0
+            or top < 0
+        ):
+            _fail("csg.operand_dimensions", "Invalid cone radii", category="invalid")
+        assert p.height is not None
+        if top == p.radius:
+            return (
+                api["BRepPrimAPI"]
+                .BRepPrimAPI_MakeCylinder(axes, p.radius, p.height)
+                .Shape()
+            )
+        return (
+            api["BRepPrimAPI"]
+            .BRepPrimAPI_MakeCone(axes, p.radius, top, p.height)
+            .Shape()
+        )
+    if p.kind == "revolution":
+        return _revolution(p, m, api)
     if (
         p.kind != "cylinder"
         or p.radius is None
@@ -221,47 +312,100 @@ def _primitive(p: NativePrimitive, api: dict[str, Any]) -> Any:
         or p.radius <= 0
     ):
         _fail("csg.operand_dimensions", "Invalid cylinder radius", category="invalid")
+    assert p.height is not None
     return api["BRepPrimAPI"].BRepPrimAPI_MakeCylinder(axes, p.radius, p.height).Shape()
+
+
+def _revolution(
+    p: NativePrimitive, m: tuple[tuple[float, ...], ...], api: dict[str, Any]
+) -> Any:
+    """Revolve the saved (radius, axial) polyline fully about the frame Z axis.
+
+    The region is closed along the axis: an end with a positive radius gets
+    a flat disc, as the native contract describes.
+    """
+    profile = p.revolution_profile
+    if (
+        not profile
+        or len(profile) < 2
+        or not all(math.isfinite(r) and math.isfinite(a) and r >= 0 for r, a in profile)
+    ):
+        _fail(
+            "csg.operand_dimensions", "Invalid revolution profile", category="invalid"
+        )
+    points = list(profile)
+    if points[-1][0] > 0:
+        points.append((0.0, points[-1][1]))
+    if points[0][0] > 0:
+        points.append((0.0, points[0][1]))
+    gp = api["gp"]
+    polygon = api["BRepBuilderAPI"].BRepBuilderAPI_MakePolygon()
+    for r, a in points:
+        q = [m[i][0] * r + m[i][2] * a + m[i][3] for i in range(3)]
+        if not all(math.isfinite(v) for v in q):
+            _fail(
+                "csg.operand_frame", "Operand position overflowed", category="invalid"
+            )
+        polygon.Add(gp.gp_Pnt(*q))
+    polygon.Close()
+    face = api["BRepBuilderAPI"].BRepBuilderAPI_MakeFace(polygon.Wire(), True)
+    if not face.IsDone():
+        _fail(
+            "csg.operand_dimensions", "Invalid revolution profile", category="invalid"
+        )
+    axis = gp.gp_Ax1(
+        gp.gp_Pnt(m[0][3], m[1][3], m[2][3]),
+        gp.gp_Dir(*(m[i][2] for i in range(3))),
+    )
+    return api["BRepPrimAPI"].BRepPrimAPI_MakeRevol(face.Face(), axis).Shape()
+
+
+def build(body: CsgBody, limits: CsgLimits, api: dict[str, Any]) -> Any:
+    """Evaluate the saved program to one checked OCCT shape in document mm.
+
+    Kernel exceptions propagate to the caller, which scopes them.
+    """
+    operands = {o.source_id: o.primitive for o in body.operands}
+    refs = {t for t in body.tokens if t & 0xF0000000 == 0x80000000}
+    if set(operands) != refs or len(operands) != len(body.operands):
+        _fail(
+            "csg.references",
+            "Operand set differs from the CSG program",
+            category="invalid",
+        )
+    stack: list[Any] = []
+    constructors = {
+        1: api["BRepAlgoAPI"].BRepAlgoAPI_Fuse,
+        2: api["BRepAlgoAPI"].BRepAlgoAPI_Cut,
+        3: api["BRepAlgoAPI"].BRepAlgoAPI_Common,
+    }
+    for token in body.tokens:
+        if token in operands:
+            shape = _primitive(operands[token], api)
+            _check(shape, limits, api)
+            stack.append(shape)
+        elif token in constructors:
+            right, left = stack.pop(), stack.pop()
+            operation = constructors[token](left, right)
+            operation.SetRunParallel(False)
+            operation.Build()
+            if not operation.IsDone():
+                _fail(
+                    "csg.boolean_failed",
+                    "CSG boolean did not complete; no partial result",
+                    category="invalid",
+                )
+            result = operation.Shape()
+            _check(result, limits, api)
+            stack.append(result)
+        # Validated 0/255 saved checkpoints leave the accumulated result unchanged.
+    return stack[0]
 
 
 def evaluate(body: CsgBody, limits: CsgLimits, deflection: float) -> CsgMesh:
     api = _runtime()
     try:
-        operands = {o.source_id: o.primitive for o in body.operands}
-        refs = {t for t in body.tokens if t & 0xF0000000 == 0x80000000}
-        if set(operands) != refs or len(operands) != len(body.operands):
-            _fail(
-                "csg.references",
-                "Operand set differs from the CSG program",
-                category="invalid",
-            )
-        stack: list[Any] = []
-        constructors = {
-            1: api["BRepAlgoAPI"].BRepAlgoAPI_Fuse,
-            2: api["BRepAlgoAPI"].BRepAlgoAPI_Cut,
-            3: api["BRepAlgoAPI"].BRepAlgoAPI_Common,
-        }
-        for token in body.tokens:
-            if token in operands:
-                shape = _primitive(operands[token], api)
-                _check(shape, limits, api)
-                stack.append(shape)
-            elif token in constructors:
-                right, left = stack.pop(), stack.pop()
-                operation = constructors[token](left, right)
-                operation.SetRunParallel(False)
-                operation.Build()
-                if not operation.IsDone():
-                    _fail(
-                        "csg.boolean_failed",
-                        "CSG boolean did not complete; no partial result",
-                        category="invalid",
-                    )
-                result = operation.Shape()
-                _check(result, limits, api)
-                stack.append(result)
-            # Validated 0/255 saved checkpoints leave the accumulated result unchanged.
-        shape = stack[0]
+        shape = build(body, limits, api)
         return mesh_shape(shape, body.body_id, limits, deflection, api)
     except IcadError:
         raise

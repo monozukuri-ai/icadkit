@@ -215,6 +215,26 @@ Custom named/reference/instance attributes, typed values, inheritance and
 effective-value resolution remain outside the qualified scope. Absence here
 does not prove that an arbitrary property is unset in iCAD.
 
+## Materials
+
+`Part.materials` lists the saved materials of a part, one per saved body,
+and `Part.material` returns the single material when every body stores the
+same one. Each `PartMaterial` carries the strict CP932 `name` and
+`material_id` (for example `SS400`, `SUS304`, `A5052P`), the retained padded
+bytes, the stored `specific_gravity` and its source range. The record is the
+216-byte `0x7a` subrecord of the counted metadata block that follows the
+owner's part record in every qualified little-endian layout (observed in
+V7L3, V7L4, V7L7 and V8L3 files); a `0x7a` subrecord of another length stays
+opaque. A body without a material keeps an all-zero record: it is reported
+as an empty material (`is_empty`, blank `name` and `material_id`,
+`specific_gravity` `None`, status `complete`), so a part whose bodies mix
+empty and named records has no single `material`. Undecodable text keeps
+`None` with `parts.material_text`; any other specific gravity that is not a
+positive finite number makes the record `invalid`. Ownership follows the
+preceding part record: in all 27 local SDK observations with material
+entries (6 of them empty) the per-part counts, names, identifiers and
+gravities agree. A material establishes neither geometry nor mass.
+
 ## Native entities
 
 `Part.entities` additionally exposes [native primitive parameters and stored

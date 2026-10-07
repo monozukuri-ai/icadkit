@@ -3,6 +3,7 @@
 from importlib.metadata import version
 
 from .api import build_info, inspect
+from .container import Container, ContainerRecord
 from .csg import (
     CsgBody,
     CsgIndex,
@@ -14,11 +15,15 @@ from .csg import (
 )
 from .document import Document, read
 from .drawing import (
+    DimensionItem,
+    DrawingDimension,
     DrawingEntity,
+    DrawingHatch,
     DrawingIndex,
     DrawingLimits,
     DrawingPrimitive,
     DrawingText,
+    HatchEdge,
 )
 from .errors import (
     IcadError,
@@ -42,6 +47,14 @@ from .models import (
     SourceRef,
     UnparsedRange,
 )
+from .shape import (
+    PartShape,
+    PartShapeIndex,
+    PartShapeLimits,
+    ShapeBody,
+    read_part_shape,
+    read_part_shapes,
+)
 from .trailer import (
     TrailerBlock,
     TrailerBlockData,
@@ -53,15 +66,38 @@ from .trailer import (
     TrailerSurface,
     TrailerTable,
 )
-from .views import View, ViewEntry, ViewIndex, ViewLimits
+from .views import View, ViewEntry, ViewExtent, ViewIndex, ViewLimits
+from .write import (
+    Arc2D,
+    Circle2D,
+    DiameterDimension2D,
+    DrawingWriter,
+    EntityStyle,
+    Hatch2D,
+    LengthDimension2D,
+    Line2D,
+    Point2D,
+    Text2D,
+    WriteResult,
+)
 
 __version__ = version("icadkit")
 __all__ = [
+    "DimensionItem",
+    "DrawingDimension",
+    "DrawingHatch",
+    "HatchEdge",
     "DrawingEntity",
     "DrawingIndex",
     "DrawingLimits",
     "DrawingPrimitive",
     "DrawingText",
+    "PartShape",
+    "PartShapeIndex",
+    "PartShapeLimits",
+    "ShapeBody",
+    "read_part_shape",
+    "read_part_shapes",
     "TrailerBlock",
     "TrailerBlockData",
     "TrailerEdge",
@@ -75,6 +111,18 @@ __all__ = [
     "ViewEntry",
     "ViewIndex",
     "ViewLimits",
+    "ViewExtent",
+    "Arc2D",
+    "Circle2D",
+    "DiameterDimension2D",
+    "DrawingWriter",
+    "EntityStyle",
+    "Hatch2D",
+    "LengthDimension2D",
+    "Line2D",
+    "Point2D",
+    "Text2D",
+    "WriteResult",
     "Brep",
     "BrepEntity",
     "GeometryDiagnostic",
@@ -92,6 +140,8 @@ __all__ = [
     "BuildInfo",
     "ByteRange",
     "Diagnostic",
+    "Container",
+    "ContainerRecord",
     "Document",
     "Extraction",
     "Header",
@@ -141,6 +191,7 @@ from .parts import (
     PartDefinition,
     PartIndex,
     PartLimits,
+    PartMaterial,
     PartOpaqueAttribute,
     PartOpaqueRange,
     PartPlacement,
@@ -187,6 +238,7 @@ __all__ += [
     "Part",
     "PartIndex",
     "PartLimits",
+    "PartMaterial",
     "PartOpaqueAttribute",
     "PartDefinition",
     "PartReference",

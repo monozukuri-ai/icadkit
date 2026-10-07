@@ -9,6 +9,7 @@ from typing import Any
 
 from ._csg_occt import _runtime, _shapes, mesh_shape
 from ._preview_bridge import bridge
+from ._shape_occt import place
 from .csg import CsgLimits, CsgMesh
 from .errors import IcadError, InvalidFormatError, LimitExceededError
 from .geometry import Brep
@@ -296,6 +297,30 @@ def _build(
     )
 
 
+def build_base(
+    brep: Brep, limits: SavedBodyLimits, api: dict[str, Any]
+) -> tuple[Any, tuple[str, ...], int]:
+    """Convert a saved B-Rep to an unplaced OCCT shape in millimetres.
+
+    Returns the shape, the construction operations and the source face
+    count. Kernel exceptions propagate to the caller, which scopes them.
+    """
+    model = bridge(brep, saved_surfaces=True)
+    _preflight(model, limits)
+    # Source points are compared with their curves within the body's own
+    # declared linear resolution (in mm), never below the backend default.
+    # The preflight has bounded that resolution; nothing is healed.
+    resolution = min(b.linear_resolution for b in model.bodies) * 1000
+    occt = import_module("parasolid_kit.interop.occt.options")
+    options = occt.OcctConversionOptions(
+        source_unit="m",
+        target_unit="mm",
+        validation=occt.ValidationTolerances(linear_absolute=max(1e-6, resolution)),
+    )
+    shape, operations = _build(model, options, api, limits)
+    return shape, operations, len(model.faces)
+
+
 def convert(
     brep: Brep,
     body: SavedBody,
@@ -305,27 +330,9 @@ def convert(
 ) -> SavedBodyMesh:
     api = _runtime()
     try:
-        model = bridge(brep, saved_surfaces=True)
-        _preflight(model, limits)
-        # Source points are compared with their curves within the body's own
-        # declared linear resolution (in mm), never below the backend default.
-        # The preflight has bounded that resolution; nothing is healed.
-        resolution = min(b.linear_resolution for b in model.bodies) * 1000
-        occt = import_module("parasolid_kit.interop.occt.options")
-        options = occt.OcctConversionOptions(
-            source_unit="m",
-            target_unit="mm",
-            validation=occt.ValidationTolerances(linear_absolute=max(1e-6, resolution)),
-        )
-        shape, operations = _build(model, options, api, limits)
-        transform = api["gp"].gp_Trsf()
+        shape, operations, face_count = build_base(brep, limits, api)
         assert body.world_transform is not None
-        transform.SetValues(*(v for row in body.world_transform[:3] for v in row))
-        shape = (
-            import_module("OCP.BRepBuilderAPI")
-            .BRepBuilderAPI_Transform(shape, transform, True)
-            .Shape()
-        )
+        shape = place(shape, body.world_transform, api)
         bounded = CsgLimits(
             max_subshapes=limits.max_subshapes,
             max_triangles=limits.max_triangles,
@@ -337,7 +344,7 @@ def convert(
             **{f.name: getattr(mesh, f.name) for f in fields(CsgMesh)},
             resource_id=body.resource_id,
             payload_sha256=payload_sha256,
-            face_count=len(model.faces),
+            face_count=face_count,
             representation_operations=operations,
         )
     except (IcadError, LimitExceededError):

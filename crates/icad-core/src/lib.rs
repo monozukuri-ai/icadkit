@@ -1,6 +1,7 @@
 //! Bounded iCAD SX framing, structural resource indexing and lazy extraction.
 
 mod compression;
+mod container;
 mod document;
 mod error;
 mod header;
@@ -16,6 +17,7 @@ mod schema;
 mod trailer;
 mod views;
 
+pub use container::{Container, ContainerRecord};
 pub use document::Document;
 pub use error::{Diagnostic, ErrorKind, InspectError};
 pub use header::{
@@ -28,8 +30,8 @@ pub use parasolid::{
     GeometryDiagnostic, GeometryError, GeometryResult, GeometryStatus, SchemaSelection,
 };
 pub use parts::{
-    PartAttributeRecord, PartIndex, PartLimits, PartOpaqueRange, PartProfileInfo, PartRecord,
-    PartViewRecord,
+    PartAttributeRecord, PartIndex, PartLimits, PartMaterialRecord, PartOpaqueRange,
+    PartProfileInfo, PartRecord, PartViewRecord,
 };
 pub use provenance::{Extraction, SourceRef};
 pub use reader::ByteOrder;

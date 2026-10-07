@@ -67,6 +67,36 @@ class PartOpaqueAttribute:
 
 
 @dataclass(frozen=True)
+class PartMaterial:
+    """One saved material of a part: name, identifier and specific gravity.
+
+    Materials are stored per saved body in the metadata block that follows
+    the owner's part record. ``name`` and ``material_id`` are strict CP932
+    decodings of the padded fields, ``None`` when undecodable; the raw bytes
+    are retained. ``specific_gravity`` is the stored double without a unit
+    conversion. An all-zero record is an empty material (``is_empty``): the
+    body has no material assigned, and the zero gravity is reported as
+    ``None`` without a diagnostic. A material does not establish geometry or
+    mass.
+    """
+
+    owner_id: str
+    byte_range: ByteRange
+    name: str | None
+    raw_name: bytes
+    material_id: str | None
+    raw_material_id: bytes
+    specific_gravity: float | None
+    status: Status
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+    @property
+    def is_empty(self) -> bool:
+        """True when the name and identifier are blank: no material assigned."""
+        return self.name == "" and self.material_id == ""
+
+
+@dataclass(frozen=True)
 class PartReference:
     """Saved external model name. No filesystem search or loading is performed."""
 
@@ -155,10 +185,19 @@ class Part:
     native_geometry_status: Status = "not_checked"
     appearance_status: Status = "not_checked"
     opaque_attributes: tuple[PartOpaqueAttribute, ...] = ()
+    materials: tuple[PartMaterial, ...] = ()
 
     @property
     def comment(self) -> str | None:
         return self.properties[0].value
+
+    @property
+    def material(self) -> PartMaterial | None:
+        """The single saved material; None when absent or when bodies differ."""
+        keys = {
+            (m.raw_name, m.raw_material_id, m.specific_gravity) for m in self.materials
+        }
+        return self.materials[0] if len(keys) == 1 else None
 
     @property
     def extra_info(self) -> str | None:
@@ -328,6 +367,19 @@ class PartIndex:
                         "status": a.status,
                     }
                     for a in p.opaque_attributes
+                ],
+                "materials": [
+                    {
+                        "name": m.name,
+                        "raw_name_hex": m.raw_name.hex(),
+                        "material_id": m.material_id,
+                        "raw_material_id_hex": m.raw_material_id.hex(),
+                        "specific_gravity": m.specific_gravity,
+                        "is_empty": m.is_empty,
+                        "byte_range": asdict(m.byte_range),
+                        "status": m.status,
+                    }
+                    for m in p.materials
                 ],
                 "definition_id": p.definition_id,
                 "resource_ids": p.resource_ids,
@@ -577,6 +629,54 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
             PartOpaqueAttribute(sid, subtype, part_id, ByteRange(*span), raw)
             for span, sid, subtype, raw in p["opaque_attributes"]
         )
+        materials = []
+        for span, raw_name, raw_material_id, gravity in p["materials"]:
+            material_diagnostics: list[Diagnostic] = []
+            texts: list[str | None] = []
+            for field_name, raw in (
+                ("name", raw_name),
+                ("material_id", raw_material_id),
+            ):
+                try:
+                    texts.append(raw.rstrip(b" \0").decode("cp932"))
+                except UnicodeDecodeError:
+                    texts.append(None)
+                    material_diagnostics.append(
+                        Diagnostic(
+                            "unsupported",
+                            "parts.material_text",
+                            span[0],
+                            f"Material {field_name} does not decode as CP932",
+                        )
+                    )
+            finite = math.isfinite(gravity) and gravity > 0
+            empty = texts[0] == "" and texts[1] == "" and gravity == 0
+            if not finite and not empty:
+                material_diagnostics.append(
+                    Diagnostic(
+                        "invalid",
+                        "parts.material_gravity",
+                        span[0] + 136,
+                        "Specific gravity is not a positive finite number",
+                    )
+                )
+            materials.append(
+                PartMaterial(
+                    part_id,
+                    ByteRange(*span),
+                    texts[0],
+                    raw_name,
+                    texts[1],
+                    raw_material_id,
+                    gravity if finite else None,
+                    "invalid"
+                    if not finite and not empty
+                    else "partial"
+                    if material_diagnostics
+                    else "complete",
+                    tuple(material_diagnostics),
+                )
+            )
         if opaque_attributes:
             stored_attributes = "partial"
             diagnostics.append(
@@ -826,6 +926,7 @@ def _read_parts(doc: "Document", limits: PartLimits | None) -> PartIndex:
                     else _scope([e.appearance.status for e in entities], entity_scope)
                 ),
                 opaque_attributes=opaque_attributes,
+                materials=tuple(materials),
             )
         )
     by_id = {p.part_id: p for p in parts}

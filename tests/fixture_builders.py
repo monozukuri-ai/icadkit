@@ -123,6 +123,8 @@ def document_factory():
             + b"".join((n // 4).to_bytes(4, order) for n in lengths)
             + b"3DGLOBAL",
         )
+        total = (len(drw) + len(res) + len(view) + len(usr)) // 4
+        mod[236:240] = total.to_bytes(4, order)
         return bytes(mod) + drw + res + view + usr + tail
 
     return make

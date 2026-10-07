@@ -64,6 +64,11 @@ Mirrored CSG history remains unsupported; saved final results can qualify
 independently.
 The separate [resource preview](preview.md) exports one supported solid to GLB
 with caller-declared units and no assembly placement.
+With the same extra, [part shapes](shapes.md) collect a part's qualified
+solids (saved bodies, else CSG results, else standalone primitives) into one
+OCCT compound in the part or document frame, report per part whether and why
+it cannot be converted, and write STEP or BREP; 1,442 local SDK part
+observations match in volume, area and centroid.
 
 | Operation | Supported behavior | Scope boundary |
 | --- | --- | --- |
@@ -75,6 +80,8 @@ with caller-declared units and no assembly placement.
 | Extraction | Bounds, sizes, checksum, stream termination, alignment and X_B envelope validation | Does not parse geometry nodes |
 | Raw geometry | Exact-schema node parsing and paginated access | Requires a matching built-in profile or explicit catalog |
 | B-Rep | Backend-supported topology, analytic curves/surfaces and NURBS | Unsupported types remain partial with diagnostics |
+| Part shapes | One OCCT compound per part from saved bodies, CSG results or native primitives, in the part or document frame, with mass properties, drawability status and STEP/BREP export; see [part shapes](shapes.md) | Needs the `preview` extra; bodies the readers do not expose or the adapter rejects stay absent with diagnostics |
+| 2D writing | New 2D views with their placement records, point/line/circle/arc, text, length and diameter dimension and hatch records, entity and view deletion, in a copy of a document serialized through the container model; see [writing](writing.md) | `corpus_consistent` only: reproduces iCAD files up to save noise in local checks and has never been opened by iCAD |
 
 ## Interpreting results
 

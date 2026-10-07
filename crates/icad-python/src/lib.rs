@@ -126,6 +126,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(inspect_path, module)?)?;
     module.add_function(wrap_pyfunction!(document::read_bytes, module)?)?;
     module.add_function(wrap_pyfunction!(document::read_path, module)?)?;
+    module.add_function(wrap_pyfunction!(document::serialize_container, module)?)?;
     module.add_class::<document::DocumentHandle>()?;
     module.add_class::<schema::CatalogHandle>()?;
     module.add_class::<geometry::GeometryHandle>()?;

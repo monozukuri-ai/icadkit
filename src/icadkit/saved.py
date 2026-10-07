@@ -15,7 +15,7 @@ from .errors import (
     LimitExceededError,
     UnsupportedFormatError,
 )
-from .geometry import GeometryLimits
+from .geometry import GeometryLimits, GeometryResult
 from .models import ByteRange, Diagnostic, ResourceAssociation, Status
 from .native import NativeAppearance
 from .parts import PartIndex, PartLimits, _frame, _relative
@@ -420,34 +420,14 @@ def read_saved_bodies(
     return _read_saved_bodies(document, document.read_parts(limits=part_limits), limits)
 
 
-def evaluate_saved_body(
+def _qualified_geometry(
     document: Document,
     body: SavedBody,
-    *,
-    schema: SchemaCatalog | None = None,
-    geometry_limits: GeometryLimits | None = None,
-    limits: SavedBodyLimits | None = None,
-    linear_deflection_mm: float = 0.05,
-) -> SavedBodyMesh:
-    """Convert a saved final solid from resource metres to placed native mm.
-
-    Catalog selection is explicit. Limits bound input/output complexity, not
-    native-kernel memory or execution time. Feature history is not evaluated.
-    """
-    from .document import Document
-
-    if not isinstance(document, Document) or not isinstance(body, SavedBody):
-        raise TypeError("document/body must be Document/SavedBody")
-    limits = SavedBodyLimits() if limits is None else limits
-    if not isinstance(limits, SavedBodyLimits):
-        raise TypeError("limits must be SavedBodyLimits")
-    if (
-        isinstance(linear_deflection_mm, bool)
-        or not isinstance(linear_deflection_mm, (int, float))
-        or not math.isfinite(linear_deflection_mm)
-        or linear_deflection_mm <= 0
-    ):
-        raise ValueError("linear_deflection_mm must be positive and finite")
+    schema: SchemaCatalog | None,
+    geometry_limits: GeometryLimits | None,
+    limits: SavedBodyLimits,
+) -> GeometryResult:
+    """The complete, diagnostic-free B-Rep of a qualified saved body."""
     if body.source_sha256 != document.source_sha256:
         raise InvalidFormatError(
             Diagnostic(
@@ -481,6 +461,39 @@ def evaluate_saved_body(
                 "Saved B-Rep exceeds max_entities",
             )
         )
+    return geometry
+
+
+def evaluate_saved_body(
+    document: Document,
+    body: SavedBody,
+    *,
+    schema: SchemaCatalog | None = None,
+    geometry_limits: GeometryLimits | None = None,
+    limits: SavedBodyLimits | None = None,
+    linear_deflection_mm: float = 0.05,
+) -> SavedBodyMesh:
+    """Convert a saved final solid from resource metres to placed native mm.
+
+    Catalog selection is explicit. Limits bound input/output complexity, not
+    native-kernel memory or execution time. Feature history is not evaluated.
+    """
+    from .document import Document
+
+    if not isinstance(document, Document) or not isinstance(body, SavedBody):
+        raise TypeError("document/body must be Document/SavedBody")
+    limits = SavedBodyLimits() if limits is None else limits
+    if not isinstance(limits, SavedBodyLimits):
+        raise TypeError("limits must be SavedBodyLimits")
+    if (
+        isinstance(linear_deflection_mm, bool)
+        or not isinstance(linear_deflection_mm, (int, float))
+        or not math.isfinite(linear_deflection_mm)
+        or linear_deflection_mm <= 0
+    ):
+        raise ValueError("linear_deflection_mm must be positive and finite")
+    geometry = _qualified_geometry(document, body, schema, geometry_limits, limits)
+    assert geometry.brep is not None and geometry.source is not None
     from ._saved_occt import convert
 
     return convert(
