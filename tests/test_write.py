@@ -479,7 +479,8 @@ def test_hatch_round_trips_through_the_reader():
     assert e.raw_type == 92 and e.source_id == entity_id and e.status == "complete"
     assert e.byte_range.length == 624 and (e.line_width, e.color_index) == (3, 1)
     assert h.layout_status == "complete" and not h.diagnostics
-    assert h.anchor == (0, 0) and h.angle == 45 and h.spacing == pytest.approx(3)
+    assert h.anchor == (0, 0) and h.angle == pytest.approx(45)
+    assert h.spacing == pytest.approx(3)
     assert [edge.kind for edge in h.edges] == ["line"] * 4
     assert h.edges[1] == icadkit.HatchEdge("line", (40, 0), (40, 15), (40, 30))
     assert h.raw_points[:3] == ((20, 0), (40, 0), (40, 15)) and h.raw_points[-1] == (
