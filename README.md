@@ -4,7 +4,7 @@ A Rust-based Python reader for **iCAD SX `.icd` files**. Read saved part
 structure, coordinate frames, names and selected attributes; inspect native
 box/cylinder parameters; and extract embedded Parasolid geometry.
 
-Version **0.3.7** adds:
+Version **0.3.7** added:
 
 - [Saved final bodies](docs/saved-bodies.md) on rolling-ball blend surfaces
   and on toroidal faces that reach their axis, through `parasolid-core 0.3.7`
@@ -59,6 +59,30 @@ The optional OCCT dependency requires glibc 2.31+ on Linux; see
 [preview requirements](docs/preview.md#dependencies-and-validation).
 To build from a source checkout or sdist, install Rust 1.88+ and a C linker,
 then run `python -m pip install .` (or `'.[preview]'`).
+
+## Updating the package version
+
+`[workspace.package].version` in `Cargo.toml` is the single release-version
+source. Both Rust crates inherit it, Maturin derives the Python package version
+from it, and `icadkit.__version__` / the CLI use the installed package metadata.
+With Python 3.11+, Cargo and uv available, update it with one command:
+
+```sh
+python3 scripts/bump_version.py 0.3.8
+python3 scripts/bump_version.py --check --tag v0.3.8
+```
+
+The version above is an example. The command updates the workspace version,
+synchronizes `Cargo.lock` and `uv.lock`, and checks their consistency. On failure
+it restores all three files. Add `--offline` to use cached dependencies. Stable
+`X.Y.Z` and development `X.Y.Z-dev.N` versions are supported; Python metadata
+uses `X.Y.Z.devN` for the latter. `--check` does not modify the source or locks.
+CI checks the same rules and requires release tags to match the source version.
+
+The `parasolid-core` and `parasolid-kit` dependency pins have their own versions
+and are updated separately. Historical versions in this README and the
+[changelog](docs/changelog.md) describe when features were introduced; retain
+those numbers and write new release notes when preparing a release.
 
 ## Part structure, frames and attributes
 

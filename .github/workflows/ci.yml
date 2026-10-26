@@ -27,6 +27,16 @@ jobs:
           toolchain: "1.88.0"
           components: rustfmt,clippy
       - run: uv sync --locked
+      - name: Check release version and lock files
+        shell: bash
+        run: |
+          version_args=()
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version_args=(--tag "$GITHUB_REF_NAME")
+          fi
+          uv run --no-project --python 3.12 python scripts/bump_version.py \
+            --check --offline "${version_args[@]}"
+      - run: uv run --no-project --python 3.12 python scripts/test_versions.py
       - run: uv run python scripts/check_license.py
       - run: uv run python scripts/check_public_tree.py
       - run: uv run python scripts/test_publication.py

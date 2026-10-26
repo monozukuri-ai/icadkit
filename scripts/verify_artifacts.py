@@ -16,6 +16,7 @@ from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
 
 import tomllib
+from bump_version import check_versions, python_version
 from check_license import ROOT, check_archive_licenses, notice_bundle
 from check_public_tree import check_tree
 
@@ -243,6 +244,8 @@ def sdist(path):
             "scripts/verify_native_corpus.py",
             "scripts/verify_install.py",
             "scripts/verify_artifacts.py",
+            "scripts/bump_version.py",
+            "scripts/test_versions.py",
             "scripts/check_license.py",
             "scripts/check_public_tree.py",
             "docs/api.md",
@@ -286,7 +289,7 @@ def sdist(path):
             )
         require(
             metadata["Version"]
-            == manifest["workspace"]["package"]["version"].replace("-dev.", ".dev"),
+            == python_version(manifest["workspace"]["package"]["version"]),
             "sdist package and Rust versions disagree",
         )
         return {
@@ -298,9 +301,10 @@ def sdist(path):
 
 
 def check_release_versions(versions, workspace_version, release_tag=None):
-    # Match the Cargo development-version spelling used by the sdist check.
-    python_version = workspace_version.replace("-dev.", ".dev")
-    require(set(versions) == {python_version}, "artifacts do not match source version")
+    require(
+        set(versions) == {python_version(workspace_version)},
+        "artifacts do not match source version",
+    )
     if release_tag is not None:
         require(
             release_tag == "v" + workspace_version,
@@ -327,9 +331,7 @@ def main():
             size_bytes=path.stat().st_size,
         )
         result.append(record)
-    workspace_version = tomllib.loads((ROOT / "Cargo.toml").read_text("utf-8"))[
-        "workspace"
-    ]["package"]["version"]
+    workspace_version = check_versions(ROOT, args.release_tag)
     check_release_versions(
         [r["version"] for r in result], workspace_version, args.release_tag
     )

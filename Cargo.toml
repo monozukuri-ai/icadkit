@@ -3,7 +3,8 @@ members = ["crates/icad-core", "crates/icad-python"]
 resolver = "3"
 
 [workspace.package]
-version = "0.3.7"
+# Release version source. Update with: python3 scripts/bump_version.py X.Y.Z
+version = "0.3.8"
 edition = "2024"
 rust-version = "1.88"
 license = "PolyForm-Noncommercial-1.0.0"

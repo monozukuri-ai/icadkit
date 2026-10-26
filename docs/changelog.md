@@ -85,6 +85,11 @@
 
 ### Changed
 
+- Package releases use `python3 scripts/bump_version.py X.Y.Z` to update the
+  shared Cargo version and synchronize lock files, restoring them on failure.
+  CI checks crate inheritance, dynamic Python metadata, lock versions and
+  release tags. Dependency versions and historical release notes remain
+  independent of the package version.
 - The authored framing fixtures (`tests/fixture_builders.py`, the public
   corpus) now store the MOD total-word count the way every observed iCAD
   file does, so `corpus/public.jsonl` pins new hashes for the same eight
