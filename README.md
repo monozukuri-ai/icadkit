@@ -4,31 +4,17 @@ A Rust-based Python reader for **iCAD SX `.icd` files**. Read saved part
 structure, coordinate frames, names and selected attributes; inspect native
 box/cylinder parameters; and extract embedded Parasolid geometry.
 
-Version **0.3.7** added:
+Supported workflows include:
 
-- [Saved final bodies](docs/saved-bodies.md) on rolling-ball blend surfaces
-  and on toroidal faces that reach their axis, through `parasolid-core 0.3.7`
-  and the `preview` extra pinned to `parasolid-kit[occt]==0.3.7`. The local
-  sample rises from 28,896 to 29,386 of 29,703 bound bodies, with the
-  previously converted bodies unchanged.
-- One declaration per backend version (`Cargo.toml`, `pyproject.toml`); the
-  runtime checks of the backend version are gone.
-
-Version 0.3.6 added [saved final bodies](docs/saved-bodies.md) on spun
-surfaces (SPUN_SURF), line/arc profile extrusions as [CSG](docs/csg.md)
-operands and decoded surface and edge items of the
-[trailing container](docs/trailer.md).
-
-Version 0.3.5 added [view inventories and saved 2D geometry](docs/drawing.md),
-twenty-six further catalog-free [schema keys](docs/support.md#schemas), the
-[trailing container](docs/trailer.md), saved final bodies bound through V8
-association records and V7 source IDs, more [native primitives](docs/native.md),
-[saved 3D parameter tables](docs/parameters.md) and explicit
-[external-reference resolution](docs/references.md).
-
-Version 0.3.0 added the [native file viewer](docs/viewer.md), broader
-[part access](docs/parts.md), optional [V7L7 boolean evaluation](docs/csg.md)
-and [saved final body display](docs/saved-bodies.md).
+- [Part access](docs/parts.md), [saved 3D parameter tables](docs/parameters.md)
+  and explicit [external-reference resolution](docs/references.md).
+- [View inventories and saved 2D geometry](docs/drawing.md), plus decoded
+  surface and edge items of the [trailing container](docs/trailer.md).
+- The [native file viewer](docs/viewer.md) for qualified
+  [native primitives](docs/native.md) and their part properties.
+- Optional [V7L7 boolean evaluation](docs/csg.md) and
+  [saved final body display](docs/saved-bodies.md), including qualified spun,
+  rolling-ball blend and toroidal surfaces.
 
 icadkit is experimental. Unsupported geometry remains in the part inventory;
 unknown values and source ranges are preserved. Part frames, native primitive
@@ -68,21 +54,24 @@ from it, and `icadkit.__version__` / the CLI use the installed package metadata.
 With Python 3.11+, Cargo and uv available, update it with one command:
 
 ```sh
-python3 scripts/bump_version.py 0.3.8
-python3 scripts/bump_version.py --check --tag v0.3.8
+python3 scripts/bump_version.py X.Y.Z
+python3 scripts/bump_version.py --check --tag vX.Y.Z
 ```
 
-The version above is an example. The command updates the workspace version,
-synchronizes `Cargo.lock` and `uv.lock`, and checks their consistency. On failure
-it restores all three files. Add `--offline` to use cached dependencies. Stable
+Replace `X.Y.Z` with the intended release number. The command updates the
+workspace version, synchronizes `Cargo.lock` and `uv.lock`, and checks their
+consistency. On failure it restores all three files. Add `--offline` to use
+cached dependencies. Stable
 `X.Y.Z` and development `X.Y.Z-dev.N` versions are supported; Python metadata
 uses `X.Y.Z.devN` for the latter. `--check` does not modify the source or locks.
 CI checks the same rules and requires release tags to match the source version.
 
-The `parasolid-core` and `parasolid-kit` dependency pins have their own versions
-and are updated separately. Historical versions in this README and the
-[changelog](docs/changelog.md) describe when features were introduced; retain
-those numbers and write new release notes when preparing a release.
+Use `icadkit --version` to check the installed package version and `icadkit info`
+to inspect its backend version. The `parasolid-core` and `parasolid-kit`
+dependency pins have their own versions and are updated separately.
+Usage guides describe capabilities without repeating the package version.
+Record version-specific changes in the [changelog](docs/changelog.md); retain
+the release numbers attached to historical notes and validation results.
 
 ## Part structure, frames and attributes
 
@@ -116,14 +105,12 @@ spherical, conical and toroidal surfaces. V8L3 resource sharing preserves each
 occurrence's saved placement. An explicit schema catalog is needed when the
 exact built-in profile lacks a required type. Counted metadata framing also
 extends part inventories while preserving unknown records and diagnostics.
-Version 0.3.0 also preserves bounded binary attributes as raw owned records,
-reads V8L1/V8L2 part inventories without assigning units or geometry, and displays
-native cones/frusta and full ring tori. The updated exact V34 profile in
-`parasolid-core 0.3.1` removes the catalog requirement for qualified toroidal
-resources.
+Bounded binary attributes are preserved as raw owned records. The native viewer
+also displays qualified cones/frusta and full ring tori. The built-in exact V34
+profile covers qualified toroidal resources without an external catalog.
 
-Version 0.3.5 extends qualified millimetre frames and bounded
-native/saved geometry to V7L6/V7L7 and V8L1/V8L2/V8L3, including internal mirrors.
+Qualified millimetre frames and bounded native/saved geometry cover
+V7L6/V7L7 and V8L1/V8L2/V8L3, including internal mirrors.
 Signed occurrence orientation is separate from already placed geometry; see
 [mirror semantics](docs/parts.md#coordinate-frames-and-units). Explicit
 [external-reference resolution](docs/references.md) now composes qualified child

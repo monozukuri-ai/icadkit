@@ -1,7 +1,7 @@
 # Saved final bodies
 
-Version 0.3.5 supports qualified V7L6/V7L7 and V8L1/V8L2/V8L3 display paths using saved final
-B-Rep solids. This displays the saved result without replaying feature history.
+The saved-body viewer supports qualified V7L6/V7L7 and V8L1/V8L2/V8L3 display
+paths using saved final B-Rep solids. This displays the saved result without replaying feature history.
 It is separate from `--csg` and does not claim support for unknown CSG operations.
 
 ```sh
@@ -102,7 +102,7 @@ containing those surfaces. Faces require explicit boundary loops. A conical
 face that ends in its apex is stored with a loop of one vertex and no edge; the
 adapter closes it with one degenerated boundary edge when that vertex lies at
 the cone's apex. Vertex loops elsewhere, on other surfaces, or as a face's only
-loop remain unsupported (`saved.half_edge`); version 0.3.7 also closes
+loop remain unsupported (`saved.half_edge`); the adapter also closes
 an apple, horn or lemon torus at its axis point the same way, with one
 degenerated edge per axis point. Intersection curves are rebuilt
 by the pinned adapter from their two support surfaces and saved chart points;
@@ -126,17 +126,15 @@ unqualified resource layouts, implicit external-file loading and complete featur
 history remain unsupported. Existing `--csg` evaluation remains separately scoped.
 
 An exact built-in schema profile can still lack a base type required by a
-resource. Such resources need the explicitly matching catalog. Version 0.3.0
-uses `parasolid-core 0.3.1` and exact V34 profile revision 2, which adds
-TORUS (54): qualified trimmed-torus and swept-arc solids no longer require a
-catalog. Other uncompiled types retain a diagnostic when no catalog is supplied.
-Catalogs are not bundled.
+resource. Such resources need the explicitly matching catalog. The exact V34
+profile includes TORUS (54): qualified trimmed-torus and swept-arc solids do not
+require a catalog. Other uncompiled types retain a diagnostic when no catalog
+is supplied. Catalogs are not bundled.
 
-Version 0.3.5 uses `parasolid-core 0.3.5`, which also supplies reviewed
-B-Rep mappings for [twenty-six further schema keys](support.md#schemas). This
-removes their catalog requirement within the qualified subsets. Since
-version 0.3.6 the backend maps SPUN_SURF as a surface of revolution; the
-adapter admits spun faces, closing a profile end on the spin axis with one
+The pinned `parasolid-core` backend supplies reviewed B-Rep mappings for
+[the built-in schema keys](support.md#schemas), allowing catalog-free reads
+within their qualified subsets. The backend maps SPUN_SURF as a surface of
+revolution; the adapter admits spun faces, closing a profile end on the spin axis with one
 degenerated edge like a cone apex
 (`degenerated_spun_axis_boundary`), see the
 [roadmap](roadmap.md#version-036-spun-surfaces). Offset surfaces are read but
@@ -196,6 +194,8 @@ unqualified, so bodies under a mirrored owner are not bound there.
 
 ## Local evidence for bindings and conversion
 
+The conversion results below are historical measurements for the named releases.
+
 In a local sample of 305 V8 files with numbered resources, every one of 28,685
 indexed resources is named by an association record and every final marker has
 exactly one; 27,118 marker frames equal their association frames byte for byte,
@@ -205,8 +205,8 @@ bind and 2,670 bodies now bind to a different resource. For every one of 6,059
 evaluated bodies the saved [per-entity box](trailer.md) contains the solid in
 its local frame, and it is tight for 6,040 of them.
 
-Of 29,703 distinct bound resources in the sample, 27,093 convert to valid
-solids. An explicit schema catalog is needed only where no built-in profile
+The version 0.3.5 checks convert 27,093 of the sample's 29,703 distinct bound
+resources to valid solids. An explicit schema catalog is needed only where no built-in profile
 applies: for six of these resources, compared with 27,796 under core 0.3.3.
 Results agree with the catalog path, except that 253 resources whose line trims
 store unset parameters are now mapped; 168 of them convert. The others keep

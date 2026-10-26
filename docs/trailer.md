@@ -1,8 +1,7 @@
 # Trailing container and per-entity blocks
 
-Version 0.3.5 adds `Document.read_trailer()` and
-`Document.read_trailer_block()`. They frame the bytes that follow the last
-directory-indexed record: the range `Document.unparsed_ranges` reports as
+`Document.read_trailer()` and `Document.read_trailer_block()` frame the bytes
+that follow the last directory-indexed record: the range `Document.unparsed_ranges` reports as
 `uninspected_tail`. No iCAD process, schema catalog or optional package is needed.
 
 ```python
@@ -105,7 +104,7 @@ expose their identity and adjacency:
 ### Surface and edge items
 
 Each entry's item holds single-precision parameters in the entity's local
-frame, in millimetres. Version 0.3.6 decodes the analytic layouts
+frame, in millimetres. The reader decodes the analytic layouts
 into `TrailerFace.surface`:
 
 | Code | `TrailerSurface.kind` | Stored values |

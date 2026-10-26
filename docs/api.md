@@ -8,8 +8,8 @@ and model boundaries, see [supported capabilities](support.md).
 
 The public Python interface consists of the names in `icadkit.__all__` and
 the documented names in the optional [icadkit.preview module](preview.md).
-Version 0.3.0 also exposes [icadkit.viewer](viewer.md) for native
-qualified analytic primitive display and part/property inspection without optional dependencies.
+The [icadkit.viewer module](viewer.md) displays qualified native analytic
+primitives and provides part/property inspection without optional dependencies.
 `icadkit._core`, native handles and attributes beginning with `_` are private.
 Within a minor release series, existing arguments, result fields, diagnostic codes, coordinate
 semantics and CLI exit codes are preserved. Message wording and human-readable
@@ -20,25 +20,25 @@ Removing existing fields or changing their meanings requires a schema version
 change. A `complete` status always refers to an explicit scope, not the whole
 ICD model.
 
-Version 0.2.0 adds [native part access](parts.md) through
-`Document.read_parts()`, returning `PartIndex`, `Part`, `PartDefinition`,
-`PartReference`, `PartPlacement` and `PartProperty`. Version 0.3.0 adds
-`PartOpaqueAttribute` for retained binary attribute records. It exposes qualified part
-frames and selected stored attributes. Its scope statuses are independent of
+[Native part access](parts.md) uses `Document.read_parts()`, returning
+`PartIndex`, `Part`, `PartDefinition`, `PartReference`, `PartPlacement` and
+`PartProperty`, with `PartOpaqueAttribute` for retained binary attribute records.
+The part API exposes qualified part frames and selected stored attributes.
+Its scope statuses are independent of
 the resource geometry API described below. Saved entities expose
 `NativeEntity`, `NativeAppearance` and `NativePrimitive`; see
 [native parameter and appearance access](native.md).
-Version 0.3.5 adds [saved 3D parameter tables](parameters.md) through
+[Saved 3D parameter tables](parameters.md) are available through
 `Document.read_parameters()`, returning `ParameterIndex`, `SavedParameter`,
 `ParameterCondition` and `ParameterTable`, with `ParameterLimits` for bounded
 allocation. These saved formulas and values are independent of primitive geometry.
-It adds [views and saved 2D entities](drawing.md):
+For [views and saved 2D entities](drawing.md),
 `Document.read_views()` returns `ViewIndex`, `View` and `ViewEntry`, bounded by
 `ViewLimits`; `Document.read_drawing()` returns `DrawingIndex`, `DrawingEntity`,
 `DrawingPrimitive` and `DrawingText`, with `DrawingLimits`. The `views` and
 `drawing` CLI commands expose classification, scoped status and source ranges.
 These APIs do not combine 2D geometry with the native 3D part API.
-It also adds [explicit assembly resolution](references.md):
+[Explicit assembly resolution](references.md) uses
 `read_assembly()` / `Document.read_assembly()`, `AssemblyLimits`, `ReferenceRequest`,
 `ReferenceResolver`, `AssemblyReference`, `AssemblyDocument`, `AssemblyOccurrence`,
 `AssemblyEntity` and `AssemblyIndex`. `read_parts()` retains its single-file

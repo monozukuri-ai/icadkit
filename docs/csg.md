@@ -1,6 +1,6 @@
 # Bounded V7L7 CSG
 
-Version 0.3.0 reads selected saved V7L7 final-body programs.
+The CSG API reads selected saved V7L7 final-body programs.
 `read_csg()` is dependency-free. `evaluate_csg()` uses the optional `preview`
 extra to evaluate analytic solids with OCCT and generate a display mesh.
 This is partial model support; it does not reconstruct feature history or
@@ -41,12 +41,12 @@ not interpret those feature operations.
 - Saved postfix union, difference and intersection of positive-height boxes and
   cylinders, including the qualified saved checkpoints between operations.
   Multiple independent owners and disconnected solid results are supported.
-- Version 0.3.5 also accepts six-vertex prism operands: a frame, a signed
+- Six-vertex prism operands: a frame, a signed
   height along its Z axis and six XY vertices of a strictly convex profile. A
   negative height moves the base along the axis; the frame stays rigid and the
   profile is used as saved. The operand is exposed as a `polygon_extrusion`
   primitive with `profile_points`. Other profiles are `csg.operand_layout`.
-- Version 0.3.6 also accepts profile extrusion operands: the
+- Profile extrusion operands: the
   variable-length line/arc layout of [native primitives](native.md), with a
   frame, a signed height and a closed profile decoded by the same core rules as
   a standalone record. A negative height moves the base along the axis, as for

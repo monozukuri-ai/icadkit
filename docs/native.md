@@ -4,13 +4,13 @@ For qualified V7L7 final boolean bodies, use the separate [CSG API](csg.md)
 or `view --csg` with the `preview` extra. The native-primitive scope described
 here keeps operands opaque.
 
-Version **0.2.0** adds saved native entities to `Document.read_parts()`.
+`Document.read_parts()` exposes saved native entities.
 It reads qualified V8L3 boxes and cylinders, and selected stored appearance
 fields. It does not evaluate native B-Rep, CSG, tessellation or a complete scene.
 
-The 0.3.0 [native viewer](viewer.md) can tessellate the supported
+The [native viewer](viewer.md) can tessellate the supported
 box/cylinder/full-sphere/cone/torus parameters for an explicitly partial display with a part tree.
-Version 0.3.5 also decodes qualified V7L6/V7L7/V8L1/V8L2 standalone primitive
+The reader also decodes qualified V7L6/V7L7/V8L1/V8L2 standalone primitive
 owners and saved entity appearance. These profiles require a complete saved hierarchy/index and
 an entire internal owner's list of qualified primitive
 headers. An unknown or CSG record keeps the whole owner's list opaque; primitive
@@ -55,8 +55,8 @@ from that entity to `Document.resources` is inferred.
 
 ## Primitive contract
 
-In version 0.3.0, `NativePrimitive.kind` is `box`, `cylinder`, `sphere`,
-`cone` or `torus`.
+`NativePrimitive.kind` is `box`, `cylinder`, `sphere`, `cone`, `torus`,
+`polygon_extrusion`, `profile_extrusion` or `revolution`.
 The qualified layout retains:
 
 | Field | Box | Cylinder |
@@ -82,8 +82,8 @@ axis of revolution. `radius` and `height` are `None`. Partial sweeps, horn/spind
 tori and unknown extents remain unsupported. These added fields are `None` for
 other primitive kinds. Boxes remain the only kind with non-null box bounds.
 
-The `polygon_extrusion` kind, added in 0.3.5, exposes six distinct XY vertices in
-`profile_points` and a positive `height`. Its qualified 368-byte record stores
+The `polygon_extrusion` kind exposes six distinct XY vertices in `profile_points`
+and a positive `height`. Its qualified 368-byte record stores
 two identical closed straight profiles and a zero trailer. Concave and convex
 simple polygons are accepted in either winding. The viewer triangulates both
 caps and preserves outward winding. Mirrored records with the qualified negative
@@ -232,7 +232,7 @@ Incorrect unit scaling, repeated part transforms and transposed rotation are
 negative controls. CAD files, SDK binaries and vendor catalogs are not distributed;
 public tests use independently authored synthetic records and malformed inputs.
 
-For the 0.3.5 cylinder sign, profile extrusion and revolution layouts,
+For the cylinder sign, profile extrusion and revolution layouts,
 saved SDK observations match volume, area and centroid for 290 negative-height
 cylinders (30 of them mirrored), 83 profile extrusions (19 mirrored) and 133
 revolutions (58 mirrored). In a local sample all 6,638 extrusion records of this
@@ -244,7 +244,7 @@ inputs; the [CSG reader](csg.md) decodes them as operands. A profile extrusion
 that is the only record of a saved single-leaf body is likewise read by the CSG
 reader, with the same profile rules, and not by this inventory.
 
-The v0.3 additions have offline checks against saved/reopened SDK
+Cone/frustum/torus support has offline checks against saved/reopened SDK
 observations for ten cone/frustum/torus files, including oblique and dimension
 holdouts in V7L7/V8L3. Analytic volume, surface area, centroid and stored appearance
 match; this is not a fresh SDK run or native older-product qualification.

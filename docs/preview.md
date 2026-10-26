@@ -1,11 +1,11 @@
 # Resource preview and GLB
 
 For files containing native boxes/cylinders, use the separate
-[native file viewer](viewer.md), added in version 0.3.0.
+[native file viewer](viewer.md).
 It displays the native global frames and part tree without the preview extra.
 
-The preview API, introduced in 0.2.0, renders one selected embedded Parasolid resource and
-write a GLB plus an offline browser viewer. Install the optional dependencies:
+The preview API renders one selected embedded Parasolid resource and writes
+a GLB plus an offline browser viewer. Install the optional dependencies:
 
 ```sh
 python -m pip install 'icadkit[preview]'

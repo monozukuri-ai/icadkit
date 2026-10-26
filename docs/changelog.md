@@ -90,6 +90,9 @@
   CI checks crate inheritance, dynamic Python metadata, lock versions and
   release tags. Dependency versions and historical release notes remain
   independent of the package version.
+- README and usage guides describe capabilities without repeating the package
+  release number. Version-update examples use placeholders; historical release
+  notes and validation results retain the versions they describe.
 - The authored framing fixtures (`tests/fixture_builders.py`, the public
   corpus) now store the MOD total-word count the way every observed iCAD
   file does, so `corpus/public.jsonl` pins new hashes for the same eight

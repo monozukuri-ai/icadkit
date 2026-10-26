@@ -1,6 +1,6 @@
 # Native parts
 
-The big-endian V6L1/V6L2/V7L1 `61000001` profiles added in 0.3.5 provide internal
+The big-endian V6L1/V6L2/V7L1 `61000001` profiles provide internal
 part inventories, names/comments and bounded hierarchy links. Both coordinate
 blocks are retained as raw values; `entity_policy=inventory_only`,
 `coordinate_convention=unqualified` and `source_length_unit=None` prevent
@@ -24,7 +24,6 @@ For qualified V7L7 final boolean bodies, use the separate [CSG API](csg.md)
 or `view --csg` with the `preview` extra. The native-primitive scope described
 here keeps operands opaque.
 
-Added in **0.2.0**.
 Read saved part structure, coordinate frames, names, comments and selected
 extended information without installing iCAD or a geometry schema catalog.
 
@@ -67,7 +66,7 @@ remains `unknown`: no saved discriminator between a normal document and a
 registered library part has been qualified. Names and filename suffixes are not
 used to infer this distinction.
 
-Version 0.3.5 reads observed little-endian V7L2–V7L7 and V8L1–V8L3
+The reader supports observed little-endian V7L2–V7L7 and V8L1–V8L3
 `3DGLOBAL` layouts. Each version has an explicit profile and tag check:
 V7L2–V7L5 require `0x61000001`, V7L6/V7L7 require `0x61000002`, and V8 profiles
 require `0x61000003`. Unknown layouts stop with source ranges and diagnostics.
