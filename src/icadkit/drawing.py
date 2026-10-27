@@ -35,7 +35,17 @@ class DrawingLimits:
 
 @dataclass(frozen=True)
 class DrawingPrimitive:
-    kind: Literal["point", "line", "circle", "arc"]
+    """A saved point, line, circle, arc, ellipse or elliptical arc.
+
+    For ``ellipse`` and ``elliptical_arc`` (record types 88 and 89)
+    ``radius`` is the semi-axis along the ellipse's own x axis,
+    ``minor_radius`` the semi-axis along its y axis and ``rotation`` the
+    angle of that x axis in radians; ``start_angle`` and ``sweep_angle``
+    are parametric angles on the unrotated ellipse (the DXF convention), so
+    a point is ``center + R(rotation) * (radius*cos t, minor_radius*sin t)``.
+    """
+
+    kind: Literal["point", "line", "circle", "arc", "ellipse", "elliptical_arc"]
     points: tuple[Point2, ...] = ()
     direction: Point2 | None = None
     length: float | None = None
@@ -43,6 +53,8 @@ class DrawingPrimitive:
     radius: float | None = None
     start_angle: float | None = None
     sweep_angle: float | None = None
+    minor_radius: float | None = None
+    rotation: float | None = None
 
 
 Extent = tuple[float, float, float, float]
@@ -120,8 +132,14 @@ class DrawingDimension:
     parameters from the attribute blocks. The diameter family (record type
     27) is interpreted as ``diameter`` or ``radius`` by its value: the
     measured circle (``center``, ``radius``), the pick point, the dimension
-    line, the line point and the two arrowheads. Angle records keep their
-    items, arc and value with a partial status.
+    line, the line point and the two arrowheads; its leader variant (an
+    arrowhead on the circle, a leader to an elbow and a shelf) is
+    interpreted too, with ``leader`` holding the tip, the elbow and the end.
+    The angle layout (record type 26, ``kind="angle"``) is interpreted as
+    the vertex (``center``), the drawn dimension arc (``radius``,
+    ``arc_start``, ``arc_sweep`` in radians), the two ``measured`` points on
+    the legs and the ``value`` in degrees. Unobserved sequences keep their
+    items with a partial status.
     """
 
     kind: Literal["length", "angle", "diameter", "radius", "unknown"]
@@ -144,6 +162,9 @@ class DrawingDimension:
     center: Point2 | None = None
     radius: float | None = None
     pick_point: Point2 | None = None
+    arc_start: float | None = None
+    arc_sweep: float | None = None
+    leader: tuple[Point2, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +206,76 @@ class DrawingHatch:
 
 
 @dataclass(frozen=True)
+class DrawingCurve:
+    """The saved layout of a free curve record (type 16); see ``docs/drawing.md``.
+
+    ``knots`` are the saved points of the curve in view-local millimetres
+    (the start point and the cumulative offsets that follow it),
+    ``chord_lengths`` the saved distance between consecutive knots (their
+    sum is ``length``) and ``extent`` the saved bounding box of the smooth
+    curve. Each segment also stores six doubles that describe the curve
+    between two knots; they are retained in ``segment_words`` without an
+    assigned meaning, so a caller that needs the curve draws through the
+    knots. ``box`` is the extent of the knots and the saved extent.
+    """
+
+    layout_status: Status
+    knots: tuple[Point2, ...]
+    chord_lengths: tuple[float, ...]
+    length: float
+    extent: Extent | None
+    segment_words: tuple[tuple[float, ...], ...]
+    box: Extent | None = None
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+
+@dataclass(frozen=True)
+class DrawingNote:
+    """The saved layout of a leader note record (type 22).
+
+    The record frames attribute blocks, the text runs (``texts``, one per
+    line; ``text`` is the first) and ``vectors`` items: the arrowhead
+    (``arrow``: a corner, the tip and the other corner), the drawn leader
+    (``path``: the tip, the elbow and the end of the shelf under the text)
+    and hidden alternatives that are not drawn. ``arrow_width`` and
+    ``arrow_angle`` (degrees) come from the attribute block shared with
+    dimensions.
+    """
+
+    layout_status: Status
+    text: DrawingText | None
+    items: tuple[DimensionItem, ...]
+    arrow: tuple[Point2, Point2, Point2] | None
+    path: tuple[Point2, ...]
+    arrow_width: float | None = None
+    arrow_angle: float | None = None
+    box: Extent | None = None
+    diagnostics: tuple[Diagnostic, ...] = ()
+    texts: tuple[DrawingText, ...] = ()
+
+
+@dataclass(frozen=True)
+class DrawingSymbol:
+    """The saved layout of a symbol record (type 212).
+
+    A symbol groups ``point``, ``line``, ``arc`` and ``vectors`` items with
+    text runs (``texts``) and, in some records, a nested size-framed member
+    list that is retained as ``nested`` ranges without interpretation.
+    ``raw_kind`` is the saved byte at ``+31`` (1 for point markers, 50 for
+    labels in the local corpus). Text runs of big-endian documents are
+    legacy CP932 runs and stay unqualified.
+    """
+
+    layout_status: Status
+    items: tuple[DimensionItem, ...]
+    texts: tuple[DrawingText, ...]
+    nested: tuple[ByteRange, ...]
+    box: Extent | None = None
+    diagnostics: tuple[Diagnostic, ...] = ()
+    raw_kind: int | None = None
+
+
+@dataclass(frozen=True)
 class DrawingEntity:
     entity_id: str
     view_id: str
@@ -203,6 +294,9 @@ class DrawingEntity:
     diagnostics: tuple[Diagnostic, ...]
     dimension: DrawingDimension | None = None
     hatch: DrawingHatch | None = None
+    curve: DrawingCurve | None = None
+    note: DrawingNote | None = None
+    symbol: DrawingSymbol | None = None
 
 
 @dataclass(frozen=True)
@@ -278,12 +372,25 @@ def _text(
 ) -> DrawingText | None:
     # Only counted UTF-16LE runs are qualified. Legacy CP932/glyph encodings
     # retain their bytes without guessing from plausible strings.
-    if order != "<" or len(b) < 88 or b[24:28] != b"\x40\0\0\xfd":
+    if (
+        order != "<"
+        or len(b) < 88
+        or b[25:28] != b"\0\0\xfd"
+        or b[40:43] != b"\xff\x09\x01"
+    ):
+        return None
+    # The attribute block is 48 bytes; some V8 labels (line information,
+    # P&ID) store an 88-byte block. The word at +24 is 16 + the block length
+    # and the runs follow the block.
+    block_length = b[43]
+    if block_length not in (48, 88) or b[24] != 16 + block_length:
         return None
     lines: list[str] = []
     runs: list[bytes] = []
     total = 0
-    position = 88
+    position = 40 + block_length
+    if len(b) < position:
+        return None
     while position < len(b):
         if len(b) - position < 56:
             return None
@@ -330,21 +437,29 @@ def _text_layout(
 
     count = len(runs)
     expected = _TEXT_LINE_WORDS.get(count)
-    if (
-        b[24:46] != _TEXT_CONSTANTS
-        or b[47] != 8
-        or any(b[52:68])
-        or b[68:72] != b"\x80\0\0\0"
-        or b[46] != count
-        or b[48] != count
-        or expected is None
-        or b[14] != expected[0]
-        or b[74:80] != expected[1]
-    ):
+    block_end = 40 + b[43]
+    if block_end == 88:
+        if (
+            b[24:46] != _TEXT_CONSTANTS
+            or b[47] != 8
+            or any(b[52:68])
+            or b[68:72] != b"\x80\0\0\0"
+            or b[46] != count
+            or b[48] != count
+            or expected is None
+            or b[14] != expected[0]
+            or b[74:80] != expected[1]
+        ):
+            issue(
+                "drawing.text_fields",
+                24,
+                "Fixed text fields differ from the observed layout",
+            )
+    elif b[46] != count or b[48] != count or expected is None or b[14] != expected[0]:
         issue(
             "drawing.text_fields",
             24,
-            "Fixed text fields differ from the observed layout",
+            "Fixed text fields of the extended attribute block differ",
         )
     base_point = int(b[49]) if 1 <= b[49] <= 9 else None
     if base_point is None:
@@ -352,7 +467,7 @@ def _text_layout(
     direction = _TEXT_DIRECTIONS.get(b[50])
     if direction is None:
         issue("drawing.text_direction", 50, "Unobserved text direction")
-    scale_factor: float | None = struct.unpack_from("<d", b, 80)[0]
+    scale_factor: float | None = struct.unpack_from("<d", b, block_end - 8)[0]
     if scale_factor is None or not math.isfinite(scale_factor) or scale_factor <= 0:
         scale_factor = None
         issue("drawing.text_fields", 80, "Text scale factor is not a positive number")
@@ -360,7 +475,7 @@ def _text_layout(
     metrics: list[tuple[float, float, float]] = []
     rotation: float | None = None
     glyph_cache = False
-    position = 88
+    position = block_end
     for index, run in enumerate(runs):
         x, y = struct.unpack_from("<2d", run, 8)
         height, width, pitch = struct.unpack_from("<3f", run, 24)
@@ -449,6 +564,14 @@ def _text_layout(
     )
 
 
+# Little-endian versions whose composite records (text runs in UTF-16LE) are qualified.
+_COMPOSITE_VERSIONS = (
+    b"\0\x07\0\x06",
+    b"\0\x07\0\x07",
+    b"\0\x08\0\x01",
+    b"\0\x08\0\x02",
+    b"\0\x08\0\x03",
+)
 _DIMENSION_KINDS: dict[int, Literal["length", "angle", "diameter"]] = {
     25: "length",
     26: "angle",
@@ -460,9 +583,39 @@ _ITEM_KINDS: dict[int, Literal["vectors", "line", "point", "arc"]] = {
     0x0244: "line",
     0x0200: "line",
     0x0100: "point",
+    0x0144: "point",
     0x0500: "arc",
     0x0544: "arc",
 }
+# A size-framed nested record inside a symbol: the member list of a group
+# (saved entity identifiers), retained without interpretation.
+_NESTED_MARKER = 0xFD00
+_ANGLE_PATTERN = (
+    "vectors",
+    "vectors",
+    "arc",
+    "arc",
+    "arc",
+    "point",
+    "point",
+    "vectors",
+    "point",
+    "vectors",
+    "point",
+    "point",
+)
+_LEADER_DIAMETER_PATTERN = (
+    "arc",
+    "arc",
+    "point",
+    "vectors",
+    "vectors",
+    "vectors",
+    "vectors",
+    "line",
+    "point",
+    "point",
+)
 _ITEM_SIZES = {"vectors": 56, "line": 48, "point": 32, "arc": 48}
 _DIAMETER_PATTERN = (
     "arc",
@@ -487,8 +640,11 @@ _LENGTH_PATTERN = (
 )
 
 
-def _run_text(run: bytes, at: int) -> DrawingText | None:
-    """A single saved text run (as embedded in dimensions) as DrawingText."""
+def _run_text(run: bytes, at: int, *, lenient: bool = False) -> DrawingText | None:
+    """A single saved text run (as embedded in dimensions) as DrawingText.
+
+    ``lenient`` accepts the flag word at ``+44`` that leader notes and
+    symbols carry (dimension runs keep it zero)."""
     if (
         len(run) < 60
         or run[2:4] != b"\x44\x20"
@@ -519,7 +675,7 @@ def _run_text(run: bytes, at: int) -> DrawingText | None:
                 "unsupported", "drawing.text_metrics", at + 8, "Nonfinite text metrics"
             )
         )
-    if w36 or w44:
+    if w36 or (w44 and not lenient):
         issues.append(
             Diagnostic(
                 "unsupported", "drawing.text_fields", at + 36, "Unobserved angle words"
@@ -551,17 +707,44 @@ def _run_text(run: bytes, at: int) -> DrawingText | None:
     )
 
 
-def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
-    if order != "<" or len(b) < 48 or b[27] != 0xFD or b[28:32] != b"\0\0\0\x01":
+@dataclass(frozen=True)
+class _Composite:
+    """The framed parts of a composite record: attribute blocks, text runs,
+    geometry items and nested records, in saved order."""
+
+    blocks: dict[int, tuple[int, bytes]]
+    items: tuple[DimensionItem, ...]
+    runs: tuple[tuple[int, DrawingText], ...]
+    nested: tuple[ByteRange, ...]
+    issues: tuple[Diagnostic, ...]
+
+
+def _composite(
+    b: bytes,
+    order: str,
+    at: int,
+    *,
+    prefix: str,
+    lenient: bool = False,
+    nested: bool = False,
+    single_run_code: str | None = None,
+    kind_word: bool = True,
+    legacy_text: bool = False,
+) -> _Composite | None:
+    """Frame a composite record (dimension, leader note, symbol): the 0xFF
+    attribute blocks, then size-framed text runs and geometry items in saved
+    order. Sizes follow the file byte order; the two marker bytes do not
+    swap. Returns None when the framing itself is not qualified."""
+    if len(b) < 48 or b[27] != 0xFD:
         return None
+    if b[28:32] != b"\0\0\0\x01" and (kind_word or b[28:31] != b"\0\0\0"):
+        return None
+    byteorder: Literal["little", "big"] = "little" if order == "<" else "big"
     issues: list[Diagnostic] = []
 
     def issue(code: str, offset: int, message: str) -> None:
         issues.append(Diagnostic("unsupported", code, at + offset, message))
 
-    kind: Literal["length", "angle", "diameter", "radius", "unknown"] = (
-        _DIMENSION_KINDS.get(b[15]) or "unknown"
-    )
     blocks: dict[int, tuple[int, bytes]] = {}
     position = 40
     while position + 4 <= len(b) and b[position] == 0xFF:
@@ -570,46 +753,67 @@ def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
             return None
         blocks.setdefault(b[position + 1], (position, b[position : position + length]))
         position += length
-    # Elements: the value text run and the geometry items, in saved order.
-    # The length layout stores the run first, the diameter family after its
-    # circle items.
     items: list[DimensionItem] = []
-    text: DrawingText | None = None
+    runs: list[tuple[int, DrawingText]] = []
+    nested_ranges: list[ByteRange] = []
     while position < len(b):
         if len(b) - position < 8:
-            issue("drawing.dimension_item", position, "Truncated dimension item")
+            issue(f"drawing.{prefix}_item", position, f"Truncated {prefix} item")
             break
-        size = int.from_bytes(b[position : position + 2], "little")
+        size = int.from_bytes(b[position : position + 2], byteorder)
         marker = int.from_bytes(b[position + 2 : position + 4], "little")
         if marker == 0x2044:
             if size < 60 or size % 4 or position + size > len(b):
                 return None
-            run = _run_text(b[position : position + size], at + position)
+            if order != "<" or legacy_text:
+                # Legacy CP932 runs (big-endian documents, little-endian V7L2-V7L5)
+                # are retained, not decoded.
+                issue(
+                    f"drawing.{prefix}_text",
+                    position,
+                    "Legacy text run is not qualified",
+                )
+                position += size
+                continue
+            run = _run_text(
+                b[position : position + size], at + position, lenient=lenient
+            )
             if run is None:
                 return None
-            if text is None:
-                text = run
-            else:
-                issue("drawing.dimension_runs", position, "Additional value text run")
+            if runs and single_run_code:
+                issue(single_run_code, position, "Additional value text run")
+            runs.append((position, run))
+            position += size
+            continue
+        if nested and marker == _NESTED_MARKER:
+            if size < 8 or position + size > len(b):
+                issue(f"drawing.{prefix}_item", position, "Truncated nested record")
+                break
+            nested_ranges.append(ByteRange(at + position, at + position + size))
             position += size
             continue
         item_kind = _ITEM_KINDS.get(marker)
         expected = _ITEM_SIZES.get(item_kind or "", 0)
+        if item_kind == "vectors" and size == 40:
+            expected = 40  # a point and one vector (observed hidden in notes)
         if item_kind is None or size != expected or position + size > len(b):
-            issue("drawing.dimension_item", position, "Unobserved dimension item")
+            issue(f"drawing.{prefix}_item", position, f"Unobserved {prefix} item")
             break
         values = struct.unpack_from(
-            "<" + "d" * ((size - (16 if item_kind == "point" else 8)) // 8),
+            order + "d" * ((size - (16 if item_kind == "point" else 8)) // 8),
             b,
             position + 8,
         )
         if not all(math.isfinite(v) for v in values):
-            issue("drawing.dimension_item", position + 8, "Nonfinite dimension item")
+            issue(f"drawing.{prefix}_item", position + 8, f"Nonfinite {prefix} item")
             break
         radius = start = sweep = None
-        if item_kind == "vectors":
+        if item_kind == "vectors" and size == 40:
+            px, py, ax, ay = values
+            points: tuple[Point2, ...] = ((px, py), (px + ax, py + ay))
+        elif item_kind == "vectors":
             px, py, ax, ay, bx, by = values
-            points: tuple[Point2, ...] = (
+            points = (
                 (px, py),
                 (px + ax, py + ay),
                 (px + bx, py + by),
@@ -644,8 +848,244 @@ def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
             )
         )
         position += size
-    if text is None:
+    return _Composite(
+        blocks, tuple(items), tuple(runs), tuple(nested_ranges), tuple(issues)
+    )
+
+
+def _items_box(
+    items: tuple[DimensionItem, ...], boxes: tuple[Extent | None, ...]
+) -> Extent | None:
+    """The extent of geometry items (arcs include their axis extremes) and boxes."""
+    xs: list[float] = []
+    ys: list[float] = []
+    for item in items:
+        xs.extend(p[0] for p in item.points)
+        ys.extend(p[1] for p in item.points)
+        if item.kind == "arc" and item.radius is not None:
+            assert item.start_angle is not None and item.sweep_angle is not None
+            low, high = sorted((item.start_angle, item.start_angle + item.sweep_angle))
+            k = math.ceil(low / (math.pi / 2))
+            while k * math.pi / 2 <= high + 1e-12:
+                angle = k * math.pi / 2
+                xs.append(item.points[0][0] + item.radius * math.cos(angle))
+                ys.append(item.points[0][1] + item.radius * math.sin(angle))
+                k += 1
+    for box in boxes:
+        if box is not None:
+            xs.extend((box[0], box[2]))
+            ys.extend((box[1], box[3]))
+    if not xs:
         return None
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _symmetric_legs(p: Point2, q: Point2, r: Point2) -> bool:
+    """``q`` is the tip of an arrowhead whose corners ``p`` and ``r`` lie at the
+    same distance; extension lines (a point, its foot and the line end) are not."""
+    left = math.dist(p, q)
+    right = math.dist(r, q)
+    if left <= 1e-9 or right <= 1e-9:
+        return False
+    return (
+        math.isclose(left, right, rel_tol=1e-6, abs_tol=1e-6)
+        and math.dist(p, r) < left + right
+    )
+
+
+def _note(b: bytes, order: str, at: int) -> DrawingNote | None:
+    if order != "<":
+        return None
+    composite = _composite(b, order, at, prefix="note", lenient=True)
+    if composite is None:
+        return None
+    issues = list(composite.issues)
+
+    def issue(code: str, offset: int, message: str) -> None:
+        issues.append(Diagnostic("unsupported", code, at + offset, message))
+
+    texts = tuple(run for _, run in composite.runs)
+    text = texts[0] if texts else None
+    if text is None:
+        issue("drawing.note_text", 40, "No text run")
+    for position, run in composite.runs:
+        if run.layout_status != "complete":
+            issue("drawing.note_text", position, "A text run is not fully qualified")
+    arrow: tuple[Point2, Point2, Point2] | None = None
+    path: tuple[Point2, ...] = ()
+    for item in composite.items:
+        offset = item.byte_range.start - at
+        if item.kind != "vectors":
+            issue("drawing.note_item", offset, "Unobserved note item")
+            continue
+        if not item.raw_marker & 0x40 or len(item.points) != 3:
+            continue  # hidden alternatives are retained in items, not drawn
+        p, q, r = item.points
+        if arrow is None and _symmetric_legs(p, q, r):
+            arrow = (p, q, r)
+        elif not path:
+            path = (p, q, r)
+        else:
+            issue("drawing.note_item", offset, "Additional leader item")
+    if not path:
+        issue("drawing.note_layout", 40, "No leader item")
+    arrow_width = arrow_angle = None
+    if 4 in composite.blocks and len(composite.blocks[4][1]) >= 48:
+        width, _, angle = struct.unpack_from("<3d", composite.blocks[4][1], 24)
+        if math.isfinite(width) and math.isfinite(angle):
+            arrow_width, arrow_angle = width, math.degrees(angle)
+    box = _items_box(composite.items, tuple(run.box for run in texts))
+    return DrawingNote(
+        "partial" if issues else "complete",
+        text,
+        composite.items,
+        arrow,
+        path,
+        arrow_width,
+        arrow_angle,
+        box,
+        tuple(issues),
+        texts,
+    )
+
+
+def _symbol(
+    b: bytes, order: str, at: int, *, legacy_text: bool = False
+) -> DrawingSymbol | None:
+    composite = _composite(
+        b,
+        order,
+        at,
+        prefix="symbol",
+        lenient=True,
+        nested=True,
+        kind_word=False,
+        legacy_text=legacy_text,
+    )
+    if composite is None:
+        return None
+    issues = list(composite.issues)
+    texts = tuple(run for _, run in composite.runs)
+    for position, run in composite.runs:
+        if run.layout_status != "complete":
+            issues.append(
+                Diagnostic(
+                    "unsupported",
+                    "drawing.symbol_text",
+                    at + position,
+                    "A text run is not fully qualified",
+                )
+            )
+    if not composite.items and not texts and not composite.nested:
+        issues.append(
+            Diagnostic(
+                "unsupported", "drawing.symbol_layout", at + 40, "Symbol without items"
+            )
+        )
+    box = _items_box(composite.items, tuple(run.box for run in texts))
+    return DrawingSymbol(
+        "partial" if issues else "complete",
+        composite.items,
+        texts,
+        composite.nested,
+        box,
+        tuple(issues),
+        b[31],
+    )
+
+
+def _curve(b: bytes, order: str, at: int) -> DrawingCurve | None:
+    byteorder: Literal["little", "big"] = "little" if order == "<" else "big"
+    if (
+        len(b) < 136
+        or b[27] != 0x10
+        or int.from_bytes(b[24:26], byteorder) != len(b) - 24
+        or b[26] not in (0, 0x44)
+        or b[30:32] != b"\0\0"
+    ):
+        return None
+    n = int.from_bytes(b[38:40], byteorder)
+    if n < 2 or len(b) != 136 + 72 * (n - 1):
+        return None
+    issues: list[Diagnostic] = []
+
+    def issue(code: str, offset: int, message: str) -> None:
+        issues.append(Diagnostic("unsupported", code, at + offset, message))
+
+    saved_extent = struct.unpack_from(order + "4d", b, 40)
+    (length,) = struct.unpack_from(order + "d", b, 80)
+    chords = struct.unpack_from(order + f"{n - 1}d", b, 120)
+    base = 120 + 8 * (n - 1)
+    x0, y0 = struct.unpack_from(order + "2d", b, base)
+    offsets = struct.unpack_from(order + f"{2 * (n - 1)}d", b, base + 16)
+    words = struct.unpack_from(order + f"{6 * (n - 1)}d", b, base + 16 + 16 * (n - 1))
+    if not all(
+        math.isfinite(v)
+        for v in (*saved_extent, length, *chords, x0, y0, *offsets, *words)
+    ):
+        return None
+    knots: list[Point2] = [(x0, y0)]
+    for i in range(n - 1):
+        knots.append((x0 + offsets[2 * i], y0 + offsets[2 * i + 1]))
+    for i in range(n - 1):
+        chord = math.dist(knots[i], knots[i + 1])
+        if chords[i] <= 0 or not math.isclose(
+            chord, chords[i], rel_tol=1e-6, abs_tol=1e-9
+        ):
+            issue(
+                "drawing.curve_layout",
+                120 + 8 * i,
+                "Chord length differs from the knots",
+            )
+            break
+    if not math.isclose(sum(chords), length, rel_tol=1e-6, abs_tol=1e-9):
+        issue("drawing.curve_layout", 80, "Curve length differs from the chords")
+    saved: Extent = (saved_extent[0], saved_extent[1], saved_extent[2], saved_extent[3])
+    extent: Extent | None = saved
+    if saved[0] > saved[2] or saved[1] > saved[3]:
+        issue("drawing.curve_fields", 40, "Saved extent is not a box")
+        extent = None
+    xs = [k[0] for k in knots]
+    ys = [k[1] for k in knots]
+    box: Extent = (min(xs), min(ys), max(xs), max(ys))
+    if extent is not None:
+        box = (
+            min(box[0], extent[0]),
+            min(box[1], extent[1]),
+            max(box[2], extent[2]),
+            max(box[3], extent[3]),
+        )
+    return DrawingCurve(
+        "partial" if issues else "complete",
+        tuple(knots),
+        tuple(chords),
+        length,
+        extent,
+        tuple(tuple(words[6 * i : 6 * i + 6]) for i in range(n - 1)),
+        box,
+        tuple(issues),
+    )
+
+
+def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
+    if order != "<":
+        return None
+    composite = _composite(
+        b, order, at, prefix="dimension", single_run_code="drawing.dimension_runs"
+    )
+    if composite is None or not composite.runs:
+        return None
+    issues = list(composite.issues)
+
+    def issue(code: str, offset: int, message: str) -> None:
+        issues.append(Diagnostic("unsupported", code, at + offset, message))
+
+    kind: Literal["length", "angle", "diameter", "radius", "unknown"] = (
+        _DIMENSION_KINDS.get(b[15]) or "unknown"
+    )
+    blocks = composite.blocks
+    items = list(composite.items)
+    text = composite.runs[0][1]
     value = scale = gap = arrow_width = arrow_angle = None
     underline: tuple[float, float] | None = None
     if 6 in blocks and len(blocks[6][1]) >= 56:
@@ -668,6 +1108,8 @@ def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
     extension = aux_offset = None
     center = pick = None
     radius = None
+    arc_start = arc_sweep = None
+    leader: tuple[Point2, ...] | None = None
     pattern = tuple(i.kind for i in items)
     broken = any(d.code == "drawing.dimension_item" for d in issues)
     arcs = [i for i in items if i.kind == "arc"]
@@ -711,6 +1153,14 @@ def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
             )
         if broken:
             pass
+        elif pattern == _LEADER_DIAMETER_PATTERN:
+            # The leader variant: an arrowhead on the circle, the leader from
+            # its tip to an elbow and the shelf to the text; the hidden copies
+            # of the arrowheads and the zero-length line are not drawn.
+            pick = items[2].points[0]
+            leader = items[4].points
+            line = (leader[1], leader[2])
+            line_point = items[8].points[0]
         elif pattern != _DIAMETER_PATTERN:
             issue(
                 "drawing.dimension_layout",
@@ -721,11 +1171,37 @@ def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
             pick = items[2].points[0]
             line = (items[5].points[0], items[5].points[1])
             line_point = items[6].points[0]
+    elif kind == "angle":
+        if broken:
+            pass
+        elif pattern != _ANGLE_PATTERN:
+            issue(
+                "drawing.dimension_layout",
+                40,
+                "Unobserved angle dimension item sequence",
+            )
+        else:
+            # Three arcs share the vertex: the drawn dimension arc carries the
+            # 0x0544 marker; the others are its hidden copies or the arc
+            # through the measured points.
+            drawn = [i for i in items[2:5] if i.raw_marker == 0x0544]
+            arc = drawn[0] if drawn else items[3]
+            center, radius = arc.points[0], arc.radius
+            arc_start, arc_sweep = arc.start_angle, arc.sweep_angle
+            line_point = items[5].points[0]
+            measured = (items[7].points[0], items[9].points[0])
+            # Each aux line: the measured point, its foot on the arc and the end
+            # beyond it; the second one may start at the vertex itself.
+            aux = items[7]
+            foot = math.dist(aux.points[0], aux.points[1])
+            end = math.dist(aux.points[0], aux.points[2])
+            extension = end - foot if foot > 0 else None
+            aux_offset = math.dist(aux.points[0], items[8].points[0])
     else:
         issue(
             "drawing.dimension_kind",
             15,
-            "Only the length and diameter layouts are interpreted",
+            "Only the length, angle and diameter layouts are interpreted",
         )
     box: Extent | None = None
     if items:
@@ -774,6 +1250,9 @@ def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
         center,
         radius,
         pick,
+        arc_start,
+        arc_sweep,
+        leader,
     )
 
 
@@ -892,6 +1371,9 @@ def _entity(
     text = None
     dimension = None
     hatch = None
+    curve = None
+    note = None
+    symbol = None
     status: Status = "unsupported"
     code, message = "drawing.entity", "Unqualified 2D entity layout"
     if (
@@ -913,7 +1395,12 @@ def _entity(
         ):
             text = _text(b, order, limits, at)
             if text:
-                width, style, color = b[92] & 0x7F, b[93] >> 4, b[93] & 15
+                run_at = 40 + b[43]  # the first run follows the attribute block
+                width, style, color = (
+                    b[run_at + 4] & 0x7F,
+                    b[run_at + 5] >> 4,
+                    b[run_at + 5] & 15,
+                )
                 if text.layout_status == "complete":
                     status = "complete"
                 else:
@@ -965,7 +1452,71 @@ def _entity(
                         "drawing.dimension_layout",
                         "Dimension layout is partially qualified; see its diagnostics",
                     )
-        expected = {1: (56, 1), 2: (72, 2), 5: (72, 5), 6: (72, 4)}.get(t or -1)
+        if t == 16:
+            # Free curve (any byte order): knots, chord lengths and the saved extent
+            curve = _curve(b, order, at)
+            if curve is not None:
+                width, style, color = b[28] & 0x7F, b[29] >> 4, b[29] & 15
+                if curve.layout_status == "complete":
+                    status = "complete"
+                else:
+                    status = "partial"
+                    code, message = (
+                        "drawing.curve_layout",
+                        "Free curve layout is partially qualified; see its diagnostics",
+                    )
+        if t == 22 and document.header.raw_version in _COMPOSITE_VERSIONS:
+            note = _note(b, order, at)
+            if note is not None:
+                first_item = note.items[0] if note.items else None
+                if first_item is not None:
+                    width, style, color = (
+                        first_item.line_width,
+                        first_item.line_style,
+                        first_item.color_index,
+                    )
+                if note.layout_status == "complete":
+                    status = "complete"
+                else:
+                    status = "partial"
+                    code, message = (
+                        "drawing.note_layout",
+                        "Leader note layout is partially qualified; see diagnostics",
+                    )
+        if t == 212:
+            symbol = _symbol(
+                b,
+                order,
+                at,
+                legacy_text=(
+                    order == ">"
+                    or document.header.raw_version not in _COMPOSITE_VERSIONS
+                ),
+            )
+            if symbol is not None:
+                first_item = symbol.items[0] if symbol.items else None
+                if first_item is not None:
+                    width, style, color = (
+                        first_item.line_width,
+                        first_item.line_style,
+                        first_item.color_index,
+                    )
+                if symbol.layout_status == "complete":
+                    status = "complete"
+                else:
+                    status = "partial"
+                    code, message = (
+                        "drawing.symbol_layout",
+                        "Symbol layout is partially qualified; see its diagnostics",
+                    )
+        expected = {
+            1: (56, 1),
+            2: (72, 2),
+            5: (72, 5),
+            6: (72, 4),
+            88: (88, 7),
+            89: (88, 8),
+        }.get(t or -1)
         if (
             expected
             and (len(b), b[27]) == expected
@@ -974,11 +1525,30 @@ def _entity(
             and b[30:32] == b"\0\0"
         ):
             width, style, color = b[28] & 0x7F, b[29] >> 4, b[29] & 15
-            values = struct.unpack_from(order + ("2d" if t == 1 else "5d"), b, 32)
+            values = struct.unpack_from(
+                order + {1: "2d", 88: "7d", 89: "7d"}.get(t or -1, "5d"), b, 32
+            )
             if all(math.isfinite(v) for v in values):
                 x, y = values[:2]
                 if t == 1:
                     primitive = DrawingPrimitive("point", ((x, y),))
+                elif t in (88, 89):
+                    # Ellipse (88) and elliptical arc (89): the semi-axes, the
+                    # angle of the ellipse's x axis and parametric start/sweep
+                    major, minor, rotation, start, sweep = values[2:]
+                    if major > 0 and minor > 0 and 0 < abs(sweep) <= math.tau + 1e-8:
+                        full = math.isclose(abs(sweep), math.tau, abs_tol=1e-8)
+                        primitive = DrawingPrimitive(
+                            "ellipse"
+                            if t == 88 and full and start == 0
+                            else "elliptical_arc",
+                            center=(x, y),
+                            radius=major,
+                            start_angle=start,
+                            sweep_angle=sweep,
+                            minor_radius=minor,
+                            rotation=rotation,
+                        )
                 elif t == 2:
                     dx, dy, length = values[2:]
                     if length >= 0 and math.isclose(
@@ -1031,6 +1601,9 @@ def _entity(
         + (text.diagnostics if text is not None else ())
         + (dimension.diagnostics if dimension is not None else ())
         + (hatch.diagnostics if hatch is not None else ())
+        + (curve.diagnostics if curve is not None else ())
+        + (note.diagnostics if note is not None else ())
+        + (symbol.diagnostics if symbol is not None else ())
     )
     return DrawingEntity(
         f"drawing@{at}",
@@ -1050,6 +1623,9 @@ def _entity(
         diagnostics,
         dimension,
         hatch,
+        curve,
+        note,
+        symbol,
     )
 
 

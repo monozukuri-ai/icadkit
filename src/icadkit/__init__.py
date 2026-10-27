@@ -16,12 +16,15 @@ from .csg import (
 from .document import Document, read
 from .drawing import (
     DimensionItem,
+    DrawingCurve,
     DrawingDimension,
     DrawingEntity,
     DrawingHatch,
     DrawingIndex,
     DrawingLimits,
+    DrawingNote,
     DrawingPrimitive,
+    DrawingSymbol,
     DrawingText,
     HatchEdge,
 )
@@ -69,12 +72,17 @@ from .trailer import (
 from .versions import VersionSupport, qualified_versions, version_label
 from .views import View, ViewEntry, ViewExtent, ViewIndex, ViewLimits, ViewPlacement
 from .write import (
+    AngleDimension2D,
     Arc2D,
     Circle2D,
+    Curve2D,
     DiameterDimension2D,
     DrawingWriter,
+    Ellipse2D,
+    EllipticalArc2D,
     EntityStyle,
     Hatch2D,
+    LeaderNote2D,
     LengthDimension2D,
     Line2D,
     Point2D,
@@ -85,13 +93,16 @@ from .write import (
 __version__ = version("icadkit")
 __all__ = [
     "DimensionItem",
+    "DrawingCurve",
     "DrawingDimension",
     "DrawingHatch",
     "HatchEdge",
     "DrawingEntity",
     "DrawingIndex",
     "DrawingLimits",
+    "DrawingNote",
     "DrawingPrimitive",
+    "DrawingSymbol",
     "DrawingText",
     "PartShape",
     "PartShapeIndex",
@@ -119,7 +130,12 @@ __all__ = [
     "version_label",
     "Arc2D",
     "Circle2D",
+    "AngleDimension2D",
+    "Curve2D",
     "DiameterDimension2D",
+    "Ellipse2D",
+    "EllipticalArc2D",
+    "LeaderNote2D",
     "DrawingWriter",
     "EntityStyle",
     "Hatch2D",

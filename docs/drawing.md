@@ -107,7 +107,12 @@ Records that name no 2D view add `views.placement_view`, several records with
 one name add `views.placement_ambiguous` and map to no view, and a 2D view
 without a record adds `views.placement_missing`; these diagnostics do not
 change the index status, which describes framing only. `DrawingWriter` writes
-the same record for each view it adds.
+the same record for each view it adds. Its
+entities also include `Ellipse2D`, `EllipticalArc2D`, `Curve2D` (the
+segment words are written as zeros), `LeaderNote2D` and
+`AngleDimension2D` (little-endian documents only for the two composite
+records, whose attribute blocks copy an observed record with the scale,
+height, arrow and value doubles patched).
 
 In the installed corpus (1,449 distinct files), 701 documents have a 2D global
 view (316 big-endian, 385 little-endian), all of them with a placement list:
@@ -129,11 +134,16 @@ Layer values outside the observed one-byte layout remain unqualified.
 | Line | Start/end, direction and length | Zero-length lines retain their direction |
 | Circle | Center and positive radius | Saved planar circles only |
 | Arc | Center, radius, start angle and signed sweep | Angles are radians; sweep is not an end angle |
+| Ellipse and elliptical arc (types 88, 89) | Center, the semi-axes (`radius` along the ellipse's x axis, `minor_radius`), the `rotation` of that axis and the parametric start angle and signed sweep, in both byte orders | A point is `center + R(rotation) * (a cos t, b sin t)`, the DXF convention; the 448-byte records of V5 and earlier are not interpreted |
+| Free curve (type 16) | `DrawingCurve`: the knots (start point and cumulative offsets), their chord lengths, the total length and the saved extent, in both byte orders | The six doubles saved per segment are retained as `segment_words` without a meaning; a caller draws through the knots |
+| Leader note (type 22) | `DrawingNote`: the text runs (one per line), the arrowhead (a corner, the tip, the other corner), the drawn leader (tip, elbow, end) and the arrow parameters | Hidden alternative items are retained in `items`; little-endian V7L6 and later only |
+| Symbol (type 212) | `DrawingSymbol`: drawn point markers, lines, arcs and vectors, the text runs and the nested member list of a group as opaque ranges; `raw_kind` is the saved byte at `+31` (1 point markers, 50 labels) | Big-endian and V7L2–V7L5 text runs are legacy CP932 and stay unqualified (`drawing.symbol_text`) |
 | Text | Counted UTF-16LE runs in little-endian V7L6/V7L7/V8L1/V8L2/V8L3, including multiline and private-use characters, with the saved layout below | Rotated text keeps its angle without an anchor or box; fonts, glyph strokes and tilt are not interpreted |
 | Length dimension | The saved layout: measured points, dimension line, line point, value text run, arrowheads and aux lines as saved items, the measured value and the arrow parameters | Tolerances, extra words and other styles are unobserved |
-| Diameter and radius dimension | The measured circle or arc (centre, radius), the pick point, the dimension line, the line point, the value text run and the arrowheads; `radius` when the value equals the radius | Leader variants and angle dimensions keep their framed items, arc and text with a partial status |
+| Diameter and radius dimension | The measured circle or arc (centre, radius), the pick point, the dimension line, the line point, the value text run and the arrowheads; `radius` when the value equals the radius. The leader variant adds `leader` (the arrowhead tip, the elbow and the end of the shelf) | Other item sequences keep their framed items, arc and text with a partial status |
+| Angle dimension (type 26) | The vertex (`center`), the drawn dimension arc (`radius`, `arc_start`, `arc_sweep`), the two `measured` points on the legs, the line point, the value in degrees and the value text run | Unobserved item sequences keep their items with a partial status |
 | Hatch | The anchor, the boundary edges (start, middle, end; line or arc) and every rendered line with its direction and spacing | Patterns other than parallel lines, dashed lines and point lists that do not close keep the layout partial |
-| Symbols, projection controls and other types | Raw type, source range and diagnostics | No decomposition into guessed primitives |
+| Other types | Raw type, source range and diagnostics | No decomposition into guessed primitives |
 
 `DrawingText` qualifies the saved text layout of the observed little-endian
 record: `base_point` (1 top-left, 5 centre, 7 bottom-left; columns 1/4/7,
@@ -154,6 +164,13 @@ the layout `partial` with `drawing.text_fields`, `drawing.text_base_point`,
 The glyph cache that some saved records carry after each line is framed but
 not interpreted (`glyph_cache`); other saved records omit it. A complete layout
 makes the text entity `complete`.
+
+Composite records (dimensions, leader notes and symbols) share one framing:
+0xFF attribute blocks, then size-framed text runs (marker bytes `44 20`) and
+geometry items in saved order. Sizes follow the file byte order; the two
+marker bytes do not swap. Items whose marker carries the `0x40` bit are
+drawn; the others are hidden alternatives that iCAD keeps (the mirrored
+arrowhead of a leader, the second aux line of an angle dimension).
 
 `DrawingDimension` frames every little-endian dimension record (types 25,
 26 and 27) as attribute blocks, the embedded value text run and geometry
@@ -178,12 +195,39 @@ the dimension `line`, the `line_point` and the text anchor; `kind` is
 diameter (`drawing.dimension_value` otherwise). In the local corpus the
 centre and value of 43 such records and the line point of the 38 with the
 observed sequence agree with their SDK observations; the text includes the
-R or diameter symbol that the SDK reports separately. Angle dimensions,
-leader variants with a second text run, unobserved item sequences, other
-items and unqualified text runs keep the entity `partial` with
+R or diameter symbol that the SDK reports separately. The leader variant of
+the diameter family (a quarter arc, the measured circle, the pick point, the
+drawn arrowhead and leader, two hidden arrowheads, a hidden zero-length line
+and two points) is interpreted with `leader` = (tip, elbow, end) and `line`
+= the shelf. The angle layout (type 26: two arrowheads, three copies of the
+dimension arc of which the `0x0544` one is drawn, the line point, the text
+anchor, then per leg an aux line and the measured point, and the vertex)
+gives `center`, `radius`, `arc_start`, `arc_sweep`, `measured` and the
+`value` in degrees; the two angle records of the local corpus read this
+way. Unobserved item sequences, additional text runs, other items and
+unqualified text runs keep the entity `partial` with
 `drawing.dimension_kind`, `drawing.dimension_layout`,
 `drawing.dimension_runs`, `drawing.dimension_item` or
 `drawing.dimension_text`.
+
+`DrawingNote` reads the leader note record (type 22): the text runs (one
+per line), one drawn `vectors` item whose legs are symmetric about its tip
+(the `arrow`) and one drawn `vectors` item from the tip to the elbow and the
+end of the shelf (the `path`); hidden items, including a 40-byte variant
+with a single vector, are retained in `items`. The arrow width and angle
+come from attribute block 4 as in dimensions. `DrawingSymbol` reads the
+symbol record (type 212, any `raw_kind`): its items (point markers with the
+`0x0144` marker, lines, arcs, vectors), its text runs and the nested
+member lists of groups (marker bytes `00 fd`) as opaque `nested` ranges.
+In the local corpus 523 free curves, 1,468 elliptical arcs, 4 leader notes
+and 44 symbols of one V8L2 assembly drawing, and 228 free curves of each
+V6/V7 gearbox drawing, read `complete`; their endpoints coincide with the
+ends of neighbouring lines, arcs and curves.
+
+`DrawingText` also accepts the 88-byte attribute block that some V8 labels
+(line information, P&ID) store instead of the 48-byte block; the runs
+follow the block and the fixed words of the extended block are not
+compared, so these texts read `complete` unless rotated.
 
 `DrawingHatch` reads the hatch record (type 92): an `anchor`, the boundary
 as a point list relative to it (`raw_points`, interpreted as `edges` of

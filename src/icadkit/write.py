@@ -29,6 +29,7 @@ from .drawing import (
     DrawingLimits,
     _dimension,
     _hatch,
+    _note,
     _text,
     char_cells,
 )
@@ -185,6 +186,86 @@ class Hatch2D:
     anchor: Point2 | None = None
 
 
+@dataclass(frozen=True)
+class Ellipse2D:
+    """A full ellipse: ``center``, the semi-axis ``major_radius`` along the
+    ellipse's x axis (rotated by ``rotation`` radians) and ``minor_radius``
+    along its y axis."""
+
+    center: Point2
+    major_radius: float
+    minor_radius: float
+    rotation: float = 0.0
+
+
+@dataclass(frozen=True)
+class EllipticalArc2D:
+    """An elliptical arc from the parametric ``start_angle`` by the signed
+    ``sweep_angle`` (radians, ``0 < |sweep_angle| <= 2*pi``) on the ellipse of
+    ``Ellipse2D``; a point is ``center + R(rotation) * (a cos t, b sin t)``."""
+
+    center: Point2
+    major_radius: float
+    minor_radius: float
+    rotation: float
+    start_angle: float
+    sweep_angle: float
+
+
+@dataclass(frozen=True)
+class Curve2D:
+    """A free curve through at least two ``points`` (consecutive points must
+    differ). The record stores the knots, their chord lengths and the box of
+    the knots; the six words iCAD saves per segment for the smooth curve are
+    written as zeros, which the reader retains without a meaning."""
+
+    points: tuple[Point2, ...]
+
+
+@dataclass(frozen=True)
+class LeaderNote2D:
+    """A leader note: ``lines`` of text (one or more BMP strings) above the
+    shelf from ``elbow`` to ``end``, a leader from the arrowhead ``tip`` to
+    the elbow. ``height`` (character height), ``arrow_width`` and the
+    arrowhead ``arrow_angle`` (degrees) are paper millimetres and degrees;
+    paper lengths are divided by the view scale when written."""
+
+    lines: tuple[str, ...] | str
+    tip: Point2
+    elbow: Point2
+    end: Point2
+    height: float = 4.0
+    arrow_width: float = 1.5
+    arrow_angle: float = 15.0
+    line_width: int = 3
+    text_width: int = 2
+
+
+@dataclass(frozen=True)
+class AngleDimension2D:
+    """An angle dimension at ``vertex`` measured counter-clockwise from the leg
+    through ``leg1`` to the leg through ``leg2``, with the dimension arc at
+    ``radius`` (view units) and its value text (the angle in degrees with
+    three decimals and the degree sign, or ``text``) outside the arc. The
+    aux line of the first leg is drawn from ``leg1`` to the arc and beyond by
+    ``extension``; the second leg's is saved hidden, as observed. Paper
+    millimetres (``height``, ``gap``, ``arrow_width``, ``extension``) are
+    divided by the view scale when written."""
+
+    vertex: Point2
+    leg1: Point2
+    leg2: Point2
+    radius: float
+    text: str | None = None
+    height: float = 4.0
+    gap: float = 1.0
+    arrow_width: float = 1.5
+    arrow_angle: float = 15.0
+    extension: float = 2.8
+    line_width: int = 2
+    text_width: int = 2
+
+
 Primitive2D = (
     Point2D
     | Line2D
@@ -194,6 +275,46 @@ Primitive2D = (
     | LengthDimension2D
     | DiameterDimension2D
     | Hatch2D
+    | Ellipse2D
+    | EllipticalArc2D
+    | Curve2D
+    | LeaderNote2D
+    | AngleDimension2D
+)
+
+# The attribute part (+32..+240) of an observed leader note record (V8L2): the
+# word at +32 and four attribute blocks. Doubles equal to the view scale (0.1),
+# the text height (3.8), the arrow width (2.5) and the arrow angle (15 degrees)
+# are patched; the other words are copied.
+_NOTE_ATTRIBUTES = bytes.fromhex(
+    "3c00080000004400"
+    "ff0a0230000100046c000000000000009a9999999999b93f000000000000f03f"
+    "0000000000000080333333333333f33f"
+    "ff0b013004020108010101008800100104010000000000009a9999999999b93f"
+    "6666666666660e40333333333333f33f"
+    "ff09013018000108010701010000000000000000000000000000000080000000"
+    "02010000000200009a9999999999b93f"
+    "ff0402300000010803010000000000009a9999999999b93f0000000000000440"
+    "333333333333f33f65732d3852c1d03f"
+)
+# The attribute part (+32..+352) of an observed angle dimension record (V8L2):
+# the word at +32 and seven attribute blocks. The value (block 6, +48), the
+# arrow width and angle (both block 4 copies) and the doubles equal to the view
+# scale (1.0) are patched; the other words are copied.
+_ANGLE_DIM_ATTRIBUTES = bytes.fromhex(
+    "280008000000ec00"
+    "ff0c011800020004fc00780400000000000000000000f03f"
+    "ff0d01380a03050c0101010101010201010100005401a40210030000050206010702080209"
+    "020000333333333333c33f000000000000f03f"
+    "ff050118000102048c00000000010000000000000000f03f"
+    "ff0601501c00010c0102030200ff030500000000000000000801000000000000000000000201"
+    "000100000001000000000200000000c062400000000000000000000000000000f03f"
+    "000000000000f03f"
+    "ff040230000001080301000000000000000000000000f03fb81e85eb51b8e63f"
+    "000000000000f03f65732d3852c1d03f"
+    "ff040230000001080401000000000000000000000000f03fb81e85eb51b8e63f"
+    "000000000000f03f65732d3852c1d03f"
+    "ff0f0120000005100a010b020c020d020e02000000000000000000000000f03f"
 )
 
 # The attribute part (+32..+376) of an observed length dimension record. Its
@@ -351,6 +472,19 @@ def _entity_box(entity: DrawingEntity) -> Extent | None:
         if p.kind == "circle":
             return (cx - p.radius, cy - p.radius, cx + p.radius, cy + p.radius)
         assert p.start_angle is not None and p.sweep_angle is not None
+        if p.kind in ("ellipse", "elliptical_arc"):
+            assert p.minor_radius is not None and p.rotation is not None
+            return _box(
+                _ellipse_points(
+                    cx,
+                    cy,
+                    p.radius,
+                    p.minor_radius,
+                    p.rotation,
+                    p.start_angle,
+                    p.sweep_angle,
+                )
+            )
         return _box(_arc_points(cx, cy, p.radius, p.start_angle, p.sweep_angle))
     if entity.text is not None:
         return entity.text.box
@@ -358,7 +492,425 @@ def _entity_box(entity: DrawingEntity) -> Extent | None:
         return entity.dimension.box
     if entity.hatch is not None:
         return entity.hatch.box
+    if entity.curve is not None:
+        return entity.curve.box
+    if entity.note is not None:
+        return entity.note.box
+    if entity.symbol is not None:
+        return entity.symbol.box
     return None
+
+
+def _ellipse_points(
+    cx: float,
+    cy: float,
+    a: float,
+    b: float,
+    rotation: float,
+    start: float,
+    sweep: float,
+) -> list[Point2]:
+    """Sampled points of an elliptical arc (parametric angles, rotated axes)."""
+    cos_r, sin_r = math.cos(rotation), math.sin(rotation)
+    points = []
+    steps = 64
+    for i in range(steps + 1):
+        t = start + sweep * i / steps
+        x, y = a * math.cos(t), b * math.sin(t)
+        points.append((cx + x * cos_r - y * sin_r, cy + x * sin_r + y * cos_r))
+    return points
+
+
+def _patch_doubles(buffer: bytearray, mapping: dict[float, float]) -> None:
+    """Replace every 8-byte-aligned double equal to a key of ``mapping``."""
+    for at in range(0, len(buffer) - 7, 8):
+        (value,) = struct.unpack_from("<d", buffer, at)
+        if value in mapping:
+            struct.pack_into("<d", buffer, at, mapping[value])
+
+
+def _run(
+    order: str,
+    text: str,
+    origin: Point2,
+    height: float,
+    text_width: int,
+    color: int,
+    angle: float = 0.0,
+    flags: int = 0,
+) -> bytes:
+    """A counted UTF-16LE text run as embedded in composite records."""
+    if (
+        not isinstance(text, str)
+        or not text
+        or any(ord(c) > 0xFFFF or c in "\r\n" for c in text)
+    ):
+        raise ValueError("text must be a nonempty line of BMP characters")
+    run = bytearray(56)
+    run[2:4] = b"\x44\x20"
+    run[4] = text_width
+    run[5] = 0x10 | color
+    struct.pack_into("<2d", run, 8, *_clean(origin))
+    struct.pack_into("<3f", run, 24, height, height, height)
+    struct.pack_into(
+        "<3I", run, 36, 0, round((angle % 360.0) / 360.0 * (1 << 31)), flags
+    )
+    run[48:52] = b"\x20\0\0\x01"
+    struct.pack_into("<I", run, 52, len(text))
+    run += text.encode("utf-16-le")
+    run += b"\0" * (-len(run) % 8)
+    struct.pack_into(order + "H", run, 0, len(run))
+    return bytes(run)
+
+
+def _arrowhead(
+    order: str,
+    marker: int,
+    width: int,
+    color: int,
+    tip: Point2,
+    direction: Point2,
+    arrow_v: float,
+    half: float,
+) -> bytes:
+    """A ``vectors`` item of an arrowhead whose body runs from ``tip`` along
+    the unit ``direction``: a corner, the tip and the other corner."""
+    ix, iy = direction
+    rx, ry = -iy, ix
+    corner = (tip[0] + arrow_v * ix - half * rx, tip[1] + arrow_v * iy - half * ry)
+    return _item(
+        order,
+        marker,
+        width,
+        color,
+        _clean(
+            (
+                corner[0],
+                corner[1],
+                tip[0] - corner[0],
+                tip[1] - corner[1],
+                2 * half * rx,
+                2 * half * ry,
+            )
+        ),
+    )
+
+
+def _composite_header(
+    entity_id: int, style: EntityStyle, kind_byte: int, record_type: int, blocks: int
+) -> bytearray:
+    header = bytearray(32)
+    header[4] = style.layer
+    header[12] = 0x40 if style.visible else 0
+    header[14] = kind_byte
+    header[15] = record_type
+    struct.pack_into("<I", header, 16, entity_id)
+    struct.pack_into("<H", header, 24, 16 + blocks)
+    header[27] = 0xFD
+    header[28:32] = b"\0\0\0\x01"
+    return header
+
+
+def _encode_ellipse(
+    order: str,
+    primitive: Ellipse2D | EllipticalArc2D,
+    style: EntityStyle,
+    entity_id: int,
+) -> tuple[bytes, Extent]:
+    """The 88-byte ellipse (type 88) or elliptical arc (type 89) record."""
+    cx, cy = _finite(primitive.center, "ellipse center")
+    a, b, rotation = _finite(
+        (primitive.major_radius, primitive.minor_radius, primitive.rotation),
+        "ellipse values",
+    )
+    if a <= 0 or b <= 0:
+        raise ValueError("ellipse radii must be positive")
+    if isinstance(primitive, Ellipse2D):
+        start, sweep = 0.0, math.tau
+        kind, subtype = 88, 7
+    else:
+        start, sweep = _finite(
+            (primitive.start_angle, primitive.sweep_angle), "elliptical arc angles"
+        )
+        if not 0 < abs(sweep) <= math.tau + 1e-12:
+            raise ValueError("arc sweep must be nonzero and at most a full turn")
+        kind, subtype = 89, 8
+    record = bytearray(88)
+    struct.pack_into(order + "I", record, 0, 88)
+    record[4] = style.layer
+    record[12] = 0x40 if style.visible else 0
+    record[14] = 1
+    record[15] = kind
+    struct.pack_into(order + "I", record, 16, entity_id)
+    struct.pack_into(order + "H", record, 24, 64)
+    record[26] = 0x44
+    record[27] = subtype
+    record[28] = style.line_width
+    record[29] = (style.line_style << 4) | style.color_index
+    struct.pack_into(
+        order + "7d", record, 32, *_clean((cx, cy, a, b, rotation, start, sweep))
+    )
+    return bytes(record), _box(_ellipse_points(cx, cy, a, b, rotation, start, sweep))
+
+
+def _encode_curve(
+    order: str, curve: Curve2D, style: EntityStyle, entity_id: int
+) -> tuple[bytes, Extent]:
+    """The free curve record (type 16): knots, chord lengths, the knot box and
+    zeroed segment words."""
+    points: list[Point2] = []
+    for p in curve.points:
+        x, y = _finite(p, "curve point")
+        points.append((x, y))
+    n = len(points)
+    if n < 2 or n > 0xFFFF:
+        raise ValueError("a curve needs at least two points")
+    chords = [math.dist(points[i], points[i + 1]) for i in range(n - 1)]
+    if any(c <= 0 for c in chords):
+        raise ValueError("consecutive curve points must differ")
+    box = _box(points)
+    record = bytearray(136 + 72 * (n - 1))
+    struct.pack_into(order + "I", record, 0, len(record))
+    record[4] = style.layer
+    record[12] = 0x40 if style.visible else 0
+    record[14] = 1
+    record[15] = 16
+    struct.pack_into(order + "I", record, 16, entity_id)
+    struct.pack_into(order + "H", record, 24, len(record) - 24)
+    record[26] = 0x44
+    record[27] = 0x10
+    record[28] = style.line_width
+    record[29] = (style.line_style << 4) | style.color_index
+    struct.pack_into(order + "HHHH", record, 32, 1, 0, 0, n)
+    struct.pack_into(order + "4d", record, 40, *_clean(box))
+    struct.pack_into(order + "2d", record, 72, 0.0, sum(chords))
+    struct.pack_into(order + f"{n - 1}d", record, 120, *chords)
+    base = 120 + 8 * (n - 1)
+    x0, y0 = points[0]
+    struct.pack_into(order + "2d", record, base, *_clean((x0, y0)))
+    offsets = [v for p in points[1:] for v in (p[0] - x0, p[1] - y0)]
+    struct.pack_into(
+        order + f"{2 * (n - 1)}d", record, base + 16, *_clean(tuple(offsets))
+    )
+    return bytes(record), box
+
+
+def _encode_note(
+    order: str, note: LeaderNote2D, style: EntityStyle, entity_id: int, scale: float
+) -> tuple[bytes, Extent]:
+    """The leader note record (type 22): attributes, the text runs, the
+    arrowhead and the leader."""
+    if order != "<":
+        raise _unsupported(
+            "write.text_order",
+            None,
+            "Leader note records are qualified for little-endian documents",
+        )
+    lines = (note.lines,) if isinstance(note.lines, str) else tuple(note.lines)
+    if not lines:
+        raise ValueError("a leader note needs at least one line")
+    tx, ty = _finite(note.tip, "note tip")
+    ox, oy = _finite(note.elbow, "note elbow")
+    ex, ey = _finite(note.end, "note end")
+    height, arrow_width, arrow_angle = _finite(
+        (note.height, note.arrow_width, note.arrow_angle), "note metrics"
+    )
+    if height <= 0 or arrow_width <= 0 or not 0 < arrow_angle < 90:
+        raise ValueError("note metrics must be positive (arrow angle below 90)")
+    for name in ("line_width", "text_width"):
+        value = getattr(note, name)
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not 0 <= value <= 127
+        ):
+            raise ValueError(f"{name} must be an integer between 0 and 127")
+    reach = math.hypot(ox - tx, oy - ty)
+    if reach <= 0:
+        raise ValueError("the tip and the elbow must differ")
+    height_v, arrow_v = height / scale, arrow_width / scale
+    radians = math.radians(arrow_angle)
+    half = math.sin(radians) * arrow_v / math.cos(radians)
+    color = style.color_index
+    attributes = bytearray(_NOTE_ATTRIBUTES)
+    _patch_doubles(
+        attributes,
+        {0.1: scale, 3.8: height, 2.5: arrow_width, 0.2617993877991494: radians},
+    )
+    header = _composite_header(entity_id, style, 4, 22, len(attributes) - 8)
+    runs = b""
+    left = min(ox, ex)
+    for index, line in enumerate(lines):
+        origin = (left + 0.5 * height_v, oy + (0.3 + 1.5 * index) * height_v)
+        runs += _run(order, line, origin, height_v, note.text_width, color, flags=0xF1)
+    direction = ((ox - tx) / reach, (oy - ty) / reach)
+    items = _arrowhead(
+        order, 0x0344, note.line_width, color, (tx, ty), direction, arrow_v, half
+    )
+    items += _item(
+        order,
+        0x0344,
+        note.line_width,
+        color,
+        _clean((tx, ty, ox - tx, oy - ty, ex - tx, ey - ty)),
+    )
+    record = bytearray(header) + attributes + runs + items
+    struct.pack_into("<I", record, 0, len(record))
+    decoded = _note(bytes(record), order, 0)
+    if decoded is None or decoded.box is None or decoded.layout_status != "complete":
+        raise _unsupported(
+            "write.note", None, "The leader note record does not read back"
+        )
+    return bytes(record), decoded.box
+
+
+def _encode_angle_dimension(
+    order: str,
+    dim: AngleDimension2D,
+    style: EntityStyle,
+    entity_id: int,
+    scale: float,
+) -> tuple[bytes, Extent]:
+    """The observed angle dimension record: attributes, the value text and the
+    rendered items (arrowheads, three copies of the arc, points, aux lines)."""
+    if order != "<":
+        raise _unsupported(
+            "write.text_order",
+            None,
+            "Dimension records are qualified for little-endian documents",
+        )
+    vx, vy = _finite(dim.vertex, "dimension vertex")
+    l1x, l1y = _finite(dim.leg1, "dimension leg")
+    l2x, l2y = _finite(dim.leg2, "dimension leg")
+    radius, height, gap, arrow_width, arrow_angle, extension = _finite(
+        (
+            dim.radius,
+            dim.height,
+            dim.gap,
+            dim.arrow_width,
+            dim.arrow_angle,
+            dim.extension,
+        ),
+        "dimension metrics",
+    )
+    if radius <= 0 or height <= 0 or arrow_width <= 0 or not 0 < arrow_angle < 90:
+        raise ValueError("dimension metrics must be positive (arrow angle below 90)")
+    if gap < 0 or extension < 0:
+        raise ValueError("gap and extension must be nonnegative")
+    for name in ("line_width", "text_width"):
+        value = getattr(dim, name)
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not 0 <= value <= 127
+        ):
+            raise ValueError(f"{name} must be an integer between 0 and 127")
+    r1, r2 = math.hypot(l1x - vx, l1y - vy), math.hypot(l2x - vx, l2y - vy)
+    if r1 <= 0 or r2 <= 0:
+        raise ValueError("the legs must differ from the vertex")
+    a1 = math.atan2(l1y - vy, l1x - vx)
+    a2 = math.atan2(l2y - vy, l2x - vx)
+    sweep = (a2 - a1) % math.tau
+    if sweep <= 0:
+        raise ValueError("the legs must not coincide")
+    degrees = math.degrees(sweep)
+    text = dim.text
+    if text is None:
+        text = "".join(chr(ord(c) + 0xFEE0) for c in f"{degrees:.3f}") + "\u00b0"
+    if not isinstance(text, str) or not text or any(ord(c) > 0xFFFF for c in text):
+        raise ValueError("dimension text must be a nonempty line of BMP characters")
+    height_v, gap_v, arrow_v, extension_v = (
+        v / scale for v in (height, gap, arrow_width, extension)
+    )
+    radians = math.radians(arrow_angle)
+    half = math.sin(radians) * arrow_v / math.cos(radians)
+    color = style.color_index
+    attributes = bytearray(_ANGLE_DIM_ATTRIBUTES)
+    _patch_doubles(
+        attributes, {1.0: scale, 0.71: arrow_width, 0.2617993877991494: radians}
+    )
+    # The value: block 6 at +48 (the attributes start at record offset 32)
+    block6 = attributes.find(b"\xff\x06\x01\x50")
+    assert block6 >= 0
+    struct.pack_into("<d", attributes, block6 + 48, degrees)
+    header = _composite_header(entity_id, style, 14, 26, len(attributes) - 8)
+    start = (vx + radius * math.cos(a1), vy + radius * math.sin(a1))
+    end = (vx + radius * math.cos(a2), vy + radius * math.sin(a2))
+    mid_angle = a1 + sweep / 2
+    line_point = (vx + radius * math.cos(mid_angle), vy + radius * math.sin(mid_angle))
+    anchor = (
+        vx + (radius + gap_v) * math.cos(mid_angle),
+        vy + (radius + gap_v) * math.sin(mid_angle),
+    )
+    cells = sum(char_cells(c) for c in text)
+    width_v = cells * height_v
+    angle = _readable(math.degrees(mid_angle) - 90.0)
+    tx, ty = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+    origin = (anchor[0] - width_v / 2 * tx, anchor[1] - width_v / 2 * ty)
+    run = _run(order, text, origin, height_v, dim.text_width, color, angle)
+    items = _arrowhead(
+        order,
+        0x0344,
+        dim.line_width,
+        color,
+        start,
+        (-math.sin(a1), math.cos(a1)),
+        arrow_v,
+        half,
+    )
+    items += _arrowhead(
+        order,
+        0x0344,
+        dim.line_width,
+        color,
+        end,
+        (math.sin(a2), -math.cos(a2)),
+        arrow_v,
+        half,
+    )
+    for marker in (0x0500, 0x0544, 0x0500):
+        items += _item(
+            order, marker, dim.line_width, color, _clean((vx, vy, radius, a1, sweep))
+        )
+    items += _item(order, 0x0100, dim.line_width, color, _clean(line_point), point=True)
+    items += _item(order, 0x0100, dim.line_width, color, _clean(anchor), point=True)
+    for marker, leg, foot, a in (
+        (0x0344, (l1x, l1y), start, a1),
+        (0x0300, (l2x, l2y), end, a2),
+    ):
+        # from the leg point towards the arc, then beyond its foot by the extension
+        # (outward when the leg point is the vertex itself)
+        reach = math.dist(leg, foot)
+        if reach > 0:
+            ux, uy = (foot[0] - leg[0]) / reach, (foot[1] - leg[1]) / reach
+        else:
+            ux, uy = math.cos(a), math.sin(a)
+        items += _item(
+            order,
+            marker,
+            dim.line_width,
+            color,
+            _clean(
+                (
+                    leg[0],
+                    leg[1],
+                    foot[0] - leg[0],
+                    foot[1] - leg[1],
+                    foot[0] + extension_v * ux - leg[0],
+                    foot[1] + extension_v * uy - leg[1],
+                )
+            ),
+        )
+        items += _item(order, 0x0100, dim.line_width, color, _clean(leg), point=True)
+    items += _item(order, 0x0100, dim.line_width, color, _clean((vx, vy)), point=True)
+    record = bytearray(header) + attributes + run + items
+    struct.pack_into("<I", record, 0, len(record))
+    decoded = _dimension(bytes(record), order, 0)
+    if decoded is None or decoded.box is None or decoded.layout_status != "complete":
+        raise _unsupported(
+            "write.dimension", None, "The angle dimension record does not read back"
+        )
+    return bytes(record), decoded.box
 
 
 def _union(a: Extent | None, b: Extent | None) -> Extent | None:
@@ -500,8 +1052,10 @@ def _item(
     body = struct.pack(order + f"{len(values)}d", *values) + (
         b"\x01\0\x06\0\0\0\0\0" if point else b""
     )
+    # The size follows the file byte order; the two marker bytes do not swap.
     return (
-        struct.pack(order + "HH", 8 + len(body), marker)
+        struct.pack(order + "H", 8 + len(body))
+        + struct.pack("<H", marker)
         + bytes([width, 0x10 | color, 0, 0])
         + body
     )
@@ -1030,6 +1584,14 @@ def _encode(
     box: Extent
     if isinstance(primitive, Hatch2D):
         return _encode_hatch(order, primitive, style, entity_id)
+    if isinstance(primitive, (Ellipse2D, EllipticalArc2D)):
+        return _encode_ellipse(order, primitive, style, entity_id)
+    if isinstance(primitive, Curve2D):
+        return _encode_curve(order, primitive, style, entity_id)
+    if isinstance(primitive, LeaderNote2D):
+        return _encode_note(order, primitive, style, entity_id, scale)
+    if isinstance(primitive, AngleDimension2D):
+        return _encode_angle_dimension(order, primitive, style, entity_id, scale)
     if isinstance(primitive, DiameterDimension2D):
         return _encode_diameter_dimension(order, primitive, style, entity_id, scale)
     if isinstance(primitive, LengthDimension2D):
@@ -1073,7 +1635,8 @@ def _encode(
     else:
         raise TypeError(
             "entities must be Point2D, Line2D, Circle2D, Arc2D, Text2D, "
-            "LengthDimension2D, DiameterDimension2D or Hatch2D"
+            "LengthDimension2D, DiameterDimension2D, AngleDimension2D, Hatch2D, "
+            "Ellipse2D, EllipticalArc2D, Curve2D or LeaderNote2D"
         )
     record = bytearray(size)
     struct.pack_into(order + "I", record, 0, size)

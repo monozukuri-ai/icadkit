@@ -4,6 +4,23 @@
 
 ### Added
 
+- `read_drawing()` interprets five more saved 2D record types. Ellipses and
+  elliptical arcs (types 88 and 89) become `DrawingPrimitive` kinds
+  `ellipse` / `elliptical_arc` with the semi-axes, the axis rotation and
+  parametric start/sweep angles; free curves (type 16) become
+  `DrawingCurve` (knots, chord lengths, length, saved extent; the six
+  segment words are retained raw); leader notes (type 22) become
+  `DrawingNote` (text runs, arrowhead, leader path, arrow parameters);
+  symbols (type 212) become `DrawingSymbol` (drawn point markers, lines,
+  arcs, vectors, text runs and the nested member lists of groups as opaque
+  ranges). Angle dimensions (type 26) and the leader variant of diameter
+  and radius dimensions are interpreted (`center`, `radius`, `arc_start`,
+  `arc_sweep`, `measured`, `value` in degrees; `leader`), and text records
+  with the 88-byte attribute block of V8 labels read `complete`. Composite
+  records share one framing; sizes follow the file byte order, the marker
+  bytes do not. `DrawingWriter` gains `Ellipse2D`, `EllipticalArc2D`,
+  `Curve2D`, `LeaderNote2D` and `AngleDimension2D`. See
+  [drawing scope](drawing.md#drawing-scope).
 - `View.placement` and `ViewIndex.placements` decode the 264-byte control
   records of the 2D global view as `ViewPlacement`: the view origin on the
   sheet (millimetres of the 2D global view), the view scale, the saved record

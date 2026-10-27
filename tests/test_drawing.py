@@ -652,3 +652,382 @@ def test_hatch_records_need_the_item_at_the_declared_offset():
         .entities[0]
     )
     assert e.hatch is None and e.status == "unsupported"
+
+
+# --- ellipses, free curves, leader notes, angle dimensions, symbols (0.3.9) ---
+
+
+def _sheet_writer(order="little", version=b"\0\x08\0\x03"):
+    from drawing_fixtures import sheet
+
+    from icadkit import DrawingWriter
+
+    writer = DrawingWriter(
+        icadkit.read(sheet(order=order, version=version, extent=(0, 0, 297, 210)))
+    )
+    writer.add_view("XY", scale=0.5, origin=(80.0, 60.0))
+    writer.delete_view("!XY")
+    return writer
+
+
+def _entities(writer, types):
+    doc = icadkit.read(writer.to_bytes())
+    return [e for e in doc.read_drawing().entities if e.raw_type in types], doc
+
+
+@pytest.mark.parametrize(
+    "order,version", [("little", b"\0\x08\0\x03"), ("big", b"\0\x05\0\x01")]
+)
+def test_ellipse_records_round_trip(order, version):
+    from icadkit import Ellipse2D, EllipticalArc2D, EntityStyle
+
+    writer = _sheet_writer(order, version)
+    writer.add_entities(
+        "XY",
+        [
+            Ellipse2D((40.0, 30.0), 12.0, 6.0, math.radians(30)),
+            EllipticalArc2D((80.0, 30.0), 10.0, 4.0, 0.0, math.pi / 2, -math.pi),
+        ],
+        style=EntityStyle(layer=3, line_width=2, line_style=1, color_index=5),
+    )
+    (full, arc), doc = _entities(writer, (88, 89))
+    assert full.status == arc.status == "complete"
+    assert (full.layer, full.line_width, full.line_style, full.color_index) == (
+        3,
+        2,
+        1,
+        5,
+    )
+    p = full.primitive
+    assert p.kind == "ellipse" and p.center == (40.0, 30.0)
+    assert (p.radius, p.minor_radius) == (12.0, 6.0)
+    assert math.isclose(p.rotation, math.radians(30)) and p.start_angle == 0.0
+    assert math.isclose(p.sweep_angle, math.tau)
+    q = arc.primitive
+    assert q.kind == "elliptical_arc" and (q.radius, q.minor_radius) == (10.0, 4.0)
+    assert q.start_angle == math.pi / 2 and q.sweep_angle == -math.pi
+    # a degenerate axis makes the entity invalid, not a guessed circle
+    record = bytearray(doc.source_bytes(full.byte_range))
+    struct.pack_into(("<" if order == "little" else ">") + "d", record, 56, 0.0)
+    bad = (
+        icadkit.read(drawing([bytes(record)], order=order, version=version))
+        .read_drawing()
+        .entities[0]
+    )
+    assert bad.status == "invalid" and bad.primitive is None
+
+
+def test_free_curve_round_trip_and_consistency_checks():
+    from icadkit import Curve2D
+
+    knots = ((0.0, 0.0), (10.0, 4.0), (20.0, -3.0), (30.0, 0.0))
+    writer = _sheet_writer()
+    writer.add_entities("XY", [Curve2D(knots)])
+    (e,), doc = _entities(writer, (16,))
+    assert e.status == "complete" and e.curve is not None
+    c = e.curve
+    assert c.knots == knots and len(c.chord_lengths) == 3
+    assert math.isclose(c.length, sum(c.chord_lengths))
+    assert c.extent == (0.0, -3.0, 30.0, 4.0) and c.box == c.extent
+    assert c.segment_words == ((0.0,) * 6,) * 3  # retained, not interpreted
+    assert e.byte_range.length == 136 + 72 * 3
+    # a chord that disagrees with the knots keeps the curve partial
+    record = bytearray(doc.source_bytes(e.byte_range))
+    struct.pack_into("<d", record, 120, 99.0)
+    partial = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x03"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert partial.status == "partial"
+    assert [d.code for d in partial.curve.diagnostics] == [
+        "drawing.curve_layout",
+        "drawing.curve_layout",
+    ]
+    with pytest.raises(ValueError):
+        writer.add_entities("XY", [Curve2D(((0.0, 0.0), (0.0, 0.0)))])
+
+
+def test_leader_note_round_trip_and_hidden_items():
+    from icadkit import LeaderNote2D
+    from icadkit.write import _item
+
+    writer = _sheet_writer()
+    writer.add_entities(
+        "XY",
+        [LeaderNote2D(("注記 1", "２行目"), (50.0, 50.0), (70.0, 70.0), (100.0, 70.0))],
+    )
+    (e,), doc = _entities(writer, (22,))
+    assert e.status == "complete" and e.note is not None
+    n = e.note
+    assert [t.lines for t in n.texts] == [("注記 1",), ("２行目",)]
+    assert n.text is n.texts[0]
+    assert n.path == ((50.0, 50.0), (70.0, 70.0), (100.0, 70.0))
+    assert n.arrow[1] == (50.0, 50.0)  # the tip
+    assert math.isclose(
+        math.dist(n.arrow[0], n.arrow[1]), math.dist(n.arrow[2], n.arrow[1])
+    )
+    assert (n.arrow_width, round(n.arrow_angle, 6)) == (1.5, 15.0)
+    assert n.box[0] <= 50.0 and n.box[2] >= 100.0
+    # a hidden 40-byte vectors item (observed in saved notes) is retained, not drawn
+    record = bytearray(doc.source_bytes(e.byte_range))
+    record += _item("<", 0x0300, 3, 1, (70.0, 70.0, 10.0, -5.0))
+    struct.pack_into("<I", record, 0, len(record))
+    again = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x03"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert again.status == "complete" and len(again.note.items) == 3
+    assert again.note.items[2].points == ((70.0, 70.0), (80.0, 65.0))
+    assert again.note.path == n.path
+
+
+def test_angle_dimension_round_trip():
+    from icadkit import AngleDimension2D
+
+    writer = _sheet_writer()
+    writer.add_entities(
+        "XY", [AngleDimension2D((0.0, 60.0), (30.0, 60.0), (20.0, 85.0), 15.0)]
+    )
+    (e,), doc = _entities(writer, (26,))
+    assert e.status == "complete" and e.dimension is not None
+    d = e.dimension
+    assert d.kind == "angle" and d.layout_status == "complete"
+    assert d.center == (0.0, 60.0) and d.radius == 15.0 and d.arc_start == 0.0
+    expected = math.atan2(25.0, 20.0)
+    assert math.isclose(d.arc_sweep, expected) and math.isclose(
+        d.value, math.degrees(expected)
+    )
+    assert d.measured == ((30.0, 60.0), (20.0, 85.0))
+    assert d.text.lines == ("５１．３４０°",)
+    assert [i.kind for i in d.items] == list(
+        (
+            "vectors",
+            "vectors",
+            "arc",
+            "arc",
+            "arc",
+            "point",
+            "point",
+            "vectors",
+            "point",
+            "vectors",
+            "point",
+            "point",
+        )
+    )
+    assert [i.raw_marker for i in d.items[2:5]] == [0x0500, 0x0544, 0x0500]
+    # paper millimetres are divided by the view scale (1/2)
+    assert math.isclose(d.extension, 2.8 / 0.5) and d.aux_offset == 0.0
+    assert (d.arrow_width, round(d.arrow_angle, 6)) == (1.5, 15.0)
+    # swapping the aux line order (as saved files do) still reads complete
+    record = bytearray(doc.source_bytes(e.byte_range))
+    items = [i for i in d.items]
+    a, b = items[7].byte_range, items[9].byte_range
+    first = record[
+        a.start - e.byte_range.start : items[8].byte_range.end - e.byte_range.start
+    ]
+    second = record[
+        b.start - e.byte_range.start : items[10].byte_range.end - e.byte_range.start
+    ]
+    swapped = (
+        record[: a.start - e.byte_range.start]
+        + second
+        + first
+        + record[items[10].byte_range.end - e.byte_range.start :]
+    )
+    again = (
+        icadkit.read(drawing([bytes(swapped)], order="little", version=b"\0\x08\0\x03"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert again.status == "complete" and again.dimension.measured == (
+        (20.0, 85.0),
+        (30.0, 60.0),
+    )
+
+
+def test_leader_diameter_dimension_is_interpreted():
+    from icadkit import DiameterDimension2D
+    from icadkit.drawing import _composite
+    from icadkit.write import _arrowhead, _item
+
+    writer = _sheet_writer()
+    writer.add_entities("XY", [DiameterDimension2D((30.0, 40.0), 12.0, (52.0, 62.0))])
+    (e,), doc = _entities(writer, (27,))
+    assert e.dimension.layout_status == "complete" and e.dimension.leader is None
+    record = bytes(doc.source_bytes(e.byte_range))
+    parts = _composite(record, "<", 0, prefix="dimension")
+    run_at, _ = parts.runs[0]
+    run_end = run_at + int.from_bytes(record[run_at : run_at + 2], "little")
+    # keep the attributes, the two arcs, the pick point and the run; rebuild the
+    # tail as the observed leader variant
+    tip = (
+        30.0 + 12.0 * math.cos(math.radians(45)),
+        40.0 + 12.0 * math.sin(math.radians(45)),
+    )
+    elbow, end = (52.0, 62.0), (80.0, 62.0)
+    direction = (
+        (elbow[0] - tip[0]) / math.dist(tip, elbow),
+        (elbow[1] - tip[1]) / math.dist(tip, elbow),
+    )
+    tail = _arrowhead("<", 0x0344, 3, 1, tip, direction, 1.5, 0.4)
+    tail += _item(
+        "<",
+        0x0344,
+        3,
+        1,
+        (
+            tip[0],
+            tip[1],
+            elbow[0] - tip[0],
+            elbow[1] - tip[1],
+            end[0] - tip[0],
+            end[1] - tip[1],
+        ),
+    )
+    tail += _arrowhead("<", 0x0300, 3, 1, tip, direction, 1.5, 0.4)
+    tail += _arrowhead(
+        "<",
+        0x0300,
+        3,
+        1,
+        (
+            30.0 - 12.0 * math.cos(math.radians(45)),
+            40.0 - 12.0 * math.sin(math.radians(45)),
+        ),
+        (-direction[0], -direction[1]),
+        1.5,
+        0.4,
+    )
+    tail += _item("<", 0x0200, 3, 1, (elbow[0], elbow[1], 1.0, 0.0, 0.0))
+    tail += _item("<", 0x0100, 3, 1, elbow, point=True)
+    tail += _item("<", 0x0100, 3, 1, (0.0, 0.0), point=True)
+    rebuilt = bytearray(record[:run_end] + tail)
+    struct.pack_into("<I", rebuilt, 0, len(rebuilt))
+    again = (
+        icadkit.read(drawing([bytes(rebuilt)], order="little", version=b"\0\x08\0\x03"))
+        .read_drawing()
+        .entities[0]
+    )
+    d = again.dimension
+    assert again.status == "complete" and d.kind == "diameter"
+    assert d.leader == (tip, elbow, end) and d.line == (elbow, end)
+    assert d.line_point == elbow and d.pick_point == e.dimension.pick_point
+    assert d.center == (30.0, 40.0) and d.radius == 12.0
+
+
+def test_text_with_the_extended_attribute_block_reads_complete():
+    record = bytearray(text_entity(lines=("φ10",)))
+    block = record[40:88]
+    extended = bytearray(88)
+    extended[:12] = block[:12]
+    extended[3] = 88
+    extended[4:6] = (60).to_bytes(2, "little")
+    extended[7] = 0x0C
+    extended[-8:] = block[-8:]  # the scale factor keeps its place at the end
+    record[40:88] = extended
+    record[24] = 16 + 88
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x01"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.text.lines == ("φ10",)
+    assert e.text.base_point == 1 and e.text.direction == "horizontal"
+    assert e.text.anchor is not None and e.line_width is not None
+
+
+def _symbol_record(order, kind, *, run=None, nested=False, items=True):
+    from icadkit.write import _item, _run
+
+    prefix = "<" if order == "little" else ">"
+    header = bytearray(32)
+    header[4] = 1
+    header[12] = 0x40
+    header[14] = 1
+    header[15] = 212
+    struct.pack_into(prefix + "I", header, 16, 0x80000031)
+    struct.pack_into(prefix + "H", header, 24, 16)
+    header[27] = 0xFD
+    header[31] = kind
+    body = (
+        bytes.fromhex("0100000000000000")
+        if order == "little"
+        else bytes.fromhex("0001000000000000")
+    )
+    if items:
+        body += _item(prefix, 0x0144, 2, 1, (3.5, 4.75), point=True)
+    if run is not None:
+        body += _run(prefix, run, (10.0, 12.0), 4.0, 2, 1, flags=0xF1)
+    if nested:
+        member = b"\0\0\0\x80\x13\0\0\x80"
+        body += struct.pack(prefix + "H", 4 + len(member)) + b"\0\xfd" + member
+    record = header + body
+    struct.pack_into(prefix + "I", record, 0, len(record))
+    return bytes(record)
+
+
+def test_symbol_records_read_their_items_runs_and_groups():
+    e = (
+        icadkit.read(
+            drawing(
+                [_symbol_record("little", 1)], order="little", version=b"\0\x08\0\x02"
+            )
+        )
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.symbol.raw_kind == 1
+    assert [i.kind for i in e.symbol.items] == ["point"]
+    assert (
+        e.symbol.items[0].points == ((3.5, 4.75),)
+        and e.symbol.items[0].raw_marker == 0x0144
+    )
+    assert e.symbol.box == (3.5, 4.75, 3.5, 4.75) and e.line_width == 2
+    label = (
+        icadkit.read(
+            drawing(
+                [_symbol_record("little", 50, run="Ｍ１", items=False)],
+                order="little",
+                version=b"\0\x08\0\x02",
+            )
+        )
+        .read_drawing()
+        .entities[0]
+    )
+    assert label.status == "complete" and [t.lines for t in label.symbol.texts] == [
+        ("Ｍ１",)
+    ]
+    group = (
+        icadkit.read(
+            drawing(
+                [_symbol_record("little", 20, nested=True, items=False)],
+                order="little",
+                version=b"\0\x08\0\x02",
+            )
+        )
+        .read_drawing()
+        .entities[0]
+    )
+    assert group.status == "complete" and len(group.symbol.nested) == 1
+    assert group.symbol.nested[0].length == 12 and group.symbol.items == ()
+    # big-endian: the point item reads, the legacy run stays unqualified
+    legacy = (
+        icadkit.read(
+            drawing(
+                [_symbol_record("big", 50, run="x")],
+                order="big",
+                version=b"\0\x01\0\x09",
+            )
+        )
+        .read_drawing()
+        .entities[0]
+    )
+    assert legacy.status == "partial" and legacy.symbol.items[0].points == (
+        (3.5, 4.75),
+    )
+    assert [d.code for d in legacy.symbol.diagnostics] == ["drawing.symbol_text"]
+    assert legacy.symbol.texts == ()
