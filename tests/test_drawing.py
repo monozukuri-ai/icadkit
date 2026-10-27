@@ -591,20 +591,18 @@ def test_unobserved_dimension_layouts_keep_the_entity_partial(patch, codes):
         assert len(e.dimension.items) == 9 and e.dimension.text.lines == ("４０",)
 
 
-def test_dimension_records_are_only_read_for_qualified_versions():
+def test_dimension_records_read_in_every_version_whose_runs_decode():
+    # The layout is qualified by its framing, not by the version: a V7L5
+    # document with the same record reads it (its real runs are CP932, see
+    # test_legacy_dimension_and_text_records_decode_cp932_runs)
     record = bytes(_dimension_record())
-    e = (
-        icadkit.read(drawing([record], order="little", version=b"\0\x07\0\x05"))
-        .read_drawing()
-        .entities[0]
-    )
-    assert e.dimension is None and e.status == "unsupported"
-    e = (
-        icadkit.read(drawing([record], order="little", version=b"\0\x07\0\x07"))
-        .read_drawing()
-        .entities[0]
-    )
-    assert e.dimension is not None and e.status == "complete"
+    for version in (b"\0\x07\0\x05", b"\0\x07\0\x07"):
+        e = (
+            icadkit.read(drawing([record], order="little", version=version))
+            .read_drawing()
+            .entities[0]
+        )
+        assert e.dimension is not None and e.status == "complete"
 
 
 def _hatch_record():
@@ -1031,3 +1029,258 @@ def test_symbol_records_read_their_items_runs_and_groups():
     )
     assert [d.code for d in legacy.symbol.diagnostics] == ["drawing.symbol_text"]
     assert legacy.symbol.texts == ()
+
+
+# --- legacy (big-endian / CP932) composites, line information, attributes ----
+
+
+def _legacy_run(order, text, origin=(5.0, 6.0), height=3.0):
+    """A CP932 text run (flag byte 0x40) with numbers in the file byte order."""
+    prefix = "<" if order == "little" else ">"
+    run = bytearray(56)
+    run[2:4] = b"\x44\x20"
+    run[4], run[5] = 2, 0x11
+    struct.pack_into(prefix + "2d", run, 8, *origin)
+    struct.pack_into(prefix + "3f", run, 24, height, height, height)
+    run[48:52] = b"\x40\x00\x00\x01"
+    struct.pack_into(prefix + "I", run, 52, len(text))
+    run += text.encode("cp932")
+    run += b"\0" * (-len(run) % 8)
+    struct.pack_into(prefix + "H", run, 0, len(run))
+    return bytes(run)
+
+
+def _legacy_header(order, record_type, kind_byte, blocks, entity_id=0x80000301):
+    prefix = "<" if order == "little" else ">"
+    header = bytearray(32)
+    header[4] = 1
+    header[12] = 0x40
+    header[14] = kind_byte
+    header[15] = record_type
+    struct.pack_into(prefix + "I", header, 16, entity_id)
+    struct.pack_into(prefix + "H", header, 24, 16 + blocks)
+    header[27] = 0xFD
+    header[28:32] = b"\0\0\0\x01"
+    return header
+
+
+def _block(number, length, doubles):
+    body = bytearray(length)
+    body[0:4] = bytes([0xFF, number, 1, length])
+    for at, value, prefix in doubles:
+        struct.pack_into(prefix + "d", body, at, value)
+    return bytes(body)
+
+
+def _legacy_length_dimension(order):
+    """A length dimension between (0, 0) and (40, 0) with CP932 value text,
+    minimal attribute blocks and the observed item sequence."""
+    prefix = "<" if order == "little" else ">"
+    from icadkit.write import _item
+
+    blocks = (
+        _block(1, 56, [(24, 3.0, prefix), (32, 1.0, prefix)])
+        + _block(3, 48, [(32, 1.0, prefix), (40, 1.0, prefix)])
+        + _block(6, 80, [(48, 40.0, prefix)])
+        + _block(4, 48, [(24, 1.5, prefix), (40, math.radians(15), prefix)])
+    )
+    attributes = b"\0" * 8 + blocks
+    header = _legacy_header(order, 25, 11, len(blocks))
+    items = _legacy_run(order, "４０", origin=(18.0, -9.0))
+    half = math.tan(math.radians(15)) * 1.5
+    items += _item(prefix, 0x0344, 3, 1, (1.5, -10.0 - half, -1.5, half, 0.0, 2 * half))
+    items += _item(
+        prefix, 0x0344, 3, 1, (38.5, -10.0 + half, 1.5, -half, 0.0, -2 * half)
+    )
+    items += _item(prefix, 0x0244, 3, 1, (0.0, -10.0, 1.0, 0.0, 40.0))
+    items += _item(prefix, 0x0100, 3, 1, (20.0, -10.0), point=True)
+    items += _item(prefix, 0x0100, 3, 1, (20.0, -9.0), point=True)
+    items += _item(prefix, 0x0344, 3, 1, (0.0, 0.0, 0.0, -10.0, 0.0, -12.8))
+    items += _item(prefix, 0x0344, 3, 1, (40.0, 0.0, 0.0, -10.0, 0.0, -12.8))
+    items += _item(prefix, 0x0100, 3, 1, (0.0, 0.0), point=True)
+    items += _item(prefix, 0x0100, 3, 1, (40.0, 0.0), point=True)
+    record = bytearray(header) + attributes + items
+    struct.pack_into(prefix + "I", record, 0, len(record))
+    return bytes(record)
+
+
+def _legacy_text(order, text="品名"):
+    prefix = "<" if order == "little" else ">"
+    record = bytearray(88)
+    record[4] = 1
+    record[12] = 0x40
+    record[14] = 2
+    record[15] = 21
+    struct.pack_into(prefix + "I", record, 16, 0x80000302)
+    struct.pack_into(prefix + "H", record, 24, 64)
+    record[26:28] = b"\0\xfd"
+    record[28:32] = b"\0\0\0\x01"
+    struct.pack_into(prefix + "4H", record, 32, 0x3D, 8, 0, 0x28)
+    record[40:52] = bytes([0xFF, 9, 1, 0x30, 0x18, 0, 1, 8, 1, 7, 1, 1])
+    record[68:72] = b"\x80\0\0\0"
+    record[72:80] = bytes([2, 1, 0, 0, 0, 2, 0, 0])
+    struct.pack_into(prefix + "d", record, 80, 1.0)
+    record += _legacy_run(order, text, origin=(10.0, 20.0), height=4.0)
+    struct.pack_into(prefix + "I", record, 0, len(record))
+    return bytes(record)
+
+
+@pytest.mark.parametrize(
+    "order,version", [("big", b"\0\x01\0\x09"), ("little", b"\0\x07\0\x02")]
+)
+def test_legacy_dimension_and_text_records_decode_cp932_runs(order, version):
+    entities = (
+        icadkit.read(
+            drawing(
+                [_legacy_length_dimension(order), _legacy_text(order)],
+                order=order,
+                version=version,
+            )
+        )
+        .read_drawing()
+        .entities
+    )
+    dim, text = entities
+    assert dim.status == "complete" and dim.dimension is not None
+    d = dim.dimension
+    assert (
+        d.kind == "length"
+        and d.value == 40.0
+        and d.measured == ((0.0, 0.0), (40.0, 0.0))
+    )
+    assert d.text.lines == ("４０",) and d.text.encoding == "cp932"
+    assert d.line == ((0.0, -10.0), (40.0, -10.0)) and d.underline == (3.0, 1.0)
+    assert (d.arrow_width, round(d.arrow_angle, 6), d.gap, d.scale_factor) == (
+        1.5,
+        15.0,
+        1.0,
+        1.0,
+    )
+    assert text.status == "complete" and text.text is not None
+    assert text.text.lines == ("品名",) and text.text.encoding == "cp932"
+    assert text.text.base_point == 7 and text.text.direction == "horizontal"
+    assert text.text.height == 4.0 and text.text.anchor is not None
+    assert text.line_width == 2 and text.color_index == 1
+
+
+def test_arc_diameter_variant_is_interpreted():
+    from icadkit.write import _item
+
+    blocks = _block(6, 80, [(48, 12.0, "<")]) + _block(
+        4, 48, [(24, 1.5, "<"), (40, 0.2618, "<")]
+    )
+    header = _legacy_header("little", 27, 11, len(blocks))
+    center, r = (30.0, 40.0), 6.0
+    items = _item("<", 0x0500, 3, 1, (*center, r, 0.0, math.pi / 2))
+    items += _item("<", 0x0544, 3, 1, (*center, r, 5.3, 2.4))
+    items += _item("<", 0x0500, 3, 1, (*center, r, 4.1, 1.2))
+    items += _item("<", 0x0100, 3, 1, (50.0, 60.0), point=True)
+    items += _legacy_run("little", "φ１２", origin=(52.0, 61.0))
+    half = 0.4
+    items += _item("<", 0x0344, 3, 1, (34.0, 44.0, 0.24, 0.24, 0.6, -0.6))
+    items += _item("<", 0x0344, 3, 1, (26.0, 36.0, -0.24, -0.24, -0.6, 0.6))
+    items += _item("<", 0x0244, 3, 1, (26.0, 36.0, 0.7071, 0.7071, 11.3))
+    items += _item("<", 0x0100, 3, 1, (50.0, 60.0), point=True)
+    items += _item("<", 0x0100, 3, 1, (0.0, 0.0), point=True)
+    record = bytearray(header) + b"\0" * 8 + blocks + items
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x02"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.dimension.kind == "diameter"
+    assert e.dimension.center == center and e.dimension.radius == r
+    assert e.dimension.pick_point == (50.0, 60.0) and e.dimension.line_point == (
+        50.0,
+        60.0,
+    )
+    assert e.dimension.line[0] == (26.0, 36.0) and half == 0.4
+
+
+def test_point_with_attribute_record_reads_as_a_point():
+    point = bytearray(entity(1, order="little", values=(0.0, 30.0)))
+    struct.pack_into("<H", point, 24, 32)
+    nested = bytearray(72)
+    struct.pack_into("<H", nested, 0, 72)
+    nested[2:4] = b"\0\xfd"
+    nested[4:8] = b"\0\0\0\x01"
+    record = point + nested
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x01"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.primitive.kind == "point"
+    assert e.primitive.points == ((0.0, 30.0),) and e.byte_range.length == 128
+
+
+def _line_information_record(name, items):
+    header = bytearray(32)
+    header[4] = 1
+    header[12] = 0x40
+    header[14] = 7
+    header[15] = 224
+    struct.pack_into("<I", header, 16, 0x80000303)
+    header[24:32] = bytes.fromhex("080200fe00000001")
+    body = bytearray(name.encode("utf-16-le")) + b"\0" * (300 - 2 * len(name))
+    record = header + body + items
+    struct.pack_into("<I", record, 0, len(record))
+    return bytes(record)
+
+
+def test_line_information_records_read_their_items_and_name():
+    from icadkit.write import _item
+
+    items = _item("<", 0x0100, 2, 1, (385.0, 310.0), point=True)
+    items += _item("<", 0x0200, 2, 1, (386.0, 310.0, 0.0, 1.0, 1.0))
+    items += _item("<", 0x0244, 2, 1, (385.0, 310.0, 1.0, 0.0, 42.0))
+    items += _item("<", 0x0444, 2, 1, (385.0, 310.0, 0.5, 0.0, math.tau))
+    e = (
+        icadkit.read(
+            drawing(
+                [_line_information_record("Line", items)],
+                order="little",
+                version=b"\0\x08\0\x01",
+            )
+        )
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.symbol is not None and e.symbol.name == "Line"
+    kinds = [(i.kind, i.raw_marker) for i in e.symbol.items]
+    assert kinds == [
+        ("point", 0x0100),
+        ("line", 0x0200),
+        ("line", 0x0244),
+        ("arc", 0x0444),
+    ]
+    assert e.symbol.items[2].points == ((385.0, 310.0), (427.0, 310.0))
+    assert e.symbol.items[3].radius == 0.5 and e.line_width == 2
+    # without a framed item stream the record is an attribute record
+    bare = _line_information_record("Cable", b"")
+    e = (
+        icadkit.read(drawing([bare], order="little", version=b"\0\x08\0\x01"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "unsupported" and e.symbol is None
+    assert e.diagnostics[0].code == "drawing.attribute_record"
+
+
+def test_motion_records_are_attribute_records():
+    record = bytearray(216)
+    record[4] = 1
+    record[12] = 0x40
+    record[15] = 230
+    struct.pack_into("<I", record, 16, 0x80000304)
+    record[24:32] = bytes.fromhex("300000fd00000001")
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x01"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "unsupported" and e.raw_type == 230
+    assert [d.code for d in e.diagnostics] == ["drawing.attribute_record"]

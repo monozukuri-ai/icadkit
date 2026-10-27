@@ -262,8 +262,9 @@ class DrawingSymbol:
     text runs (``texts``) and, in some records, a nested size-framed member
     list that is retained as ``nested`` ranges without interpretation.
     ``raw_kind`` is the saved byte at ``+31`` (1 for point markers, 50 for
-    labels in the local corpus). Text runs of big-endian documents are
-    legacy CP932 runs and stay unqualified.
+    labels in the local corpus). Line-information records (type 224: the
+    P&ID and circuit lines, junction marks, symbol instances) read the same
+    way with their saved ``name``.
     """
 
     layout_status: Status
@@ -273,6 +274,7 @@ class DrawingSymbol:
     box: Extent | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     raw_kind: int | None = None
+    name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -370,23 +372,23 @@ def text_anchor(base_point: int, box: Extent) -> Point2:
 def _text(
     b: bytes, order: str, limits: DrawingLimits, at: int = 0
 ) -> DrawingText | None:
-    # Only counted UTF-16LE runs are qualified. Legacy CP932/glyph encodings
-    # retain their bytes without guessing from plausible strings.
-    if (
-        order != "<"
-        or len(b) < 88
-        or b[25:28] != b"\0\0\xfd"
-        or b[40:43] != b"\xff\x09\x01"
-    ):
+    # Counted runs only: UTF-16LE in little-endian V7L6 and later, legacy CP932
+    # in big-endian documents and little-endian V7L2-V7L5 (see _run_chars).
+    byteorder: Literal["little", "big"] = "little" if order == "<" else "big"
+    if len(b) < 88 or b[26:28] != b"\0\xfd" or b[40:43] != b"\xff\x09\x01":
         return None
     # The attribute block is 48 bytes; some V8 labels (line information,
     # P&ID) store an 88-byte block. The word at +24 is 16 + the block length
     # and the runs follow the block.
     block_length = b[43]
-    if block_length not in (48, 88) or b[24] != 16 + block_length:
+    if block_length not in (48, 88):
+        return None
+    if int.from_bytes(b[24:26], byteorder) != 16 + block_length:
         return None
     lines: list[str] = []
     runs: list[bytes] = []
+    ends: list[int] = []
+    encoding = "utf-16-le"
     total = 0
     position = 40 + block_length
     if len(b) < position:
@@ -394,19 +396,15 @@ def _text(
     while position < len(b):
         if len(b) - position < 56:
             return None
-        size = int.from_bytes(b[position : position + 2], "little")
+        size = int.from_bytes(b[position : position + 2], byteorder)
         if size < 60 or size % 4 or size > len(b) - position:
             return None
         run = b[position : position + size]
-        if run[2:4] != b"\x44\x20" or run[48:52] not in (
-            b"\x20\x20\0\x01",
-            b"\x20\0\0\x01",
-        ):
+        decoded = _run_chars(run, byteorder)
+        if decoded is None:
             return None
-        n = int.from_bytes(run[52:56], "little") * 2
-        if n > size - 56:
-            return None
-        total += n
+        text, encoding, end = decoded
+        total += end - 56
         if total > limits.max_text_bytes:
             raise LimitExceededError(
                 Diagnostic(
@@ -416,19 +414,35 @@ def _text(
                     "Text exceeds max_text_bytes",
                 )
             )
-        try:
-            lines.append(run[56 : 56 + n].decode("utf-16-le", errors="strict"))
-        except UnicodeDecodeError:
-            return None
+        lines.append(text)
         runs.append(run)
+        ends.append(end)
         position += size
     if not lines:
         return None
-    return _text_layout(b, tuple(lines), runs, at)
+    return _text_layout(b, tuple(lines), runs, ends, at, order, encoding)
+
+
+def _text_constants(order: str) -> bytes:
+    """The fixed words +24..+46 of a text record in the file byte order: the
+    16-bit words at +24 and +32..+40 swap, the bytes from +40 do not."""
+    if order == "<":
+        return _TEXT_CONSTANTS
+    c = _TEXT_CONSTANTS
+    swapped = bytearray(c)
+    for at in (0, 8, 10, 12, 14):
+        swapped[at], swapped[at + 1] = c[at + 1], c[at]
+    return bytes(swapped)
 
 
 def _text_layout(
-    b: bytes, lines: tuple[str, ...], runs: list[bytes], at: int
+    b: bytes,
+    lines: tuple[str, ...],
+    runs: list[bytes],
+    ends: list[int],
+    at: int,
+    order: str = "<",
+    encoding: str = "utf-16-le",
 ) -> DrawingText:
     issues: list[Diagnostic] = []
 
@@ -440,7 +454,7 @@ def _text_layout(
     block_end = 40 + b[43]
     if block_end == 88:
         if (
-            b[24:46] != _TEXT_CONSTANTS
+            b[24:46] != _text_constants(order)
             or b[47] != 8
             or any(b[52:68])
             or b[68:72] != b"\x80\0\0\0"
@@ -467,7 +481,7 @@ def _text_layout(
     direction = _TEXT_DIRECTIONS.get(b[50])
     if direction is None:
         issue("drawing.text_direction", 50, "Unobserved text direction")
-    scale_factor: float | None = struct.unpack_from("<d", b, block_end - 8)[0]
+    scale_factor: float | None = struct.unpack_from(order + "d", b, block_end - 8)[0]
     if scale_factor is None or not math.isfinite(scale_factor) or scale_factor <= 0:
         scale_factor = None
         issue("drawing.text_fields", 80, "Text scale factor is not a positive number")
@@ -477,8 +491,8 @@ def _text_layout(
     glyph_cache = False
     position = block_end
     for index, run in enumerate(runs):
-        x, y = struct.unpack_from("<2d", run, 8)
-        height, width, pitch = struct.unpack_from("<3f", run, 24)
+        x, y = struct.unpack_from(order + "2d", run, 8)
+        height, width, pitch = struct.unpack_from(order + "3f", run, 24)
         if (
             not all(math.isfinite(v) for v in (x, y, height, width, pitch))
             or min(height, width, pitch) <= 0
@@ -492,7 +506,7 @@ def _text_layout(
         metrics.append((height, width, pitch))
         if index and (run[4:8] != runs[0][4:8]):
             issue("drawing.text_fields", position + 4, "Runs differ in appearance")
-        w36, w40, w44 = struct.unpack_from("<IiI", run, 36)
+        w36, w40, w44 = struct.unpack_from(order + "IiI", run, 36)
         if direction is not None and (w36, w40) == _TEXT_ANGLES[direction] and w44 == 0:
             run_rotation = 0.0
         elif direction == "horizontal" and w36 == 0 and w44 == 0:
@@ -504,17 +518,23 @@ def _text_layout(
             rotation = run_rotation
         elif run_rotation != rotation:
             issue("drawing.text_fields", position + 36, "Runs differ in rotation")
-        n = int.from_bytes(run[52:56], "little")
-        cache_at = 56 + 2 * n
+        n = int.from_bytes(run[52:56], "little" if order == "<" else "big")
+        cache_at = ends[index]
         cache_at += -cache_at % 4
         tail = run[cache_at:]
-        if any(tail):
+        if encoding == "cp932":
+            # The stroke-glyph cache of legacy runs is not framed by a size word
+            # per character; it is retained without interpretation.
+            glyph_cache = glyph_cache or any(tail)
+        elif any(tail):
             end = cache_at
             for _ in range(n):
                 if len(run) - end < 2:
                     end = -1
                     break
-                block = int.from_bytes(run[end : end + 2], "little")
+                block = int.from_bytes(
+                    run[end : end + 2], "little" if order == "<" else "big"
+                )
                 end += 2 + block
                 if end > len(run):
                     end = -1
@@ -546,7 +566,7 @@ def _text_layout(
     height, width, pitch = metrics[0] if metrics else (None, None, None)
     return DrawingText(
         lines,
-        "utf-16-le",
+        encoding,
         "partial" if issues else "complete",
         base_point,
         direction,
@@ -572,6 +592,9 @@ _COMPOSITE_VERSIONS = (
     b"\0\x08\0\x02",
     b"\0\x08\0\x03",
 )
+# Records that carry attributes rather than drawing geometry: line information
+# (224) whose item stream could not be framed, motion verification (230-234).
+_ATTRIBUTE_TYPES = frozenset({224, 230, 231, 232, 233, 234})
 _DIMENSION_KINDS: dict[int, Literal["length", "angle", "diameter"]] = {
     25: "length",
     26: "angle",
@@ -584,6 +607,8 @@ _ITEM_KINDS: dict[int, Literal["vectors", "line", "point", "arc"]] = {
     0x0200: "line",
     0x0100: "point",
     0x0144: "point",
+    0x0400: "arc",
+    0x0444: "arc",
     0x0500: "arc",
     0x0544: "arc",
 }
@@ -601,6 +626,17 @@ _ANGLE_PATTERN = (
     "vectors",
     "point",
     "vectors",
+    "point",
+    "point",
+)
+_DIAMETER_PATTERN_ARC = (
+    "arc",
+    "arc",
+    "arc",
+    "point",
+    "vectors",
+    "vectors",
+    "line",
     "point",
     "point",
 )
@@ -640,31 +676,57 @@ _LENGTH_PATTERN = (
 )
 
 
-def _run_text(run: bytes, at: int, *, lenient: bool = False) -> DrawingText | None:
-    """A single saved text run (as embedded in dimensions) as DrawingText.
-
-    ``lenient`` accepts the flag word at ``+44`` that leader notes and
-    symbols carry (dimension runs keep it zero)."""
-    if (
-        len(run) < 60
-        or run[2:4] != b"\x44\x20"
-        or run[48:52]
-        not in (
-            b"\x20\x20\0\x01",
-            b"\x20\0\0\x01",
-        )
-    ):
+def _run_chars(
+    run: bytes, byteorder: Literal["little", "big"]
+) -> tuple[str, str, int] | None:
+    """The text of a saved run: UTF-16LE (flag byte 0x20 at +48) or the legacy
+    CP932 run (flag byte 0x40, one or two bytes per character) of big-endian
+    documents and little-endian V7L2-V7L5. Returns the text, its encoding and
+    the offset after the last character."""
+    if len(run) < 60 or run[2:4] != b"\x44\x20" or run[51] != 1:
         return None
-    n = int.from_bytes(run[52:56], "little")
+    n = int.from_bytes(run[52:56], byteorder)
+    if run[48] == 0x40:
+        position = 56
+        chars: list[str] = []
+        for _ in range(n):
+            if position >= len(run):
+                return None
+            lead = run[position]
+            width = 2 if 0x81 <= lead <= 0x9F or 0xE0 <= lead <= 0xFC else 1
+            try:
+                chars.append(run[position : position + width].decode("cp932"))
+            except UnicodeDecodeError:
+                return None
+            position += width
+        return "".join(chars), "cp932", position
+    if run[48:52] not in (b"\x20\x20\0\x01", b"\x20\0\0\x01"):
+        return None
     if 56 + 2 * n > len(run):
         return None
     try:
         text = run[56 : 56 + 2 * n].decode("utf-16-le")
     except UnicodeDecodeError:
         return None
-    x, y = struct.unpack_from("<2d", run, 8)
-    height, width, pitch = struct.unpack_from("<3f", run, 24)
-    w36, w40, w44 = struct.unpack_from("<IiI", run, 36)
+    return text, "utf-16-le", 56 + 2 * n
+
+
+def _run_text(
+    run: bytes, at: int, order: str = "<", *, lenient: bool = False
+) -> DrawingText | None:
+    """A single saved text run (as embedded in dimensions) as DrawingText.
+
+    Numbers follow the file byte order; the text is UTF-16LE or legacy
+    CP932 (see ``_run_chars``). ``lenient`` accepts the flag word at ``+44``
+    that leader notes and symbols carry (dimension runs keep it zero)."""
+    byteorder: Literal["little", "big"] = "little" if order == "<" else "big"
+    decoded = _run_chars(run, byteorder)
+    if decoded is None:
+        return None
+    text, encoding, end = decoded
+    x, y = struct.unpack_from(order + "2d", run, 8)
+    height, width, pitch = struct.unpack_from(order + "3f", run, 24)
+    w36, w40, w44 = struct.unpack_from(order + "IiI", run, 36)
     issues: list[Diagnostic] = []
     if (
         not all(math.isfinite(v) for v in (x, y, height, width, pitch))
@@ -689,7 +751,7 @@ def _run_text(run: bytes, at: int, *, lenient: bool = False) -> DrawingText | No
     )
     return DrawingText(
         (text,),
-        "utf-16-le",
+        encoding,
         "partial" if issues else "complete",
         None,
         "horizontal",
@@ -702,7 +764,7 @@ def _run_text(run: bytes, at: int, *, lenient: bool = False) -> DrawingText | No
         ((x, y),),
         None,
         box,
-        any(run[56 + 2 * n + (-(56 + 2 * n) % 4) :]),
+        any(run[end + (-end % 4) :]),
         tuple(issues),
     )
 
@@ -717,42 +779,37 @@ class _Composite:
     runs: tuple[tuple[int, DrawingText], ...]
     nested: tuple[ByteRange, ...]
     issues: tuple[Diagnostic, ...]
+    end: int = 0
 
 
-def _composite(
+def _items(
     b: bytes,
     order: str,
     at: int,
+    position: int,
     *,
     prefix: str,
     lenient: bool = False,
     nested: bool = False,
     single_run_code: str | None = None,
-    kind_word: bool = True,
-    legacy_text: bool = False,
-) -> _Composite | None:
-    """Frame a composite record (dimension, leader note, symbol): the 0xFF
-    attribute blocks, then size-framed text runs and geometry items in saved
-    order. Sizes follow the file byte order; the two marker bytes do not
-    swap. Returns None when the framing itself is not qualified."""
-    if len(b) < 48 or b[27] != 0xFD:
-        return None
-    if b[28:32] != b"\0\0\0\x01" and (kind_word or b[28:31] != b"\0\0\0"):
-        return None
+    strict_runs: bool = True,
+) -> tuple[
+    list[DimensionItem],
+    list[tuple[int, DrawingText]],
+    list[ByteRange],
+    list[Diagnostic],
+    int,
+]:
+    """The size-framed text runs, geometry items and nested records from
+    ``position`` to the end of the record. Sizes follow the file byte order;
+    the two marker bytes do not swap. A run that does not decode ends the
+    record (``strict_runs``) or is skipped with a diagnostic."""
     byteorder: Literal["little", "big"] = "little" if order == "<" else "big"
     issues: list[Diagnostic] = []
 
     def issue(code: str, offset: int, message: str) -> None:
         issues.append(Diagnostic("unsupported", code, at + offset, message))
 
-    blocks: dict[int, tuple[int, bytes]] = {}
-    position = 40
-    while position + 4 <= len(b) and b[position] == 0xFF:
-        length = b[position + 3]
-        if length < 4 or position + length > len(b):
-            return None
-        blocks.setdefault(b[position + 1], (position, b[position : position + length]))
-        position += length
     items: list[DimensionItem] = []
     runs: list[tuple[int, DrawingText]] = []
     nested_ranges: list[ByteRange] = []
@@ -764,22 +821,20 @@ def _composite(
         marker = int.from_bytes(b[position + 2 : position + 4], "little")
         if marker == 0x2044:
             if size < 60 or size % 4 or position + size > len(b):
-                return None
-            if order != "<" or legacy_text:
-                # Legacy CP932 runs (big-endian documents, little-endian V7L2-V7L5)
-                # are retained, not decoded.
-                issue(
-                    f"drawing.{prefix}_text",
-                    position,
-                    "Legacy text run is not qualified",
-                )
-                position += size
-                continue
+                issue(f"drawing.{prefix}_text", position, "Unframed text run")
+                break
             run = _run_text(
-                b[position : position + size], at + position, lenient=lenient
+                b[position : position + size], at + position, order, lenient=lenient
             )
             if run is None:
-                return None
+                if strict_runs:
+                    issue(
+                        f"drawing.{prefix}_text", position, "Text run is not qualified"
+                    )
+                    break
+                issue(f"drawing.{prefix}_text", position, "Text run is not qualified")
+                position += size
+                continue
             if runs and single_run_code:
                 issue(single_run_code, position, "Additional value text run")
             runs.append((position, run))
@@ -848,8 +903,52 @@ def _composite(
             )
         )
         position += size
+    return items, runs, nested_ranges, issues, position
+
+
+def _composite(
+    b: bytes,
+    order: str,
+    at: int,
+    *,
+    prefix: str,
+    lenient: bool = False,
+    nested: bool = False,
+    single_run_code: str | None = None,
+    kind_word: bool = True,
+    strict_runs: bool = True,
+) -> _Composite | None:
+    """Frame a composite record (dimension, leader note, symbol): the 0xFF
+    attribute blocks, then size-framed text runs and geometry items in saved
+    order (see ``_items``). Returns None when the framing itself is not
+    qualified."""
+    if len(b) < 48 or b[27] != 0xFD:
+        return None
+    if b[28:32] != b"\0\0\0\x01" and (kind_word or b[28:31] != b"\0\0\0"):
+        return None
+    blocks: dict[int, tuple[int, bytes]] = {}
+    position = 40
+    while position + 4 <= len(b) and b[position] == 0xFF:
+        length = b[position + 3]
+        if length < 4 or position + length > len(b):
+            return None
+        blocks.setdefault(b[position + 1], (position, b[position : position + length]))
+        position += length
+    items, runs, nested_ranges, issues, end = _items(
+        b,
+        order,
+        at,
+        position,
+        prefix=prefix,
+        lenient=lenient,
+        nested=nested,
+        single_run_code=single_run_code,
+        strict_runs=strict_runs,
+    )
+    if strict_runs and any(d.code == f"drawing.{prefix}_text" for d in issues):
+        return None
     return _Composite(
-        blocks, tuple(items), tuple(runs), tuple(nested_ranges), tuple(issues)
+        blocks, tuple(items), tuple(runs), tuple(nested_ranges), tuple(issues), end
     )
 
 
@@ -894,8 +993,6 @@ def _symmetric_legs(p: Point2, q: Point2, r: Point2) -> bool:
 
 
 def _note(b: bytes, order: str, at: int) -> DrawingNote | None:
-    if order != "<":
-        return None
     composite = _composite(b, order, at, prefix="note", lenient=True)
     if composite is None:
         return None
@@ -949,9 +1046,7 @@ def _note(b: bytes, order: str, at: int) -> DrawingNote | None:
     )
 
 
-def _symbol(
-    b: bytes, order: str, at: int, *, legacy_text: bool = False
-) -> DrawingSymbol | None:
+def _symbol(b: bytes, order: str, at: int) -> DrawingSymbol | None:
     composite = _composite(
         b,
         order,
@@ -960,10 +1055,21 @@ def _symbol(
         lenient=True,
         nested=True,
         kind_word=False,
-        legacy_text=legacy_text,
+        strict_runs=False,
     )
     if composite is None:
         return None
+    return _symbol_from(composite, b, order, at, b[31], None)
+
+
+def _symbol_from(
+    composite: _Composite,
+    b: bytes,
+    order: str,
+    at: int,
+    raw_kind: int,
+    name: str | None,
+) -> DrawingSymbol:
     issues = list(composite.issues)
     texts = tuple(run for _, run in composite.runs)
     for position, run in composite.runs:
@@ -990,8 +1096,47 @@ def _symbol(
         composite.nested,
         box,
         tuple(issues),
-        b[31],
+        raw_kind,
+        name,
     )
+
+
+def _record_name(raw: bytes) -> str | None:
+    """The saved name of a line-information record: UTF-16LE or ASCII padded
+    with spaces, read from +32."""
+    if len(raw) >= 2 and raw[1] == 0 and raw[0] != 0:
+        try:
+            text = raw.decode("utf-16-le", errors="strict")
+        except UnicodeDecodeError:
+            return None
+        return text.split("\0", 1)[0] or None
+    if raw and all(0x20 <= c < 0x7F for c in raw.rstrip(b"\0")):
+        return raw.rstrip(b"\0").decode("ascii").strip() or None
+    return None
+
+
+def _line_information(b: bytes, order: str, at: int) -> DrawingSymbol | None:
+    """A line-information record (type 224: P&ID and circuit lines, junction
+    and connection marks, symbol instances). After the saved name and
+    attribute words, the record stores the same size-framed items as symbols;
+    the item stream starts where a chain of items reaches the end of the
+    record without an unobserved item."""
+    if len(b) < 96 or b[27] != 0xFE:
+        return None
+    name = _record_name(b[32:96])
+    for start in range(96, len(b) - 8, 4):
+        items, runs, nested_ranges, issues, end = _items(
+            b, order, at, start, prefix="symbol", lenient=True, strict_runs=False
+        )
+        if not items and not runs:
+            continue
+        if end != len(b) or any(d.code == "drawing.symbol_item" for d in issues):
+            continue
+        composite = _Composite(
+            {}, tuple(items), tuple(runs), tuple(nested_ranges), tuple(issues), end
+        )
+        return _symbol_from(composite, b, order, at, b[31], name)
+    return None
 
 
 def _curve(b: bytes, order: str, at: int) -> DrawingCurve | None:
@@ -1068,8 +1213,6 @@ def _curve(b: bytes, order: str, at: int) -> DrawingCurve | None:
 
 
 def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
-    if order != "<":
-        return None
     composite = _composite(
         b, order, at, prefix="dimension", single_run_code="drawing.dimension_runs"
     )
@@ -1089,17 +1232,17 @@ def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
     value = scale = gap = arrow_width = arrow_angle = None
     underline: tuple[float, float] | None = None
     if 6 in blocks and len(blocks[6][1]) >= 56:
-        value = struct.unpack_from("<d", blocks[6][1], 48)[0]
+        value = struct.unpack_from(order + "d", blocks[6][1], 48)[0]
     if 3 in blocks and len(blocks[3][1]) >= 48:
-        gap, scale = struct.unpack_from("<2d", blocks[3][1], 32)
+        gap, scale = struct.unpack_from(order + "2d", blocks[3][1], 32)
     if 4 in blocks and len(blocks[4][1]) >= 48:
-        arrow_width, _, angle = struct.unpack_from("<3d", blocks[4][1], 24)
+        arrow_width, _, angle = struct.unpack_from(order + "3d", blocks[4][1], 24)
         arrow_angle = math.degrees(angle)
     if 1 in blocks and len(blocks[1][1]) >= 40:
-        first, second = struct.unpack_from("<2d", blocks[1][1], 24)
+        first, second = struct.unpack_from(order + "2d", blocks[1][1], 24)
         underline = (first, second)
     elif 16 in blocks and len(blocks[16][1]) >= 32:
-        first, second = struct.unpack_from("<2d", blocks[16][1], 16)
+        first, second = struct.unpack_from(order + "2d", blocks[16][1], 16)
         underline = (first, second)
     for name, number in (("value", value), ("gap", gap), ("scale", scale)):
         if number is not None and not math.isfinite(number):
@@ -1161,6 +1304,12 @@ def _dimension(b: bytes, order: str, at: int) -> DrawingDimension | None:
             leader = items[4].points
             line = (leader[1], leader[2])
             line_point = items[8].points[0]
+        elif pattern == _DIAMETER_PATTERN_ARC:
+            # A dimension on an arc: a quarter arc, the drawn extension arc and
+            # the measured arc precede the pick point
+            pick = items[3].points[0]
+            line = (items[6].points[0], items[6].points[1])
+            line_point = items[7].points[0]
         elif pattern != _DIAMETER_PATTERN:
             issue(
                 "drawing.dimension_layout",
@@ -1386,13 +1535,7 @@ def _entity(
         and (b[5:8] == b"\0" * 3 or (t == 92 and b[5:8] == b"\x01\0\0"))
     ):
         layer, visible = b[4], bool(b[12] & 0x40)
-        if t == 21 and document.header.raw_version in (
-            b"\0\x07\0\x06",
-            b"\0\x07\0\x07",
-            b"\0\x08\0\x01",
-            b"\0\x08\0\x02",
-            b"\0\x08\0\x03",
-        ):
+        if t == 21:
             text = _text(b, order, limits, at)
             if text:
                 run_at = 40 + b[43]  # the first run follows the attribute block
@@ -1428,13 +1571,7 @@ def _entity(
                         "drawing.hatch_layout",
                         "Hatch layout is partially qualified; see its diagnostics",
                     )
-        if t in _DIMENSION_KINDS and document.header.raw_version in (
-            b"\0\x07\0\x06",
-            b"\0\x07\0\x07",
-            b"\0\x08\0\x01",
-            b"\0\x08\0\x02",
-            b"\0\x08\0\x03",
-        ):
+        if t in _DIMENSION_KINDS:
             dimension = _dimension(b, order, at)
             if dimension is not None:
                 first = dimension.items[0] if dimension.items else None
@@ -1465,7 +1602,7 @@ def _entity(
                         "drawing.curve_layout",
                         "Free curve layout is partially qualified; see its diagnostics",
                     )
-        if t == 22 and document.header.raw_version in _COMPOSITE_VERSIONS:
+        if t == 22:
             note = _note(b, order, at)
             if note is not None:
                 first_item = note.items[0] if note.items else None
@@ -1483,15 +1620,9 @@ def _entity(
                         "drawing.note_layout",
                         "Leader note layout is partially qualified; see diagnostics",
                     )
-        if t == 212:
-            symbol = _symbol(
-                b,
-                order,
-                at,
-                legacy_text=(
-                    order == ">"
-                    or document.header.raw_version not in _COMPOSITE_VERSIONS
-                ),
+        if t in (212, 224):
+            symbol = (
+                _symbol(b, order, at) if t == 212 else _line_information(b, order, at)
             )
             if symbol is not None:
                 first_item = symbol.items[0] if symbol.items else None
@@ -1509,6 +1640,22 @@ def _entity(
                         "drawing.symbol_layout",
                         "Symbol layout is partially qualified; see its diagnostics",
                     )
+        if t in _ATTRIBUTE_TYPES and symbol is None:
+            code, message = (
+                "drawing.attribute_record",
+                "Attribute record (line information, motion verification) without "
+                "drawing geometry",
+            )
+        body = len(b)
+        if (
+            t == 1
+            and len(b) > 56
+            and len(b) - 56 == int.from_bytes(b[56:58], document.header.byte_order)
+            and b[58:60] == b"\0\xfd"
+        ):
+            # A point with an attribute record appended (connection points of
+            # P&ID symbols); the point reads as usual, the attributes are retained
+            body = 56
         expected = {
             1: (56, 1),
             2: (72, 2),
@@ -1519,8 +1666,8 @@ def _entity(
         }.get(t or -1)
         if (
             expected
-            and (len(b), b[27]) == expected
-            and int.from_bytes(b[24:26], document.header.byte_order) == len(b) - 24
+            and (body, b[27]) == expected
+            and int.from_bytes(b[24:26], document.header.byte_order) == body - 24
             and b[26] in (0, 0x44)
             and b[30:32] == b"\0\0"
         ):

@@ -137,8 +137,11 @@ Layer values outside the observed one-byte layout remain unqualified.
 | Ellipse and elliptical arc (types 88, 89) | Center, the semi-axes (`radius` along the ellipse's x axis, `minor_radius`), the `rotation` of that axis and the parametric start angle and signed sweep, in both byte orders | A point is `center + R(rotation) * (a cos t, b sin t)`, the DXF convention; the 448-byte records of V5 and earlier are not interpreted |
 | Free curve (type 16) | `DrawingCurve`: the knots (start point and cumulative offsets), their chord lengths, the total length and the saved extent, in both byte orders | The six doubles saved per segment are retained as `segment_words` without a meaning; a caller draws through the knots |
 | Leader note (type 22) | `DrawingNote`: the text runs (one per line), the arrowhead (a corner, the tip, the other corner), the drawn leader (tip, elbow, end) and the arrow parameters | Hidden alternative items are retained in `items`; little-endian V7L6 and later only |
-| Symbol (type 212) | `DrawingSymbol`: drawn point markers, lines, arcs and vectors, the text runs and the nested member list of a group as opaque ranges; `raw_kind` is the saved byte at `+31` (1 point markers, 50 labels) | Big-endian and V7L2–V7L5 text runs are legacy CP932 and stay unqualified (`drawing.symbol_text`) |
-| Text | Counted UTF-16LE runs in little-endian V7L6/V7L7/V8L1/V8L2/V8L3, including multiline and private-use characters, with the saved layout below | Rotated text keeps its angle without an anchor or box; fonts, glyph strokes and tilt are not interpreted |
+| Symbol (type 212) | `DrawingSymbol`: drawn point markers, lines, arcs and vectors, the text runs (UTF-16LE or CP932) and the nested member list of a group as opaque ranges; `raw_kind` is the saved byte at `+31` (1 point markers, 50 labels) | A run that does not decode is skipped with `drawing.symbol_text` |
+| Line information (type 224) | `DrawingSymbol` with the saved `name` (`Line`, `Junction`, `Connection Mark`, symbol names of P&ID and circuit drawings): the drawn lines, circles (marker `0x0444`) and text runs of the framed item stream | Records without a framed item stream (cable names, tables) are attribute records (`drawing.attribute_record`) |
+| Point with attributes (type 1, 128 bytes) | The point; the appended attribute record is retained | Connection points of P&ID symbols |
+| Motion verification (types 230–234) | Raw type, source range and `drawing.attribute_record` | Not drawing geometry |
+| Text | Counted runs with the saved layout below: UTF-16LE in little-endian V7L6 and later, legacy CP932 runs (flag byte `0x40`, one or two bytes per character) in big-endian documents and little-endian V7L2–V7L5, including multiline and private-use characters | Rotated text keeps its angle without an anchor or box; fonts, glyph strokes and tilt are not interpreted |
 | Length dimension | The saved layout: measured points, dimension line, line point, value text run, arrowheads and aux lines as saved items, the measured value and the arrow parameters | Tolerances, extra words and other styles are unobserved |
 | Diameter and radius dimension | The measured circle or arc (centre, radius), the pick point, the dimension line, the line point, the value text run and the arrowheads; `radius` when the value equals the radius. The leader variant adds `leader` (the arrowhead tip, the elbow and the end of the shelf) | Other item sequences keep their framed items, arc and text with a partial status |
 | Angle dimension (type 26) | The vertex (`center`), the drawn dimension arc (`radius`, `arc_start`, `arc_sweep`), the two `measured` points on the legs, the line point, the value in degrees and the value text run | Unobserved item sequences keep their items with a partial status |
@@ -162,19 +165,23 @@ words, base points, directions, metrics or an unframed stroke-glyph cache keep
 the layout `partial` with `drawing.text_fields`, `drawing.text_base_point`,
 `drawing.text_direction`, `drawing.text_metrics` or `drawing.text_glyphs`.
 The glyph cache that some saved records carry after each line is framed but
-not interpreted (`glyph_cache`); other saved records omit it. A complete layout
+not interpreted (`glyph_cache`); other saved records omit it, and the cache
+of legacy CP932 runs is retained without framing. A complete layout
 makes the text entity `complete`.
 
 Composite records (dimensions, leader notes and symbols) share one framing:
 0xFF attribute blocks, then size-framed text runs (marker bytes `44 20`) and
 geometry items in saved order. Sizes follow the file byte order; the two
-marker bytes do not swap. Items whose marker carries the `0x40` bit are
+marker bytes do not swap. The framing is the same in big-endian documents
+(V1L9–V7L1) and in little-endian V7L2–V7L5, whose runs are CP932 rather than
+UTF-16LE; the local corpus reads 3,344 big-endian length, 624 angle and
+1,718 diameter dimensions this way, their measured distances agreeing with
+the value text. Items whose marker carries the `0x40` bit are
 drawn; the others are hidden alternatives that iCAD keeps (the mirrored
 arrowhead of a leader, the second aux line of an angle dimension).
 
-`DrawingDimension` frames every little-endian dimension record (types 25,
-26 and 27) as attribute blocks, the embedded value text run and geometry
-`items`: ``vectors`` items (a point and two vectors), ``line`` items,
+`DrawingDimension` frames every dimension record (types 25, 26 and 27) as
+attribute blocks, the embedded value text run and geometry `items`: ``vectors`` items (a point and two vectors), ``line`` items,
 ``point`` items and ``arc`` items (centre, radius, start and sweep angle)
 with their saved width, style and colour; the run may sit between items. The length layout
 (type 25) is interpreted when its items follow the observed sequence: two
@@ -195,7 +202,9 @@ the dimension `line`, the `line_point` and the text anchor; `kind` is
 diameter (`drawing.dimension_value` otherwise). In the local corpus the
 centre and value of 43 such records and the line point of the 38 with the
 observed sequence agree with their SDK observations; the text includes the
-R or diameter symbol that the SDK reports separately. The leader variant of
+R or diameter symbol that the SDK reports separately. A diameter dimension
+on an arc stores three arcs (a quarter arc, the drawn extension arc and the
+measured arc) before the pick point and is interpreted too. The leader variant of
 the diameter family (a quarter arc, the measured circle, the pick point, the
 drawn arrowhead and leader, two hidden arrowheads, a hidden zero-length line
 and two points) is interpreted with `leader` = (tip, elbow, end) and `line`

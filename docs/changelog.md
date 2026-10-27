@@ -21,6 +21,16 @@
   bytes do not. `DrawingWriter` gains `Ellipse2D`, `EllipticalArc2D`,
   `Curve2D`, `LeaderNote2D` and `AngleDimension2D`. See
   [drawing scope](drawing.md#drawing-scope).
+- Legacy composite records read too: text records and the text runs of
+  dimensions, notes and symbols decode CP932 runs (flag byte `0x40`) in
+  big-endian documents (V1L9–V7L1) and little-endian V7L2–V7L5, with all
+  numbers in the file byte order, so dimensions and texts are no longer
+  gated by version. Diameter dimensions on arcs (three arcs before the pick
+  point), points with an appended attribute record (128-byte type 1) and
+  line-information records (type 224: the framed lines, circles and text
+  runs of P&ID and circuit drawings, with the saved `name`) are
+  interpreted; motion-verification records (230–234) and line information
+  without framed items are reported as `drawing.attribute_record`.
 - `View.placement` and `ViewIndex.placements` decode the 264-byte control
   records of the 2D global view as `ViewPlacement`: the view origin on the
   sheet (millimetres of the 2D global view), the view scale, the saved record
