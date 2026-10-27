@@ -1284,3 +1284,398 @@ def test_motion_records_are_attribute_records():
     )
     assert e.status == "unsupported" and e.raw_type == 230
     assert [d.code for d in e.diagnostics] == ["drawing.attribute_record"]
+
+
+# --- legacy hatch, half-arrow dimensions, old notes, text blocks, motion ------
+
+
+def test_legacy_big_endian_hatch_reads_its_rendered_lines():
+    values = [10.0, 20.0, 1.0, 0.0, 0.0, 0.0, 5.0, 0.0, 2.0, 5.0, 0.0, 4.0, 5.0]
+    record = bytearray(32 + 8 * len(values))
+    struct.pack_into(">I", record, 0, len(record))
+    record[4] = 1
+    record[12] = 0x40
+    record[14] = 1
+    record[15] = 92
+    struct.pack_into(">I", record, 16, 0x80000501)
+    struct.pack_into(">H", record, 24, len(record) - 24)
+    record[26:32] = bytes([0x44, 9, 3, 0x16, 0, 0])
+    struct.pack_into(f">{len(values)}d", record, 32, *values)
+    e = (
+        icadkit.read(drawing([bytes(record)], order="big", version=b"\0\x01\0\x09"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.hatch is not None
+    h = e.hatch
+    assert h.origin == (10.0, 20.0) and h.direction == (1.0, 0.0) and h.angle == 0.0
+    assert h.segments == (
+        ((10.0, 20.0), (15.0, 20.0)),
+        ((10.0, 22.0), (15.0, 22.0)),
+        ((10.0, 24.0), (15.0, 24.0)),
+    )
+    assert h.spacing == 2.0 and h.edges == () and h.raw_points == ()
+    assert h.box == (10.0, 20.0, 15.0, 24.0)
+    assert (e.line_width, e.line_style, e.color_index) == (3, 1, 6)
+
+
+def test_chamfer_dimension_reads_its_size_and_leader():
+    from icadkit.write import _item
+
+    record = bytearray(_legacy_length_dimension("big"))
+    record[15] = 29
+    # the observed layout ends with a hidden line after the measured points
+    record += _item(">", 0x0200, 3, 1, (0.0, -10.0, 1.0, 0.0, 40.0))
+    struct.pack_into(">I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="big", version=b"\0\x01\0\x09"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.dimension.kind == "chamfer"
+    assert (
+        e.dimension.measured == ((0.0, 0.0), (40.0, 0.0)) and e.dimension.value == 40.0
+    )
+    assert e.dimension.line == ((0.0, -10.0), (40.0, -10.0))
+    assert [i.kind for i in e.dimension.items][-1] == "line"
+
+
+def test_old_notes_and_leaders_without_text():
+    from icadkit.write import _item
+
+    blocks = (
+        _block(9, 48, [])
+        + _block(11, 48, [])
+        + _block(4, 48, [(24, 1.5, ">"), (40, 0.2618, ">")])
+    )
+    header = _legacy_header("big", 34, 4, len(blocks))
+    items = _legacy_run("big", "注記", origin=(30.0, 31.0))
+    items += _item(">", 0x0344, 3, 1, (12.0, 11.0, -2.0, -1.0, -1.0, 1.0))
+    items += _item(">", 0x0344, 3, 1, (10.0, 10.0, 20.0, 20.0))
+    items += _item(">", 0x0444, 3, 1, (34.0, 33.0, 5.0, 0.0, math.tau))  # the balloon
+    record = bytearray(header) + b"\0" * 8 + blocks + items
+    struct.pack_into(">I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="big", version=b"\0\x03\0\x04"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.note is not None
+    assert e.note.circle == ((34.0, 33.0), 5.0)
+    assert e.note.text.lines == ("注記",) and e.note.path == (
+        (10.0, 10.0),
+        (30.0, 30.0),
+    )
+    assert e.note.arrow is not None and e.note.arrow[1] == (10.0, 10.0)
+    # a leader without text (type 44) keeps its lines with a partial status
+    header = _legacy_header("big", 44, 4, len(blocks))
+    items = _item(">", 0x0344, 3, 1, (12.0, 11.0, -2.0, -1.0, -1.0, 1.0))
+    items += _item(">", 0x0344, 3, 1, (10.0, 10.0, 20.0, 20.0))
+    record = bytearray(header) + b"\0" * 8 + blocks + items
+    struct.pack_into(">I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="big", version=b"\0\x05\0\x04"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "partial" and e.note is not None and e.note.text is None
+    assert e.note.path == ((10.0, 10.0), (30.0, 30.0))
+    assert [d.code for d in e.note.diagnostics] == ["drawing.note_text"]
+
+
+def test_text_blocks_and_motion_records_read_their_runs_and_items():
+    from icadkit.write import _item
+
+    # type 14: a block of text lines (runs only)
+    blocks = _block(26, 48, []) + _block(27, 24, [])
+    header = _legacy_header("big", 14, 1, len(blocks))
+    runs = _legacy_run("big", "部品表", origin=(0.0, 0.0)) + _legacy_run(
+        "big", "No.1", origin=(0.0, -5.0)
+    )
+    record = bytearray(header) + b"\0" * 8 + blocks + runs
+    struct.pack_into(">I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="big", version=b"\0\x01\0\x09"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.symbol is not None
+    assert [t.lines for t in e.symbol.texts] == [("部品表",), ("No.1",)]
+    # type 230: unframed words, then line items reaching the end of the record
+    header = bytearray(32)
+    header[4] = 1
+    header[12] = 0x40
+    header[15] = 230
+    struct.pack_into("<I", header, 16, 0x80000601)
+    header[24:32] = bytes.fromhex("300000fd00000001")
+    body = bytes.fromhex("0100000001000000") + b"\0" * 32
+    body += _item("<", 0x0244, 2, 1, (245.0, -35.0, 0.7071, -0.7071, 28.284))
+    record = header + body
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x01"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.symbol is not None and e.symbol.name is None
+    assert [i.kind for i in e.symbol.items] == ["line"]
+    # type 234: a UTF-16 name at +36 and a label run at the end
+    header[15] = 234
+    header[24:32] = bytes.fromhex("680000fd00000001")
+    name = "アーム".encode("utf-16-le")
+    body = bytes.fromhex("05000000") + name + b"\0" * (100 - len(name))
+    body += _legacy_run("little", "x", origin=(1.0, 2.0))
+    body = body[: -len(_legacy_run("little", "x", origin=(1.0, 2.0)))]
+    from icadkit.write import _run
+
+    body += _run("<", "アーム", (45.1, -49.0), 2.4, 2, 1, flags=0xF1)
+    record = header + body
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x01"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.symbol.name == "アーム"
+    assert [t.lines for t in e.symbol.texts] == [("アーム",)]
+
+
+def test_motion_circle_with_a_data_chunk_reads_as_a_circle():
+    circle = bytearray(
+        entity(6, order="little", values=(275.0, -55.0, 1.8, 0.0, math.tau))
+    )
+    circle[15] = 232
+    chunk = bytearray(1000)
+    struct.pack_into("<H", chunk, 0, 1000)
+    chunk[2:4] = b"\0\x09"
+    record = circle + chunk
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x01"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.primitive.kind == "circle"
+    assert e.primitive.center == (275.0, -55.0) and e.primitive.radius == 1.8
+
+
+def test_text_with_a_trailing_attribute_chunk_reads_its_runs():
+    record = bytearray(text_entity(lines=("ＦＲＯＮＴ",)))
+    chunk = bytearray(88)
+    struct.pack_into("<H", chunk, 0, 88)
+    chunk[2:4] = b"\x44\x20"  # framed like a run, but no run flags
+    record += chunk
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x07\0\x05"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.text.lines == ("ＦＲＯＮＴ",)
+
+
+def test_hidden_runs_inside_composites_are_skipped():
+    from icadkit.write import _item, _run
+
+    record = bytearray(_dimension_record())
+    hidden = bytearray(_run("<", "0", (1.0, 2.0), 3.0, 2, 1))
+    hidden[2:4] = b"\0\x20"
+    # a hidden run before the measured points keeps the length layout readable
+    tail = _item("<", 0x0100, 3, 1, (0.0, 0.0), point=True) + _item(
+        "<", 0x0100, 3, 1, (40.0, 0.0), point=True
+    )
+    assert record.endswith(tail)
+    record = record[: -len(tail)] + hidden + tail
+    struct.pack_into("<I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x03"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.dimension.measured == ((0.0, 0.0), (40.0, 0.0))
+
+
+# --- flag variants, three-vector items, old elliptical arcs, vector primitives
+
+
+def test_utf16_runs_accept_the_flag_variants():
+    from icadkit.write import _run
+
+    for flags in (b"\x20\x00\x00\x01", b"\x20\x20\x00\x01", b"\x20\x40\x00\x01"):
+        run = bytearray(_run("<", "品番", (1.0, 2.0), 3.0, 2, 1))
+        run[48:52] = flags
+        decoded = icadkit.drawing._run_chars(bytes(run), "little")
+        assert decoded is not None and decoded[0] == "品番"
+    run = bytearray(_run("<", "品番", (1.0, 2.0), 3.0, 2, 1))
+    run[48:52] = b"\x20\x40\x01\x01"
+    assert icadkit.drawing._run_chars(bytes(run), "little") is None
+
+
+def test_surface_texture_symbols_read_their_three_vector_items():
+    from icadkit.write import _item
+
+    blocks = _block(35, 24, [])
+    header = _legacy_header("big", 28, 1, len(blocks))
+    items = _item(
+        ">", 0x0344, 2, 1, (137.857, 112.091, 2.0, 3.464, -2.0, 3.464, 0.0, 0.0)
+    )
+    items += _item(
+        ">", 0x0344, 2, 1, (141.857, 112.091, 2.0, 3.464, -2.0, 3.464, 0.0, 0.0)
+    )
+    record = bytearray(header) + b"\0" * 8 + blocks + items
+    struct.pack_into(">I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="big", version=b"\0\x03\0\x04"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.symbol is not None
+    assert [len(i.points) for i in e.symbol.items] == [4, 4]
+    first = e.symbol.items[0].points
+    assert first[0] == (137.857, 112.091) and first[3] == first[0]
+    assert first[1] == pytest.approx((139.857, 115.555)) and first[2] == pytest.approx(
+        (135.857, 115.555)
+    )
+
+
+def test_old_elliptical_arcs_read_as_curves_with_their_chunk():
+    from icadkit import Curve2D
+
+    writer = _sheet_writer("big", b"\0\x05\0\x01")
+    writer.add_entities(
+        "XY", [Curve2D(((0.0, 0.0), (10.0, 4.0), (20.0, -3.0), (30.0, 0.0)))]
+    )
+    (curve,), doc = _entities(writer, (16,))
+    record = bytearray(doc.source_bytes(curve.byte_range))
+    record[15] = 89
+    chunk = bytearray(96)
+    struct.pack_into(">H", chunk, 0, 96)
+    record += chunk
+    struct.pack_into(">I", record, 0, len(record))
+    e = (
+        icadkit.read(drawing([bytes(record)], order="big", version=b"\0\x05\0\x01"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.curve is not None and e.raw_type == 89
+    assert e.curve.knots == ((0.0, 0.0), (10.0, 4.0), (20.0, -3.0), (30.0, 0.0))
+    assert e.byte_range.length == 352 + 96
+
+
+def test_vector_primitives_read_their_two_segments():
+    record = bytearray(80)
+    struct.pack_into("<I", record, 0, 80)
+    record[4] = 1
+    record[12] = 0x40
+    record[14] = 1
+    record[15] = 12
+    struct.pack_into("<I", record, 16, 0x80000801)
+    struct.pack_into("<H", record, 24, 56)
+    record[26:32] = bytes([0x44, 3, 3, 0x11, 0, 0])
+    struct.pack_into("<6d", record, 32, 165.0, 466.0, -2.0, -1.5, -1.0, 1.0)
+    e = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x07\0\x07"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "complete" and e.primitive.kind == "vectors"
+    assert e.primitive.points == ((165.0, 466.0), (163.0, 464.5), (164.0, 467.0))
+    assert (e.line_width, e.line_style, e.color_index) == (3, 1, 1)
+
+
+@pytest.mark.parametrize(
+    "order,version", [("big", b"\0\x05\0\x01"), ("little", b"\0\x07\0\x03")]
+)
+def test_old_elliptical_arcs_with_the_projection_word_read_as_curves(order, version):
+    from icadkit import Curve2D
+
+    prefix = "<" if order == "little" else ">"
+    writer = _sheet_writer(order, version)
+    writer.add_entities(
+        "XY", [Curve2D(((0.0, 0.0), (10.0, 4.0), (20.0, -3.0), (30.0, 0.0)))]
+    )
+    (curve,), doc = _entities(writer, (16,))
+    record = bytearray(doc.source_bytes(curve.byte_range))
+    record[15] = 89
+    # the word 0x0090 at +6 in the file byte order (3D-derived drawings)
+    struct.pack_into(prefix + "H", record, 6, 0x90)
+    chunk = bytearray(48)
+    struct.pack_into(prefix + "H", chunk, 0, 48)
+    record += chunk
+    struct.pack_into(prefix + "I", record, 0, len(record))
+
+    def read(raw):
+        return (
+            icadkit.read(drawing([raw], order=order, version=version))
+            .read_drawing()
+            .entities[0]
+        )
+
+    e = read(bytes(record))
+    assert e.status == "complete" and e.curve is not None and e.raw_type == 89
+    assert e.curve.knots == ((0.0, 0.0), (10.0, 4.0), (20.0, -3.0), (30.0, 0.0))
+    # the word is only accepted for that record shape
+    record[15] = 16
+    assert read(bytes(record)).status == "unsupported"
+
+
+@pytest.mark.parametrize(
+    "order,version", [("big", b"\0\x01\0\x09"), ("little", b"\0\x07\0\x02")]
+)
+def test_underlined_view_labels_read_their_line_item(order, version):
+    from icadkit.write import _item
+
+    prefix = "<" if order == "little" else ">"
+    record = bytearray(_legacy_text(order, "Ａ－Ａ"))
+    record += _item(prefix, 0x0244, 2, 1, (10.0, 18.0, 1.0, 0.0, 12.0))
+    struct.pack_into(prefix + "I", record, 0, len(record))
+
+    def read(raw):
+        return (
+            icadkit.read(drawing([raw], order=order, version=version))
+            .read_drawing()
+            .entities[0]
+        )
+
+    # a plain text block with a line item appended: the underline is read but
+    # the fixed words are those of a plain text, so the layout is partial
+    e = read(bytes(record))
+    assert e.status == "partial" and e.text is not None
+    assert e.text.underline == ((10.0, 18.0), (22.0, 18.0))
+    assert [d.code for d in e.text.diagnostics] == ["drawing.text_fields"]
+    # the observed words of underlined labels: +14 = 3, +46 counts the run
+    # and the line item, +60 = 0x40 and +76 = 03 01
+    record[14] = 3
+    record[46] = 2
+    record[60] = 0x40
+    record[76:78] = bytes([3, 1])
+    e = read(bytes(record))
+    assert e.status == "complete" and e.text is not None
+    assert e.text.lines == ("Ａ－Ａ",)
+    assert e.text.underline == ((10.0, 18.0), (22.0, 18.0))
+    assert e.line_width == 2 and e.color_index == 1
+    # a truncated tail still fails the record
+    bad = bytearray(record[:-8])
+    struct.pack_into(prefix + "I", bad, 0, len(bad))
+    e = read(bytes(bad))
+    assert e.status == "unsupported" and e.text is None
+
+
+def test_three_d_projection_frames_are_attribute_records():
+    record = bytearray(96)
+    struct.pack_into(">I", record, 0, 96)
+    record[4] = 1
+    record[15] = 211
+    struct.pack_into(">I", record, 16, 0x800003D3)
+    struct.pack_into(">H", record, 24, 72)
+    record[26:28] = b"\0\xfd"
+    record[28:32] = b"\0\0\0\xff"
+    struct.pack_into(">2I", record, 32, 1, 1)
+    struct.pack_into(">6d", record, 48, 0.7071, -0.4082, 0.5774, 0.0, 0.8165, 0.5774)
+    e = (
+        icadkit.read(drawing([bytes(record)], order="big", version=b"\0\x05\0\x04"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert e.status == "unsupported" and e.primitive is None and e.raw_type == 211
+    assert any(d.code == "drawing.attribute_record" for d in e.diagnostics)

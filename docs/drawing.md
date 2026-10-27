@@ -134,18 +134,22 @@ Layer values outside the observed one-byte layout remain unqualified.
 | Line | Start/end, direction and length | Zero-length lines retain their direction |
 | Circle | Center and positive radius | Saved planar circles only |
 | Arc | Center, radius, start angle and signed sweep | Angles are radians; sweep is not an end angle |
-| Ellipse and elliptical arc (types 88, 89) | Center, the semi-axes (`radius` along the ellipse's x axis, `minor_radius`), the `rotation` of that axis and the parametric start angle and signed sweep, in both byte orders | A point is `center + R(rotation) * (a cos t, b sin t)`, the DXF convention; the 448-byte records of V5 and earlier are not interpreted |
+| Ellipse and elliptical arc (types 88, 89) | Center, the semi-axes (`radius` along the ellipse's x axis, `minor_radius`), the `rotation` of that axis and the parametric start angle and signed sweep, in both byte orders | A point is `center + R(rotation) * (a cos t, b sin t)`, the DXF convention; V5–V7 saved elliptical arcs as a free curve with the ellipse words in an appended chunk, read as `DrawingCurve` |
+| Vectors (type 12) | A point and the two segments from it (`DrawingPrimitive` kind `vectors`: the point and the two ends) | View-direction and section marks |
 | Free curve (type 16) | `DrawingCurve`: the knots (start point and cumulative offsets), their chord lengths, the total length and the saved extent, in both byte orders | The six doubles saved per segment are retained as `segment_words` without a meaning; a caller draws through the knots |
-| Leader note (type 22) | `DrawingNote`: the text runs (one per line), the arrowhead (a corner, the tip, the other corner), the drawn leader (tip, elbow, end) and the arrow parameters | Hidden alternative items are retained in `items`; little-endian V7L6 and later only |
-| Symbol (type 212) | `DrawingSymbol`: drawn point markers, lines, arcs and vectors, the text runs (UTF-16LE or CP932) and the nested member list of a group as opaque ranges; `raw_kind` is the saved byte at `+31` (1 point markers, 50 labels) | A run that does not decode is skipped with `drawing.symbol_text` |
+| Elliptical arc of V5-V7 (type 89, 448 bytes, subtype `0x10`) | `DrawingCurve` as a free curve with the ellipse words retained in the appended chunk; byte 7 of the header is `0x90` in these records (3D-derived drawings) | The 16 records of the corpus read `complete` |
+| Underlined text (type 21 with one line item) | `DrawingText.underline`: the start and end of the 48-byte line item that view labels ("A-A", "Z矢視図") append after their runs, any byte order; the fixed words differ from a plain text (header +14 = 3, +46 counts the run and the item, +60 = 0x40, +76 = `03 01`) and read `complete` for one line | The item's appearance bytes are not kept separately |
+| 3D projection frame (type 211) | Attribute record (`drawing.attribute_record`): a composite without drawn items whose words hold a 3×3 rotation matrix (isometric in the corpus) | Not drawn |
+| Leader note (types 22, 34, 44) | `DrawingNote`: the text runs (one per line), the arrowhead (a corner, the tip, the other corner), the drawn leader (tip, elbow, end; the older type 34 stores a two-point leader) and the arrow parameters; type 44 is a leader without text (partial, `drawing.note_text`) | Hidden alternative items are retained in `items` |
+| Symbol (types 212, 14, 28) | `DrawingSymbol`: drawn point markers, lines, arcs and vectors (a point with one, two or three vectors: the strokes of surface-texture symbols, type 28), the text runs (UTF-16LE or CP932) and the nested member list of a group as opaque ranges; `raw_kind` is the saved byte at `+31` (1 point markers, 50 labels); type 14 is a block of text lines | A run that does not decode is skipped with `drawing.symbol_text` |
 | Line information (type 224) | `DrawingSymbol` with the saved `name` (`Line`, `Junction`, `Connection Mark`, symbol names of P&ID and circuit drawings): the drawn lines, circles (marker `0x0444`) and text runs of the framed item stream | Records without a framed item stream (cable names, tables) are attribute records (`drawing.attribute_record`) |
 | Point with attributes (type 1, 128 bytes) | The point; the appended attribute record is retained | Connection points of P&ID symbols |
-| Motion verification (types 230–234) | Raw type, source range and `drawing.attribute_record` | Not drawing geometry |
+| Motion verification (types 230–234) | 230 (trajectory lines) and 234 (a labelled run after the UTF-16 name at `+36`) read as `DrawingSymbol`; 232 frames a circle before its data chunk and reads as a `circle` | 231 and records without framed items are `drawing.attribute_record` |
 | Text | Counted runs with the saved layout below: UTF-16LE in little-endian V7L6 and later, legacy CP932 runs (flag byte `0x40`, one or two bytes per character) in big-endian documents and little-endian V7L2–V7L5, including multiline and private-use characters | Rotated text keeps its angle without an anchor or box; fonts, glyph strokes and tilt are not interpreted |
-| Length dimension | The saved layout: measured points, dimension line, line point, value text run, arrowheads and aux lines as saved items, the measured value and the arrow parameters | Tolerances, extra words and other styles are unobserved |
+| Length dimension (types 25 and 29) | The saved layout: measured points, dimension line, line point, value text run, arrowheads and aux lines as saved items, the measured value (the measured distance projected on the dimension line) and the arrow parameters; type 29 draws one arrowhead and keeps the other hidden | Tolerances, extra words and other styles are unobserved; type 46 (a note-like record with blocks 33/34, a run, an arrowhead and a line) keeps its items with kind `unknown` |
 | Diameter and radius dimension | The measured circle or arc (centre, radius), the pick point, the dimension line, the line point, the value text run and the arrowheads; `radius` when the value equals the radius. The leader variant adds `leader` (the arrowhead tip, the elbow and the end of the shelf) | Other item sequences keep their framed items, arc and text with a partial status |
 | Angle dimension (type 26) | The vertex (`center`), the drawn dimension arc (`radius`, `arc_start`, `arc_sweep`), the two `measured` points on the legs, the line point, the value in degrees and the value text run | Unobserved item sequences keep their items with a partial status |
-| Hatch | The anchor, the boundary edges (start, middle, end; line or arc) and every rendered line with its direction and spacing | Patterns other than parallel lines, dashed lines and point lists that do not close keep the layout partial |
+| Hatch | The anchor, the boundary edges (start, middle, end; line or arc) and every rendered line with its direction and spacing; the big-endian layout stores the rendered lines only (no boundary) | Patterns other than parallel lines, dashed lines and point lists that do not close keep the layout partial |
 | Other types | Raw type, source range and diagnostics | No decomposition into guessed primitives |
 
 `DrawingText` qualifies the saved text layout of the observed little-endian
@@ -236,7 +240,10 @@ ends of neighbouring lines, arcs and curves.
 `DrawingText` also accepts the 88-byte attribute block that some V8 labels
 (line information, P&ID) store instead of the 48-byte block; the runs
 follow the block and the fixed words of the extended block are not
-compared, so these texts read `complete` unless rotated.
+compared, so these texts read `complete` unless rotated. View labels and
+update marks append one attribute chunk framed like a run; it is retained
+after the runs. A hidden run (marker bytes `00 20`) inside a composite
+record is skipped.
 
 `DrawingHatch` reads the hatch record (type 92): an `anchor`, the boundary
 as a point list relative to it (`raw_points`, interpreted as `edges` of

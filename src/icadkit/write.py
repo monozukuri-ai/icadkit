@@ -465,7 +465,7 @@ def _entity_box(entity: DrawingEntity) -> Extent | None:
     """The derived extent of a saved entity, or None when it is not derived."""
     p = entity.primitive
     if p is not None:
-        if p.kind in ("point", "line"):
+        if p.kind in ("point", "line", "vectors"):
             return _box(p.points)
         assert p.center is not None and p.radius is not None
         cx, cy = p.center

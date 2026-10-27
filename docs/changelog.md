@@ -4,6 +4,12 @@
 
 ### Added
 
+- `DrawingText.underline`: view labels ("A-A", "Z矢視図") append one line
+  item after their runs; it is read like a dimension item in both byte
+  orders, and the fixed words of such labels (+14, +46, +60, +76) read
+  `complete`. V5-V7 elliptical arcs saved as curves carry `0x90` in header byte
+  7 and are accepted, and 3D projection frames (type 211, a rotation matrix
+  without drawn items) are attribute records.
 - `read_drawing()` interprets five more saved 2D record types. Ellipses and
   elliptical arcs (types 88 and 89) become `DrawingPrimitive` kinds
   `ellipse` / `elliptical_arc` with the semi-axes, the axis rotation and
@@ -31,6 +37,20 @@
   runs of P&ID and circuit drawings, with the saved `name`) are
   interpreted; motion-verification records (230–234) and line information
   without framed items are reported as `drawing.attribute_record`.
+- Further legacy layouts: the big-endian hatch (rendered lines without a
+  boundary), the half-arrow length dimension (type 29), the older leader
+  note with a two-point leader (type 34) and the leader without text (44),
+  blocks of text lines (14), the trajectory lines and labels of motion
+  verification (230, 234) and its circles (232), texts with a trailing
+  attribute chunk (view labels, update marks) and hidden runs inside
+  composite records. Type 29 is a chamfer dimension (`kind="chamfer"`: the
+  chamfer size of the text, one drawn arrowhead on a leader) and the older
+  note (34) is a balloon whose circle is `DrawingNote.circle`.
+- UTF-16LE runs accept the flag variants at `+49` (view labels of frame
+  files), `vectors` items carry one, two or three vectors (surface-texture
+  symbols, type 28, read as `DrawingSymbol`), the elliptical arcs of V5–V7
+  (a free curve with an appended chunk) read as `DrawingCurve`, and type 12
+  (a point with two segments) is the `vectors` primitive.
 - `View.placement` and `ViewIndex.placements` decode the 264-byte control
   records of the 2D global view as `ViewPlacement`: the view origin on the
   sheet (millimetres of the 2D global view), the view scale, the saved record
