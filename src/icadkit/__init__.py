@@ -66,7 +66,8 @@ from .trailer import (
     TrailerSurface,
     TrailerTable,
 )
-from .views import View, ViewEntry, ViewExtent, ViewIndex, ViewLimits
+from .versions import VersionSupport, qualified_versions, version_label
+from .views import View, ViewEntry, ViewExtent, ViewIndex, ViewLimits, ViewPlacement
 from .write import (
     Arc2D,
     Circle2D,
@@ -112,6 +113,10 @@ __all__ = [
     "ViewIndex",
     "ViewLimits",
     "ViewExtent",
+    "ViewPlacement",
+    "VersionSupport",
+    "qualified_versions",
+    "version_label",
     "Arc2D",
     "Circle2D",
     "DiameterDimension2D",

@@ -80,6 +80,41 @@ Their numeric links and optional name bytes remain opaque `metadata` with no
 owner or geometry assigned. Local checks traverse the ten previously stopped
 files; this does not qualify legacy assembly or external-reference semantics.
 
+## View placement on the sheet
+
+The 2D global view stores one fixed-length control record per 2D view after
+its entity group: a `0x40000000` marker followed by 264-byte records. The
+reader decodes them as `ViewPlacement` (the `placements` of the `ViewIndex`)
+and attaches each record to the `2d_view` whose name it carries
+(`View.placement`). Nothing is applied to the entities: `read_drawing()` keeps
+view-local millimetres, and a caller composes the sheet by scaling a view's
+geometry by `placement.scale` and translating it to `placement.origin`.
+
+| Field | Record offset | Meaning |
+| --- | --- | --- |
+| `source_id` | `+16` (u32) | The saved record identifier |
+| `origin` | `+40`, `+48` (two doubles) | The view origin on the sheet, in millimetres of the 2D global view; the third double at `+56` is retained raw |
+| `scale` | `+64` (double) | The view scale; it equals the view header's `scale` in every observed file |
+| `raw_name` / `name` | `+136` (8 bytes, CP932) | The 2D view the record belongs to |
+
+Numeric values follow the file byte order. The length word at `+0`, a finite
+origin and a positive scale make a record `complete`; a deviating value keeps
+the record with `views.placement` diagnostics and `status="invalid"`, and an
+invalid scale is reported as `None`. The other words (`+12`, `+24`–`+40`,
+`+72`–`+136` and `+144`–`+264`, including the six floats at `+176` that are not
+a view extent in saved files) retain their bytes without an assigned meaning.
+Records that name no 2D view add `views.placement_view`, several records with
+one name add `views.placement_ambiguous` and map to no view, and a 2D view
+without a record adds `views.placement_missing`; these diagnostics do not
+change the index status, which describes framing only. `DrawingWriter` writes
+the same record for each view it adds.
+
+In the installed corpus (1,449 distinct files), 701 documents have a 2D global
+view (316 big-endian, 385 little-endian), all of them with a placement list:
+818 records are complete, 817 of the 855 2D views have a record and every one
+of those agrees with the view header's scale; 38 views have no record and one
+record names no 2D view.
+
 ## Drawing scope
 
 `DrawingIndex` contains the view inventory and bounded 2D `DrawingEntity` records.
@@ -161,7 +196,7 @@ spacing. Point lists that do not close, unobserved item words or nonpositive
 lengths keep the entity `partial` with `drawing.hatch_boundary` or
 `drawing.hatch_fields`.
 
-Geometry uses **view-local millimetres**. It does not apply paper placement,
+Geometry uses **view-local millimetres**. It does not apply the [view placement](#view-placement-on-the-sheet),
 view rotation, scale or a 3D projection transform. Saved line/circle records in
 a projected view can be read independently of the unimplemented projection
 relationship. Fonts, glyph outlines, tilt and legacy CP932 text runs remain unqualified;

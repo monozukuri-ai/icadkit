@@ -95,6 +95,24 @@ class Header:
     raw_mod: bytes
     name_cp932_candidate: str | None
 
+    @property
+    def version(self) -> tuple[int, int] | None:
+        """``(major, level)`` of the observed ``00 major 00 level`` bytes, else None."""
+        from .versions import version_label
+
+        label = version_label(self.raw_version)
+        if label is None:
+            return None
+        major, level = label[1:].split("L")
+        return int(major), int(level)
+
+    @property
+    def version_label(self) -> str | None:
+        """The product version as saved, such as ``V8L3``; not a support claim."""
+        from .versions import version_label
+
+        return version_label(self.raw_version)
+
 
 @dataclass(frozen=True)
 class RecordInfo:

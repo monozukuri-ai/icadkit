@@ -4,6 +4,23 @@
 
 ### Added
 
+- `View.placement` and `ViewIndex.placements` decode the 264-byte control
+  records of the 2D global view as `ViewPlacement`: the view origin on the
+  sheet (millimetres of the 2D global view), the view scale, the saved record
+  identifier and the 2D view name, in the file byte order. Records are matched
+  to `2d_view` entries by name; `views.placement`, `views.placement_view`,
+  `views.placement_ambiguous` and `views.placement_missing` report deviating
+  records, records without a view, repeated names and views without a record.
+  Geometry stays view-local; see [view placement](drawing.md#view-placement-on-the-sheet).
+  In the installed corpus 817 of 855 2D views have a record and every one
+  agrees with the view header's scale.
+- `Header.version_label` (`V8L3`), `Header.version` (`(8, 3)`),
+  `icadkit.version_label()` and `icadkit.qualified_versions()`
+  (`VersionSupport`) name the saved product version and the versions each
+  scope is qualified for, so an unqualified version such as `V8L4` can be
+  reported before its `*.profile` diagnostics. `icadkit inspect --json` adds
+  `version_label`.
+
 - `Document.to_bytes()` serializes the directory-indexed container with its
   framing recomputed (directory offsets and lengths, `RES`/`V/W` length
   words, the MOD total-word field) while unknown fields, record payloads, the

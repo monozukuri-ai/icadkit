@@ -200,6 +200,7 @@ def _inspection_json(info: Inspection) -> dict[str, object]:
         "header": {
             "byte_order": info.header.byte_order,
             "raw_version_hex": info.header.raw_version.hex(),
+            "version_label": info.header.version_label,
             "raw_name_hex": info.header.raw_name.hex(),
             "raw_mod_hex": info.header.raw_mod.hex(),
             "name_cp932_candidate": info.header.name_cp932_candidate,
@@ -260,6 +261,7 @@ def _inspect_command(args: argparse.Namespace) -> int:
             print(
                 f"Byte order: {result.header.byte_order}; "
                 f"version bytes: {result.header.raw_version.hex()}"
+                f" ({result.header.version_label or 'unobserved layout'})"
             )
             print(f"Name (CP932 candidate): {result.header.name_cp932_candidate!r}")
             for record in result.leading_records:

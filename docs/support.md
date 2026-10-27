@@ -73,7 +73,7 @@ observations match in volume, area and centroid.
 | Operation | Supported behavior | Scope boundary |
 | --- | --- | --- |
 | Header inspection | Both byte orders; leading MOD/DRW/RES framing; raw header fields and a CP932 name candidate | Unknown fields and later ranges remain unparsed |
-| Views / classification | Qualified counted views, document vs registered part, record ranges and ownership | Complete means framing only; unknown structures remain opaque |
+| Views / classification | Qualified counted views, document vs registered part, record ranges and ownership; the [sheet placement](drawing.md#view-placement-on-the-sheet) of each 2D view (origin, scale, name) | Complete means framing only; unknown structures remain opaque; placements are not applied to geometry |
 | Saved 2D drawing | Points, lines, circles, arcs in view-local mm; UTF-16LE text content | No sheet layout, font rendering, dimension or projection evaluation |
 | Resource listing | Owner-based indexing of supported raw and zlib X_B layouts; V8 entity-to-resource association records | Does not infer parts, sharing or instances |
 | Trailing container | Record framing in both byte orders; per-entity block identifiers, decoded bytes, qualified local bounds, and the identity and adjacency of face and edge entries | Surface/curve parameters, older block revisions and the named table remain opaque |
@@ -82,6 +82,16 @@ observations match in volume, area and centroid.
 | B-Rep | Backend-supported topology, analytic curves/surfaces and NURBS | Unsupported types remain partial with diagnostics |
 | Part shapes | One OCCT compound per part from saved bodies, CSG results or native primitives, in the part or document frame, with mass properties, drawability status and STEP/BREP export; see [part shapes](shapes.md) | Needs the `preview` extra; bodies the readers do not expose or the adapter rejects stay absent with diagnostics |
 | 2D writing | New 2D views with their placement records, point/line/circle/arc, text, length and diameter dimension and hatch records, entity and view deletion, in a copy of a document serialized through the container model; see [writing](writing.md) | `corpus_consistent` only: reproduces iCAD files up to save noise in local checks and has never been opened by iCAD |
+
+## Versions
+
+`Header.version_label` reports the saved product version (`V8L3`) and
+`icadkit.qualified_versions()` lists the labels each scope is qualified for.
+A version outside those tables, such as `V8L4`, fails closed: `read_views()`
+and `read_drawing()` report `views.profile`, `read_parts()` reports
+`parts.profile`, saved bodies and part shapes report `saved.profile`, and no
+nearby profile is substituted. Qualifying a further version needs real inputs
+saved by it.
 
 ## Interpreting results
 

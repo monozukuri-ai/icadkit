@@ -33,7 +33,8 @@ the resource geometry API described below. Saved entities expose
 `ParameterCondition` and `ParameterTable`, with `ParameterLimits` for bounded
 allocation. These saved formulas and values are independent of primitive geometry.
 For [views and saved 2D entities](drawing.md),
-`Document.read_views()` returns `ViewIndex`, `View` and `ViewEntry`, bounded by
+`Document.read_views()` returns `ViewIndex`, `View`, `ViewEntry` and `ViewPlacement`
+(the [sheet placement](drawing.md#view-placement-on-the-sheet) of each 2D view), bounded by
 `ViewLimits`; `Document.read_drawing()` returns `DrawingIndex`, `DrawingEntity`,
 `DrawingPrimitive` and `DrawingText`, with `DrawingLimits`. The `views` and
 `drawing` CLI commands expose classification, scoped status and source ranges.
@@ -103,7 +104,15 @@ returns its byte length. `RecordInfo.payload_range` excludes the eight-byte
 opening tag/length and four-byte closing tag. A valid range does not imply that
 its contents or references have been interpreted.
 
-`Header.raw_version` is not converted to an iCAD product version.
+`Header.raw_version` is not converted to an iCAD product version by the native
+reader. `Header.version_label` (`V8L3`) and `Header.version` (`(8, 3)`) read the
+observed `00 major 00 level` layout of those bytes in either byte order, and
+`None` for any other layout; `icadkit.version_label(raw)` is the same function.
+A label is the version as saved, not a support claim: `icadkit.qualified_versions()`
+returns a `VersionSupport` with the labels each scope has been qualified for
+(`parts`, `views_little`, `views_big`, `drawing_layout`, and `views(byte_order)`),
+so a caller can say that a `V8L4` file is unqualified before any scope reports
+its `*.profile` diagnostic. `icadkit inspect --json` includes `version_label`.
 `raw_name` preserves padding. `name_cp932_candidate` removes trailing spaces
 and NULs, then strictly decodes CP932. Interior NULs remain. A decoding failure
 returns `None` and `header.name_decode_failed`, retaining the original bytes.
