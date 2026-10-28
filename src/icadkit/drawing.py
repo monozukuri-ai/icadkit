@@ -246,8 +246,9 @@ class DrawingNote:
     The record frames attribute blocks, the text runs (``texts``, one per
     line; ``text`` is the first) and ``vectors`` items: the arrowhead
     (``arrow``: a corner, the tip and the other corner), the drawn leader
-    (``path``: the tip, the elbow and the end of the shelf under the text)
-    and hidden alternatives that are not drawn. Balloons (the older type 34)
+    (``path``: the tip, one or more elbows and the end of the shelf under the
+    text; two points in the oldest layouts) and hidden alternatives that are
+    not drawn. Balloons (the older type 34)
     add the drawn ``circle`` (centre, radius) around the text. ``arrow_width``
     and ``arrow_angle`` (degrees) come from the attribute block shared with
     dimensions.
@@ -1085,18 +1086,19 @@ def _note(b: bytes, order: str, at: int) -> DrawingNote | None:
             continue
         if not item.raw_marker & 0x40:
             continue  # hidden alternatives are retained in items, not drawn
-        if len(item.points) == 2:
-            # the two-point leader of the older layouts: the tip and the end
-            if not path:
-                path = item.points
-            else:
-                issue("drawing.note_item", offset, "Additional leader item")
+        if len(item.points) < 2:
+            issue("drawing.note_item", offset, "Leader item with fewer than two points")
             continue
-        p, q, r = item.points
-        if arrow is None and _symmetric_legs(p, q, r):
-            arrow = (p, q, r)
-        elif not path:
-            path = (p, q, r)
+        if len(item.points) == 3 and arrow is None:
+            p, q, r = item.points
+            if _symmetric_legs(p, q, r):
+                arrow = (p, q, r)
+                continue
+        if not path:
+            # the drawn leader: the tip and the end (older layouts), the tip, the elbow
+            # and the end of the shelf, or further elbows between them (a four-point
+            # leader in a 2026 production drawing failed to unpack in 0.3.11)
+            path = item.points
         else:
             issue("drawing.note_item", offset, "Additional leader item")
     if not path:
@@ -1970,6 +1972,40 @@ def _entity(
     )
 
 
+def _unreadable_entity(view: View, entry: ViewEntry, exc: Exception) -> DrawingEntity:
+    """An entity whose record raised while it was decoded.
+
+    It stays in place as ``invalid`` with the error in its diagnostics, so one
+    record of an unobserved layout does not fail the whole drawing (0.3.12; a
+    production drawing was lost to a single leader note before that).
+    """
+    at = entry.byte_range.start
+    return DrawingEntity(
+        f"drawing@{at}",
+        view.view_id,
+        entry.byte_range,
+        entry.owner_offset,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "invalid",
+        (
+            Diagnostic(
+                "invalid",
+                "drawing.entity_error",
+                at,
+                f"Entity record could not be decoded: {type(exc).__name__}: {exc}",
+            ),
+        ),
+    )
+
+
 def _read_drawing(
     document: "Document", limits: DrawingLimits | None, view_limits: ViewLimits | None
 ) -> DrawingIndex:
@@ -1990,7 +2026,12 @@ def _read_drawing(
         statuses.append(view.status)
         for entry in view.entries:
             if entry.kind == "entity":
-                entity = _entity(document, view, entry, limits)
+                try:
+                    entity = _entity(document, view, entry, limits)
+                except LimitExceededError:
+                    raise
+                except (ValueError, IndexError, struct.error) as exc:
+                    entity = _unreadable_entity(view, entry, exc)
                 entities.append(entity)
                 statuses.append(entity.status)
             else:

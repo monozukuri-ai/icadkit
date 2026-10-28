@@ -1679,3 +1679,79 @@ def test_three_d_projection_frames_are_attribute_records():
     )
     assert e.status == "unsupported" and e.primitive is None and e.raw_type == 211
     assert any(d.code == "drawing.attribute_record" for d in e.diagnostics)
+
+
+# --- leader items with more than three points, per-entity decode guard (0.3.12) ----
+
+
+def test_leader_note_with_an_extra_elbow_is_read_as_a_four_point_path():
+    # A 2026 production drawing (iCAD SX 2D, type 22) saved a leader whose drawn item
+    # has four points: the tip, two elbows and the end of the shelf. 0.3.11 unpacked
+    # exactly three and the whole drawing failed with "too many values to unpack".
+    from icadkit import LeaderNote2D
+    from icadkit.write import _item
+
+    writer = _sheet_writer()
+    writer.add_entities(
+        "XY", [LeaderNote2D(("注記",), (50.0, 50.0), (70.0, 70.0), (100.0, 70.0))]
+    )
+    (e,), doc = _entities(writer, (22,))
+    assert e.note.path == ((50.0, 50.0), (70.0, 70.0), (100.0, 70.0))
+    record = bytearray(doc.source_bytes(e.byte_range))
+    # the drawn leader is the last item: 8 bytes of framing + 6 doubles
+    size = struct.unpack_from("<H", record, len(record) - 56)[0]
+    marker = struct.unpack_from("<H", record, len(record) - 54)[0]
+    assert (size, marker) == (56, 0x0344)
+    del record[-56:]
+    drawn = e.note.items[-1]
+    record += _item(
+        "<",
+        0x0344,
+        drawn.line_width,
+        drawn.color_index,
+        (50.0, 50.0, 20.0, 20.0, 30.0, 20.0, 50.0, 20.0),
+    )
+    struct.pack_into("<I", record, 0, len(record))
+    again = (
+        icadkit.read(drawing([bytes(record)], order="little", version=b"\0\x08\0\x03"))
+        .read_drawing()
+        .entities[0]
+    )
+    assert again.status == "complete" and again.note is not None
+    assert again.note.path == (
+        (50.0, 50.0),
+        (70.0, 70.0),
+        (80.0, 70.0),
+        (100.0, 70.0),
+    )
+    assert again.note.arrow is not None and again.note.arrow[1] == (50.0, 50.0)
+    assert again.note.box[2] >= 100.0
+
+
+def test_an_entity_record_that_raises_does_not_fail_the_drawing(monkeypatch):
+    # One record of an unobserved layout stays in place as ``invalid`` with the error;
+    # the other entities of the drawing are still read
+    from icadkit import LeaderNote2D
+    from icadkit import drawing as drawing_module
+
+    writer = _sheet_writer()
+    writer.add_entities(
+        "XY",
+        [
+            LeaderNote2D(("注記",), (50.0, 50.0), (70.0, 70.0), (100.0, 70.0)),
+            icadkit.Line2D((0.0, 0.0), (10.0, 0.0)),
+        ],
+    )
+    _, doc = _entities(writer, (22, 1))
+
+    def broken(*args, **kwargs):
+        raise ValueError("too many values to unpack (expected 3)")
+
+    monkeypatch.setattr(drawing_module, "_note", broken)
+    index = icadkit.read(writer.to_bytes()).read_drawing()
+    assert [e.status for e in index.entities] == ["invalid", "complete"]
+    bad = index.entities[0]
+    assert bad.note is None and bad.primitive is None
+    assert [d.code for d in bad.diagnostics] == ["drawing.entity_error"]
+    assert "ValueError: too many values to unpack" in bad.diagnostics[0].message
+    assert index.status == "invalid"

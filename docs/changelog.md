@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- Leader notes whose drawn leader has more than three points (the tip, two
+  or more elbows and the end of the shelf; a 2026 production drawing) read
+  `complete` with the full `path`. 0.3.11 unpacked exactly three points and
+  the whole drawing failed with "too many values to unpack".
+- `read_drawing()` keeps an entity whose record raises while it is decoded
+  (`ValueError`, `IndexError`, `struct.error`) in place as `invalid` with a
+  `drawing.entity_error` diagnostic instead of failing the drawing; size
+  limits still raise `LimitExceededError`.
+
 ### Added
 
 - `DrawingText.underline`: view labels ("A-A", "Z矢視図") append one line
