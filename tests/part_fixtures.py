@@ -36,6 +36,7 @@ def part(
         "v8l1": 0x61000003,
         "v8l2": 0x61000003,
         "v8l3": 0x61000003,
+        "v8l4": 0x61000004,
     }[profile]
     struct.pack_into("<5I", data, 0, tag, 352, 64 if root else 0, 0, source_id)
     data[20:60] = name.encode("cp932").ljust(40, b" ")
@@ -95,6 +96,7 @@ def view_parts(records, *, end=True, prefix=None, after=b"", profile="v8l3"):
         "v8l1": b"\0\x08\0\x01",
         "v8l2": b"\0\x08\0\x02",
         "v8l3": b"\0\x08\0\x03",
+        "v8l4": b"\0\x08\0\x04",
     }[profile]
     return bytes(data)
 

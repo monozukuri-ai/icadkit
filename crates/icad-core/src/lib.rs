@@ -87,9 +87,13 @@ mod tests {
         assert!(!info.builtin_profile_ids.is_empty());
         let registry = BuiltinProfileRegistry::compiled()?;
         let covered = SchemaKey::parse("SCH_3000310_30000_13006")?;
-        // A neighbouring modeller build is a different key, never a fallback.
-        let uncovered = SchemaKey::parse("SCH_3000311_30000_13006")?;
+        // Another modeller build of a covered schema resolves through the
+        // schema family derived from its reviewed profiles (parasolid-core
+        // 0.3.12); a schema without any reviewed profile never does.
+        let same_schema = SchemaKey::parse("SCH_3000311_30000_13006")?;
+        let uncovered = SchemaKey::parse("SCH_3000311_30001_13006")?;
         assert!(registry.provider_for_key(&covered).is_some());
+        assert!(registry.provider_for_key(&same_schema).is_some());
         assert!(registry.provider_for_key(&uncovered).is_none());
         Ok(())
     }

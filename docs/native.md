@@ -53,6 +53,26 @@ qualified for traversal; its contents are not treated as primitive parameters.
 A saved Parasolid wrapper remains an unsupported entity in this API. No mapping
 from that entity to `Document.resources` is inferred.
 
+`NativeEntity.kind` names the qualified record kind: a primitive kind, one of
+the construction kinds below, or an annotation kind. It is `None` while the
+layout is unqualified.
+
+Construction geometry and annotations own no body, so a qualified record reads
+`complete` with `primitive=None` and never lowers the part's native geometry
+status. Their records share the standalone header (byte length, layer, marker
+word, source ID) followed by a 16-bit payload length and an opaque kind word:
+
+| Kind | Raw type | Record | Qualified layout |
+| --- | --- | --- | --- |
+| `reference_point` | 1 | 80 bytes | two retained values, a point, one retained value |
+| `reference_plane` | 2 | 104 bytes | two retained values, a point, a unit normal, one retained value; marker byte `0xc0` on the three default planes, `0xc1` on placed planes |
+| `reference_axis` | 5 | 152 bytes | two retained values, a point, the half-length, a unit direction and two end offsets of that length |
+| `text`, `note`, `dimension`, `angular_dimension`, `diameter_dimension`, `coordinate_systems`, `annotation` | 21, 22, 25, 26, 27, 248, 15 | 120 bytes or more | marker class byte `0x80`; a 96-byte block of two retained values and a rigid frame (origin, Z axis, X axis), then the attribute block, text runs and drawn items, retained raw |
+
+The qualification used 57 points, 607 planes, 82 axes and 1,761 annotations of
+V7L2–V8L4 files. Offsets, extents, dimension values and note text stay in the
+retained bytes; this API does not interpret them.
+
 ## Primitive contract
 
 `NativePrimitive.kind` is `box`, `cylinder`, `sphere`, `cone`, `torus`,
@@ -130,7 +150,7 @@ bounds and Z from zero to `height`. A cylinder's bottom centre is `(0, 0, 0)` an
 its top centre is `(0, 0, height)` in this frame.
 
 The exposed `world_transform` is in **3DGLOBAL coordinates**; do not multiply it
-by the part frame again. All qualified V7L6/V7L7/V8L1/V8L2/V8L3 profiles use
+by the part frame again. All qualified V7L6/V7L7/V8L1/V8L2/V8L3/V8L4 profiles use
 `inverse(saved_root_frame) * stored_primitive_frame`, independently of the owning
 part frame. Qualified negative-height box/cone/polygon records additionally reverse
 the stored Z column once. Raw bytes retain the original stored frame. If the root context is
@@ -155,7 +175,7 @@ resource ownership or whole-model geometry completeness.
 
 ## Qualified entity mirrors
 
-Internal mirrors are qualified in V7L6/V7L7 and V8L1/V8L2/V8L3. The entity mirror
+Internal mirrors are qualified in V7L6/V7L7 and V8L1/V8L2/V8L3/V8L4. The entity mirror
 flag is independent of its owning part flag; a mirrored entity can belong to an
 unmirrored part. Its saved frame/parameters already incorporate the operation.
 Neither the part frame nor its orientation matrix is applied a second time.

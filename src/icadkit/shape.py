@@ -396,7 +396,7 @@ def _convert(
     if context.api is None:
         assert context.api_error is not None
         return _failed(source, body, (context.api_error,), resource_id), None
-    from ._shape_occt import mass_properties, place, solid_count
+    from ._shape_occt import mass_properties, place, solid_count, surface_properties
 
     payload: str | None = None
     faces: int | None = None
@@ -420,21 +420,27 @@ def _convert(
             _check(shape, context.limits.csg, context.api)
             if transform != _IDENTITY:
                 shape = place(shape, transform, context.api)
-        volume, area, centroid = mass_properties(shape, context.api)
-        if (
-            not all(math.isfinite(v) for v in (volume, area, *centroid))
-            or volume <= 0
-            or area <= 0
-        ):
+        solids = solid_count(shape, context.api)
+        volume: float | None
+        if isinstance(body, SavedBody) and solids == 0:
+            # A saved sheet body converts to its open shell: no volume, a
+            # positive area and the area centroid. Solids never arrive here
+            # without a solid; the builder closes their shells or fails.
+            volume = None
+            area, centroid = surface_properties(shape, context.api)
+            valid = math.isfinite(area) and area > 0
+        else:
+            volume, area, centroid = mass_properties(shape, context.api)
+            valid = volume > 0 and area > 0 and math.isfinite(volume)
+        if not valid or not all(math.isfinite(v) for v in (area, *centroid)):
             raise UnsupportedFormatError(
                 Diagnostic(
                     "invalid",
                     "shape.mass_properties",
                     byte_range.start,
-                    "Converted solid has no positive finite mass properties",
+                    "Converted body has no positive finite mass properties",
                 )
             )
-        solids = solid_count(shape, context.api)
     except IcadError as exc:
         return _failed(source, body, (exc.diagnostic,), resource_id), None
     except Exception as exc:

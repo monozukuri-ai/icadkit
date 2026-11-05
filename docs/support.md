@@ -13,16 +13,21 @@ its coordinates remain raw and its units, evaluated placement and geometry
 remain unqualified. Other old 3D owners are retained by the view inventory.
 
 The current [part API](parts.md) reads qualified little-endian V7L2–V7L7 and
-V8L1/V8L2/V8L3 inventories, hierarchy, snapshot definitions, names/comments,
+V8L1/V8L2/V8L3/V8L4 inventories, hierarchy, snapshot definitions, names/comments,
 extended text and saved external names. Counted metadata framing and retained
 binary attributes improve traversal without inventing attribute semantics.
+V8L4 was qualified on seven 2026 production files: its part records carry the
+tag `0x61000004` with the V8L3 layout, external occurrences may append a
+564-byte extension (retained opaque), and the user attribute text record saves
+230 in its second word; its saved bodies are Parasolid V35 streams that
+`parasolid-core` resolves through the `35102-13006` schema family.
 These qualified little-endian profiles expose root-relative millimetre frames. V8L3 revision 2
 corrects placement for nonidentity saved roots; original stored coordinates
-remain available. V7L6/V7L7 revision 2 and V8L1/V8L2/V8L3 revision 3
+remain available. V7L6/V7L7 revision 2 and V8L1/V8L2/V8L3/V8L4 revision 3
 add signed occurrence orientation and bounded internal mirror geometry.
 V7L2–V7L5 mirror placement remains unqualified. The separate
 [assembly API](references.md) resolves explicit local reference roots or a caller
-resolver for V7L6/V7L7/V8L1/V8L2/V8L3, composing qualified external placements and
+resolver for V7L6/V7L7/V8L1/V8L2/V8L3/V8L4, composing qualified external placements and
 mirrors. Default part reads remain single-file.
 
 V7L2–V7L5 use separate `opaque_entities` profiles: part frames and structure
@@ -53,7 +58,7 @@ Holes, tapers, partial revolutions and other layouts remain unsupported.
 
 With the `preview` extra, [V7L7 CSG](csg.md) evaluates bounded programs of
 boxes, cylinders, convex six-vertex prisms and line/arc profile extrusions,
-while [saved final bodies](saved-bodies.md) place qualified V7L6/V7L7/V8L1/V8L2/V8L3
+while [saved final bodies](saved-bodies.md) place qualified V7L6/V7L7/V8L1/V8L2/V8L3/V8L4
 solids through explicit resource bindings; V7L2–V7L5 bind the same way.
 V8 bodies bind through saved association records, not through the marker word
 that earlier source treated as a resource key. Saved spherical, conical and

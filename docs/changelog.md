@@ -15,6 +15,77 @@
 
 ### Added
 
+- iCAD SX **V8L4** (header bytes `00 08 00 04`) is qualified for the part,
+  view and drawing readers, observed on seven 2026 production files. Its part
+  records carry the new tag `0x61000004` with the V8L3 352-byte layout
+  (`icad-v8l4-parts-r3`, `saved_entities`, `v8_resource_association`);
+  external occurrences (flags `0x50`) may append a 564-byte extension behind
+  a `0x101` marker (counted UTF-16 attribute strings and resource links),
+  retained as opaque `part_metadata_extension`; and the user attribute text
+  record (`User_*,"value"` pairs) saves 230 instead of 1 in its second word.
+  V8L4 2D views and composite records use the V8L3 layouts unchanged.
+  `qualified_versions()` lists V8L4 for parts, little-endian views and the
+  drawing layout. The saved final bodies of V8L4 files are Parasolid V35
+  streams (`SCH_3501238_35102_13006`), which parasolid-core 0.3.12 resolves
+  through its `family-35102-13006` profile (coverage `family_inferred`); on
+  the seven files, 365 of 460 saved bodies converted to OCCT solids.
+- `NativeEntity.kind` names the qualified record kind, and construction
+  geometry and annotations read `complete` without a primitive instead of
+  `unsupported` (`native.layout`): reference points (type 1, 80 bytes),
+  reference planes (type 2, 104 bytes; marker byte `0xc0` on the three
+  default planes, `0xc1` on placed ones) and reference axes (type 5, 152
+  bytes), whose records hold two retained values, a point and, for planes a
+  unit normal, for axes the half-length, a unit direction and the two end
+  offsets; and the annotation class (marker class byte `0x80`): text (21),
+  leader notes (22), length, angular and diameter dimensions (25, 26, 27),
+  coordinate-system tables (248) and type-15 labels, whose 96-byte block
+  holds two retained values and a rigid frame before the attribute block,
+  text runs and items that stay raw. Qualified on 57 points, 607 planes, 82
+  axes and 1,761 annotations of V7L2–V8L4 files, including the 2026
+  production files. Primitives report their primitive kind in the same field.
+- Final-body markers in the `0x550108c0` state on 352-byte V8L4 parts bind
+  and convert like the `0xc1` state (a purchased part whose three bodies
+  carry only that state: 8 faces, 7,528 mm³ each, placed on the part).
+  Before, V8 accepted that state only on 704-byte extended owners.
+
+- Saved **sheet bodies** convert to their open shells: `read_saved_bodies`,
+  `read_part_shapes`, `evaluate_saved_body` and the viewer mesh them like
+  solids, with `solid_count` 0, no volume (`ShapeBody.volume_mm3` is None,
+  `CsgMesh.volume_mm3` is 0.0) and the area centroid. Wire bodies (curves
+  without faces; 14 of the 40 bodies of a 2026 production part) and other
+  body kinds stay unqualified (`saved.body_kind`).
+- The preview bridge maps swept surfaces (`swept`, parasolid-core
+  `SurfaceKind::Swept`), so saved bodies bounded by them convert instead of
+  stopping with `preview.geometry_kind`.
+- `GeometryLimits.max_nodes` defaults to 1,000,000 (was 100,000); a 4.6 MB
+  production body streams 108,613 nodes, and the payload bound still applies.
+- Non-fatal backend diagnostics no longer fail a saved-body conversion. The
+  only one the builder raises, `occt.parametric_approximation` (sampled
+  FIN-to-output differences above the source edge tolerance while the
+  conversion error budget passed), is recorded as the operation
+  `source_fin_deviation_within_conversion_budget`; fatal or error-level
+  diagnostics still raise `saved.conversion_diagnostics`.
+
+### Changed
+
+- `SavedBodyLimits.max_source_tolerance_mm` defaults to 0.5 mm (was 0.01).
+  Tolerant edges and vertices above 0.01 mm are common in production bodies
+  (63 of 659 in the 2026 corpus); with the new bound 50 of the 54 bodies
+  between 0.01 and 0.5 mm convert and validate, the other four fail closed
+  with their kernel diagnostics, and none of the nine bodies above 0.5 mm
+  converted. The bound is still a rejection policy; nothing is healed.
+
+### Changed
+
+- The native extension now embeds `parasolid-core` 0.3.12 (was 0.3.7) and
+  the `preview` extra requires `parasolid-kit[occt]>=0.3.12`. Another
+  modeller build of a reviewed schema resolves through its schema family
+  instead of failing with `schema.missing_base_schema`; four standard iCAD
+  profiles carry new revisions (`icad-1700000-16100-r2`,
+  `icad-2401000-20000-r3`, `icad-2901000-28101-r2`, `icad-3200000-32001-r2`);
+  SWEPT_SURF (67) is declared for the 13006 keys and `SurfaceKind::Swept`
+  (`section`, `direction`) reaches Python as the `swept` surface kind, which
+  the saved-body conversion now accepts.
 - `DrawingText.underline`: view labels ("A-A", "Z矢視図") append one line
   item after their runs; it is read like a dimension item in both byte
   orders, and the fixed words of such labels (+14, +46, +60, +76) read

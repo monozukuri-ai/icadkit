@@ -122,6 +122,11 @@ class NativeEntity:
     primitive: NativePrimitive | None
     geometry_status: Status
     diagnostics: tuple[Diagnostic, ...]
+    # The qualified record kind: a primitive kind, construction geometry
+    # ("reference_point", "reference_plane", "reference_axis") or an annotation
+    # ("text", "note", "dimension", "angular_dimension", "diameter_dimension",
+    # "coordinate_systems", "annotation"). None while the layout is unqualified.
+    kind: str | None = None
 
 
 def _read_entity(doc: Document, raw: _core.RawNativeEntity, owner: str) -> NativeEntity:
@@ -213,6 +218,7 @@ def _read_entity(doc: Document, raw: _core.RawNativeEntity, owner: str) -> Nativ
         primitive,
         raw["geometry_status"],
         tuple(Diagnostic(**d) for d in raw["diagnostics"]),
+        raw["kind"],
     )
 
 
@@ -229,6 +235,7 @@ def _entity_row(entity: NativeEntity) -> dict[str, object]:
         "owner_id": entity.owner_id,
         "source_id": entity.source_id,
         "raw_type": entity.raw_type,
+        "kind": entity.kind,
         "is_mirror": entity.is_mirror,
         "byte_range": asdict(entity.byte_range),
         "appearance": appearance,

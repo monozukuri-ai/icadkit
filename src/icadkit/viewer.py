@@ -526,6 +526,7 @@ def _native_scene(
                 b"\x00\x08\x00\x01": "V8L1",
                 b"\x00\x08\x00\x02": "V8L2",
                 b"\x00\x08\x00\x03": "V8L3",
+                b"\x00\x08\x00\x04": "V8L4",
             }
             profile = known_profiles.get(raw, "0x" + raw.hex())
             message = f"File profile {profile}: {message}"

@@ -20,8 +20,8 @@ from .saved import SavedBody, SavedBodyLimits, SavedBodyMesh, _error
 def _preflight(model: Any, limits: SavedBodyLimits) -> None:
     if not model.complete or not model.topology.valid or not model.bodies:
         raise _error("topology", "Saved B-Rep must be complete and topologically valid")
-    if any(b.kind.value != "solid" for b in model.bodies):
-        raise _error("body_kind", "Only saved solid bodies are qualified")
+    if any(b.kind.value not in ("solid", "sheet") for b in model.bodies):
+        raise _error("body_kind", "Only saved solid and sheet bodies are qualified")
     for value in (*model.edges, *model.vertices):
         if value.tolerance is not None and (
             not math.isfinite(value.tolerance)
@@ -62,6 +62,7 @@ def _preflight(model: Any, limits: SavedBodyLimits) -> None:
         "nurbs",
         "offset",
         "spun",
+        "swept",
         "blended_edge",
         "blend_boundary",
     )
@@ -70,8 +71,8 @@ def _preflight(model: Any, limits: SavedBodyLimits) -> None:
     ):
         raise _error(
             "surface",
-            "Only analytic, spun, NURBS, offset and, with a backend that builds them, "
-            "blend saved surfaces are supported",
+            "Only analytic, spun, swept, NURBS, offset and, with a backend that builds "
+            "them, blend saved surfaces are supported",
         )
     if any(f.sense.value == "unknown" or not f.loops for f in model.faces):
         raise _error("face", "Saved faces require explicit oriented boundary loops")
@@ -283,18 +284,29 @@ def _build(
             )
         builder.face_shapes[face.id] = shape
     builder._validate_source_boundaries()
-    if builder.diagnostics:
+    # The builder's fatal diagnostics stop the conversion. Its non-fatal ones
+    # (edges whose sampled FIN-to-output difference exceeds the source edge
+    # tolerance while the conversion error budget passed) are recorded as an
+    # operation; the output stays within the budget the builder validated.
+    if any(_fatal(d) for d in builder.diagnostics):
         raise _error(
             "conversion_diagnostics",
             "Saved boundary conversion has unresolved diagnostics",
         )
+    operations = [*builder.operations, "restore_declared_body_resolution"]
+    if builder.diagnostics:
+        operations.append("source_fin_deviation_within_conversion_budget")
     shape = builder._make_root(builder._build_bodies())
     count = sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_FACE, api))
     if count != len(model.faces):
         raise _error("face_coverage", "Saved face count changed during conversion")
-    return shape, tuple(
-        dict.fromkeys([*builder.operations, "restore_declared_body_resolution"])
-    )
+    return shape, tuple(dict.fromkeys(operations))
+
+
+def _fatal(diagnostic: Any) -> bool:
+    """A backend diagnostic that invalidates the conversion."""
+    severity = getattr(getattr(diagnostic, "severity", None), "name", "ERROR")
+    return bool(getattr(diagnostic, "fatal", True)) or severity == "ERROR"
 
 
 def build_base(
@@ -338,7 +350,10 @@ def convert(
             max_triangles=limits.max_triangles,
             max_vertices=limits.max_vertices,
         )
-        mesh = mesh_shape(shape, body.body_id, bounded, deflection, api)
+        # A saved sheet body is its open shell; solids arrive closed or not at all.
+        mesh = mesh_shape(
+            shape, body.body_id, bounded, deflection, api, allow_sheet=True
+        )
         assert body.resource_id is not None
         return SavedBodyMesh(
             **{f.name: getattr(mesh, f.name) for f in fields(CsgMesh)},

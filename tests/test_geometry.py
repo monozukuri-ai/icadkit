@@ -89,14 +89,27 @@ def test_icad_v34_without_catalog(geometry_doc, version):
     assert g.status.container == "partial" and g.status.model == "not_checked"
 
 
-def test_icad_v34_rejects_nearby_key_and_unknown_base(geometry_doc):
+def test_icad_v34_nearby_build_uses_its_family_and_unknown_base_fails(geometry_doc):
     payload = wire_payload(embedded=True)
+    # Another modeller build of the same schema has no exact profile; since
+    # parasolid-core 0.3.12 it resolves through the family derived from the
+    # reviewed 34101-13006 profiles (iCAD V8L4 saves V35 streams this way).
     nearby = payload.replace(b"SCH_3401212_34101_13006", b"SCH_3401213_34101_13006")
+    doc = geometry_doc(nearby)
+    g = doc.read_geometry(doc.resources[0].resource_id).require_complete()
+    assert g.schema.kind == "builtin"
+    assert g.schema.profile_id == "family-34101-13006"
+    assert g.raw.schema_key == "SCH_3401213_34101_13006"
+    assert g.brep.counts["edges"] == 1 and g.brep.topology_valid
+    # Another schema or base, and an unreviewed base type, still fail closed.
+    other_schema = payload.replace(
+        b"SCH_3401212_34101_13006", b"SCH_3401212_34100_13006"
+    )
     unknown = bytearray(payload)
     offset = len(header(b"SCH_3401212_34101_13006"))
     unknown[offset : offset + 2] = b"\0\x6e"  # Unreviewed base type 110.
     for data, code in (
-        (nearby, "schema.missing_base_schema"),
+        (other_schema, "schema.missing_base_schema"),
         (bytes(unknown), "schema.unknown_base_type"),
     ):
         doc = geometry_doc(data)
@@ -172,9 +185,14 @@ def test_standard_exact_profile_qualifies_brep_without_catalog(geometry_doc, key
     payload = wire_payload(key=key)
     doc = geometry_doc(payload)
     g = doc.read_geometry(doc.resources[0].resource_id).require_complete()
-    expected_profile = "icad-" + key.decode()[4:].replace("_", "-") + "-r1"
+    # parasolid-core 0.3.12 revised four standard profiles (further node types).
+    revision = {b"1700000": 2, b"2401000": 3, b"2901000": 2, b"3200000": 2}.get(
+        key[4:11], 1
+    )
+    expected_profile = "icad-" + key.decode()[4:].replace("_", "-") + f"-r{revision}"
     assert g.schema.kind == "builtin" and g.schema.profile_id == expected_profile
-    assert g.schema.profile_revision == 1 and len(g.schema.profile_sha256) == 64
+    assert g.schema.profile_revision == revision
+    assert len(g.schema.profile_sha256) == 64
     assert g.raw.schema_key == key.decode() and g.raw.to_bytes() == payload
     assert g.raw.node_count == 11 and g.raw.terminator_range.end == len(payload)
     size, linear, kind, region, edge, vertex = STANDARD_BODIES[key][1]
@@ -193,7 +211,9 @@ def test_standard_exact_profile_qualifies_brep_without_catalog(geometry_doc, key
     assert not g.diagnostics
 
     uncovered = bytearray(payload)
-    uncovered[len(header(key)) : len(header(key)) + 2] = b"\0\x43"  # Swept surface.
+    # Type 110 is declared by no standard profile (67, the swept surface, is
+    # declared for the 13006 keys since parasolid-core 0.3.12).
+    uncovered[len(header(key)) : len(header(key)) + 2] = b"\0\x6e"
     near = payload.replace(key, key[:-1] + b"9")
     truncated = payload[:-12]
     for raw, code in (

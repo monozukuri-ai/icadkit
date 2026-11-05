@@ -66,10 +66,20 @@ remains `unknown`: no saved discriminator between a normal document and a
 registered library part has been qualified. Names and filename suffixes are not
 used to infer this distinction.
 
-The reader supports observed little-endian V7L2–V7L7 and V8L1–V8L3
+The reader supports observed little-endian V7L2–V7L7 and V8L1–V8L4
 `3DGLOBAL` layouts. Each version has an explicit profile and tag check:
-V7L2–V7L5 require `0x61000001`, V7L6/V7L7 require `0x61000002`, and V8 profiles
-require `0x61000003`. Unknown layouts stop with source ranges and diagnostics.
+V7L2–V7L5 require `0x61000001`, V7L6/V7L7 require `0x61000002`, V8L1–V8L3
+require `0x61000003`, and V8L4 requires `0x61000004`. Unknown layouts stop with
+source ranges and diagnostics.
+
+V8L4 (`icad-v8l4-parts-r3`, qualified on seven 2026 production files) keeps the
+V8L3 352-byte record and entity policy. Two record variants were observed only
+there: an external occurrence (flags `0x50`) may be 916 bytes, appending 564
+bytes behind the marker `0x101` at offset 360 (counted UTF-16 attribute strings
+and resource links) that are retained as `part_metadata_extension`; and the
+user attribute text record (`User_*,"value"` pairs, read as `extra_info`) saves
+230 instead of 1 in its second word. Both stay unqualified under V8L1–V8L3
+headers.
 
 V7L2–V7L5 expose inventory, hierarchy, names, comments, stored attributes and
 root-relative millimetre frames, with opaque entity geometry. Their saved final
@@ -117,13 +127,13 @@ Its resolved tree and transforms do not mutate this single-file `PartIndex`.
 
 ## Coordinate frames and units
 
-All qualified V7L2–V7L7/V8L1–V8L3 profiles evaluate `world_transform = inverse(saved_root_frame) * saved_part_frame`.
+All qualified V7L2–V7L7/V8L1–V8L4 profiles evaluate `world_transform = inverse(saved_root_frame) * saved_part_frame`.
 The root becomes identity; each child local frame is inverse(parent world) times
 child world. This normalization is independently checked against reopened SDK
 frames, including translated and rotated roots. It applies only with a complete
 saved hierarchy and a finite rigid root frame. Otherwise transforms and units
 remain unavailable, with `parts.root_frame` and the underlying diagnostics.
-V7L6/V7L7 revision 2 and V8L1/V8L2/V8L3 revision 3 qualify internal mirror
+V7L6/V7L7 revision 2 and V8L1/V8L2/V8L3/V8L4 revision 3 qualify internal mirror
 placements with `mirror_policy="stored_parity"`. V7L2–V7L5 mirrors and
 descendants of external ancestors remain unsupported. Nonfinite, non-rigid or overflowing evaluated frames are invalid.
 Both raw coordinate blocks and their exact source ranges remain unchanged.

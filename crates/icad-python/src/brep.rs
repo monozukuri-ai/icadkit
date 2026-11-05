@@ -324,6 +324,10 @@ fn surfacekind(py: Python<'_>, d: &Bound<'_, PyDict>, kind: &SurfaceKind) -> PyR
             d.set_item("end_parameter", *end_parameter)?;
             d.set_item("x_axis", x_axis.as_ref().map(|v| v.to_array()))?;
         }
+        SurfaceKind::Swept { section, direction } => {
+            d.set_item("section", section)?;
+            d.set_item("direction", direction.to_array())?;
+        }
         SurfaceKind::Unsupported { type_name } => {
             d.set_item("type_name", type_name)?;
         }

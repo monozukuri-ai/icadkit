@@ -69,7 +69,9 @@ def _index(index: int) -> None:
 @dataclass(frozen=True)
 class GeometryLimits:
     max_payload_bytes: int = 64 * 1024 * 1024
-    max_nodes: int = 100_000
+    # A 4.6 MB production body streams 108,613 nodes; the payload bound above
+    # already caps the node count that fits.
+    max_nodes: int = 1_000_000
     max_schema_types: int = 65_536
     max_fields_per_type: int = 4096
     max_string_bytes: int = 1024 * 1024

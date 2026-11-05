@@ -7,7 +7,7 @@ controls. By default, no preview extra, OCCT, iCAD, Wine, internet connection or
 is required. The browser needs WebGL for 3D display; without it, the part/property
 inventory remains available.
 
-The current qualified **little-endian V8L1/V8L2/V8L3** profiles support native
+The current qualified **little-endian V8L1/V8L2/V8L3/V8L4** profiles support native
 analytic display. V8L1/V8L2 require complete standalone primitive owners.
 The viewer also displays qualified **little-endian V7L6/V7L7** standalone
 analytic primitive owners, using root-relative placement and millimetres. Add `--csg`
@@ -117,7 +117,7 @@ latitude bands. Cones/frusta share the circumferential control; full tori use it
 for the major ring with half as many minor-ring segments (at least eight).
 Cone properties show both radii and height; torus properties show both radii. The mesh is a display approximation; the sphere's radius and
 centre frame remain exact saved parameters. `--saved-brep` also accepts qualified
-V8L1/V8L2/V8L3 final markers and shared resources, with independent global placement per
+V8L1/V8L2/V8L3/V8L4 final markers and shared resources, with independent global placement per
 occurrence. Spherical, conical and toroidal saved surfaces are subject to the
 [saved body conversion limits](saved-bodies.md).
 

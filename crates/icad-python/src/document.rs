@@ -14,6 +14,7 @@ fn entity_dict<'py>(
     )?;
     e.set_item("source_id", entity.source_id)?;
     e.set_item("raw_type", entity.raw_type)?;
+    e.set_item("kind", entity.kind)?;
     e.set_item("layer", entity.layer)?;
     e.set_item("color_index", entity.color_index)?;
     e.set_item("visible", entity.visible)?;

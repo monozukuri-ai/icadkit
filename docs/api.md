@@ -475,7 +475,7 @@ change these outcomes.
 
 ### Internal mirror orientation
 
-For qualified V7L6/V7L7/V8L1/V8L2/V8L3 profiles,
+For qualified V7L6/V7L7/V8L1/V8L2/V8L3/V8L4 profiles,
 `PartProfile.mirror_policy == "stored_parity"`. `PartPlacement` retains the
 right-handed SDK coordinate frames and adds `orientation_world_transform` and
 `orientation_local_transform` for signed occurrence orientation. These fields

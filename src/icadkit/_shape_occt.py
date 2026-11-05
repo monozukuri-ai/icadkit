@@ -40,6 +40,16 @@ def mass_properties(
     return volume.Mass(), area.Mass(), (centre.X(), centre.Y(), centre.Z())
 
 
+def surface_properties(
+    shape: Any, api: dict[str, Any]
+) -> tuple[float, tuple[float, float, float]]:
+    """Exact kernel surface area and area centroid; the measure of a sheet body."""
+    area = api["GProp"].GProp_GProps()
+    api["BRepGProp"].BRepGProp.SurfaceProperties_s(shape, area)
+    centre = area.CentreOfMass()
+    return area.Mass(), (centre.X(), centre.Y(), centre.Z())
+
+
 def solid_count(shape: Any, api: dict[str, Any]) -> int:
     return sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_SOLID, api))
 

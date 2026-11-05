@@ -1,6 +1,6 @@
 # Saved final bodies
 
-The saved-body viewer supports qualified V7L6/V7L7 and V8L1/V8L2/V8L3 display
+The saved-body viewer supports qualified V7L6/V7L7 and V8L1/V8L2/V8L3/V8L4 display
 paths using saved final B-Rep solids. This displays the saved result without replaying feature history.
 It is separate from `--csg` and does not claim support for unknown CSG operations.
 
@@ -36,7 +36,7 @@ requires a complete parsed B-Rep and topology plus the optional preview runtime.
 
 ## Qualified binding and geometry
 
-The adapter accepts qualified little-endian V7L2–V7L7 and V8L1/V8L2/V8L3,
+The adapter accepts qualified little-endian V7L2–V7L7 and V8L1/V8L2/V8L3/V8L4,
 complete part/resource indexes, qualified internal owners (including mirrors
 where the profile qualifies them) and saved root frames.
 External ancestors in a single-file index prevent evaluation. The separate
@@ -74,12 +74,16 @@ its resource's schema, surfaces or tessellation.
 | --- | --- | --- |
 | V7L2–V7L6 | Native marker source ID to a unique type-134/version-4 resource | `inverse(saved_root_frame) * saved_resource_frame` |
 | V7L7 | Native marker source ID to a unique type-134/version-5 resource | `inverse(saved_root_frame) * saved_resource_frame` |
-| V8L1/V8L2/V8L3 | The marker's unique association record to a unique type-135/version-6 resource number | `inverse(saved_root_frame) * saved_marker_frame` |
+| V8L1/V8L2/V8L3/V8L4 | The marker's unique association record to a unique type-135/version-6 resource number | `inverse(saved_root_frame) * saved_marker_frame` |
 | Original V8L1 template | Native source ID to a unique type-134/version-5 resource; root-owned 704-byte part with identity root and identical marker/resource frames | Qualified marker frame |
 
 V8 occurrences can share one resource number while retaining distinct native
 IDs, owners and frames; each has its own association record. Multiple bodies can
-belong to the same part in every profile. A marker without an association, with
+belong to the same part in every profile. The marker byte is `0xc1` (or `0x81`
+when hidden) on ordinary final bodies; the `0xc0` state is accepted on V8
+extended (704-byte) owners and, since 0.3.14, on 352-byte V8L4 parts, where a
+purchased part stored its three bodies in that state alone and they bound and
+converted like the others. A marker without an association, with
 several associations, or whose association names a missing or repeated resource
 number has `saved.binding`. A frame that differs between marker and association
 has `saved.association_frame`; neither frame is chosen.
@@ -94,9 +98,12 @@ the native marker for V8 profiles. Original bytes and payload hashes remain avai
 The final marker supplies visibility, palette index and layer; colors are
 illustrative and layer visibility is not interpreted.
 
-The current converter covers solid bodies with planes, cylinders, spheres,
-cones and tori, bounded by lines, circles, ellipses, source-identified
-surface-intersection curves and explicit trims of those curves. This is a
+The current converter covers solid and sheet bodies with planes, cylinders,
+spheres, cones and tori, bounded by lines, circles, ellipses, source-identified
+surface-intersection curves and explicit trims of those curves. A sheet body
+becomes its open shell: it meshes and exports like a solid, with no volume
+(`solid_count` 0) and the area centroid as its centroid. Wire bodies (edges
+without faces) and other body kinds stay unqualified. This is a
 bounded surface/boundary combination, not support for arbitrary solids
 containing those surfaces. Faces require explicit boundary loops. A conical
 face that ends in its apex is stored with a loop of one vertex and no edge; the
@@ -143,7 +150,7 @@ extend the converter's supported surfaces and topology.
 
 ## Saved mirrors
 
-For qualified internal part mirrors in V7L6/V7L7/V8L1/V8L2/V8L3, reflection is
+For qualified internal part mirrors in V7L6/V7L7/V8L1/V8L2/V8L3/V8L4, reflection is
 already present in the saved final B-Rep and its proper marker/resource frame.
 The adapter applies only the frame in the table above. It does not reflect by
 `Part.is_mirror` or multiply an occurrence orientation matrix. This prevents
@@ -161,8 +168,13 @@ within-owner mirror copies through their association records.
 
 `SavedBodyLimits` defaults to 256 bodies, 100,000 B-Rep entities, 20,000 traversed
 subshape occurrences, 250,000 triangles and 500,000 mesh vertices per body. Source
-and output edge/vertex tolerances must not exceed 0.01 mm. The tolerance ceiling
-is a rejection policy, not a request to expand source tolerances.
+and output edge/vertex tolerances must not exceed `max_source_tolerance_mm`,
+0.5 mm by default (0.01 mm before 0.3.14). Tolerant edges above 0.01 mm are
+common in production bodies: of 659 bodies in a 2026 corpus, 63 exceeded it;
+with the 0.5 mm bound 50 of the 54 bodies between 0.01 and 0.5 mm converted
+and validated, the other four failed closed with kernel diagnostics, and none
+of the nine bodies above 0.5 mm converted. The tolerance ceiling is a rejection
+policy, not a request to expand source tolerances; nothing is healed.
 
 `read_saved_bodies` accepts `part_limits` and `limits`; `evaluate_saved_body`
 accepts `geometry_limits`, `limits` and `linear_deflection_mm`.

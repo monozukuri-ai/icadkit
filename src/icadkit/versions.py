@@ -9,7 +9,18 @@ layout to match.
 
 from dataclasses import dataclass
 
-_LITTLE_3D = ("V7L2", "V7L3", "V7L4", "V7L5", "V7L6", "V7L7", "V8L1", "V8L2", "V8L3")
+_LITTLE_3D = (
+    "V7L2",
+    "V7L3",
+    "V7L4",
+    "V7L5",
+    "V7L6",
+    "V7L7",
+    "V8L1",
+    "V8L2",
+    "V8L3",
+    "V8L4",
+)
 _BIG_2D = (
     "V1L9",
     "V3L1",
@@ -28,7 +39,7 @@ _BIG_2D = (
     "V6L2",
     "V7L1",
 )
-_LAYOUT = ("V7L6", "V7L7", "V8L1", "V8L2", "V8L3")
+_LAYOUT = ("V7L6", "V7L7", "V8L1", "V8L2", "V8L3", "V8L4")
 
 
 @dataclass(frozen=True)

@@ -71,7 +71,7 @@ pub(crate) fn observed_version(order: ByteOrder, v: [u8; 4]) -> bool {
         ByteOrder::Big => matches!(v,
             [0, 1, 0, 9] | [0, 3, 0, 1..=5 | 7..=9]
             | [0, 5, 0, 1..=4] | [0, 6, 0, 1..=2] | [0, 7, 0, 1]),
-        ByteOrder::Little => matches!(v, [0, 7, 0, 2..=7] | [0, 8, 0, 1..=3]),
+        ByteOrder::Little => matches!(v, [0, 7, 0, 2..=7] | [0, 8, 0, 1..=4]),
     }
 }
 
@@ -382,7 +382,7 @@ impl Document {
                     continue;
                 }
                 let (prefix, kind) = match tag {
-                    0x61000001..=0x61000003 if is_3d => (4, "part"),
+                    0x61000001..=0x61000004 if is_3d => (4, "part"),
                     0x60000001 | 0x60000002 if is_3d => (4, "legacy_owner"),
                     0x20000000 | 0x21000000 | 0x40000000 => (4, "metadata"),
                     0x50000001 if reference_profile && reference_record(cursor + 4) => {

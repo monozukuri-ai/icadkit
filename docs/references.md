@@ -1,7 +1,7 @@
 # Explicit external references
 
 `read_assembly()` resolves caller-selected local ICD files and places qualified
-V7L6/V7L7/V8L1/V8L2/V8L3 content in the host's root-relative millimetre frame.
+V7L6/V7L7/V8L1/V8L2/V8L3/V8L4 content in the host's root-relative millimetre frame.
 `read()` and `read_parts()` remain single-file operations. No reference file is
 opened by those APIs, `write_native_viewer()`, or `view` without reference options.
 

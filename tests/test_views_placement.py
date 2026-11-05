@@ -129,14 +129,14 @@ def test_qualified_versions_match_the_native_readers():
             raw = bytes([0, int(major), 0, int(level)])
             vi = icadkit.read(drawing(order=order, version=raw)).read_views()
             assert not [d for d in vi.diagnostics if d.code == "views.profile"], label
-    for order, raw in (("little", b"\0\x08\0\x04"), ("big", b"\0\x03\0\x06")):
+    for order, raw in (("little", b"\0\x08\0\x05"), ("big", b"\0\x03\0\x06")):
         vi = icadkit.read(drawing(order=order, version=raw)).read_views()
         assert vi.status == "unsupported"
         assert [d.code for d in vi.diagnostics] == ["views.profile"]
-    assert "V8L4" not in support.parts and "V8L3" in support.parts
-    parts = icadkit.read(drawing(order="little", version=b"\0\x08\0\x04")).read_parts()
+    assert "V8L5" not in support.parts and "V8L4" in support.parts
+    parts = icadkit.read(drawing(order="little", version=b"\0\x08\0\x05")).read_parts()
     assert [d.code for d in parts.diagnostics][:1] == ["parts.profile"]
-    assert support.drawing_layout == ("V7L6", "V7L7", "V8L1", "V8L2", "V8L3")
+    assert support.drawing_layout == ("V7L6", "V7L7", "V8L1", "V8L2", "V8L3", "V8L4")
 
 
 def test_cli_json_reports_version_label_and_placements(tmp_path, capsys):

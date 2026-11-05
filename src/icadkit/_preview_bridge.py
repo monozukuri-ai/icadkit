@@ -60,6 +60,7 @@ def bridge(brep: Brep, *, saved_surfaces: bool = False) -> Any:
             nurbs=geom.NurbsSurface,
             offset=geom.OffsetSurface,
             spun=geom.SpunSurface,
+            swept=geom.SweptSurface,
             blended_edge=geom.BlendedEdgeSurface,
             blend_boundary=geom.BlendBoundarySurface,
         )

@@ -639,6 +639,7 @@ _COMPOSITE_VERSIONS = (
     b"\0\x08\0\x01",
     b"\0\x08\0\x02",
     b"\0\x08\0\x03",
+    b"\0\x08\0\x04",
 )
 # Records that carry attributes rather than drawing geometry: line information
 # (224) whose item stream could not be framed, motion verification (230-234).

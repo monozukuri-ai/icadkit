@@ -110,7 +110,7 @@ also displays qualified cones/frusta and full ring tori. The built-in exact V34
 profile covers qualified toroidal resources without an external catalog.
 
 Qualified millimetre frames and bounded native/saved geometry cover
-V7L6/V7L7 and V8L1/V8L2/V8L3, including internal mirrors.
+V7L6/V7L7 and V8L1/V8L2/V8L3/V8L4, including internal mirrors.
 Signed occurrence orientation is separate from already placed geometry; see
 [mirror semantics](docs/parts.md#coordinate-frames-and-units). Explicit
 [external-reference resolution](docs/references.md) now composes qualified child

@@ -89,7 +89,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "icad-core"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "flate2",
  "parasolid-core",
@@ -99,7 +99,7 @@ dependencies = [
 
 [[package]]
 name = "icad-python"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "icad-core",
  "parasolid-core",
@@ -142,9 +142,9 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "parasolid-core"
-version = "0.3.7"
+version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ff3cbb9817406ac809cd989e47454deee4af89a30b57b436561b676f98af37e"
+checksum = "a32654f3e5ffd2d2bc8ea581248b4197d6dbf589552c83e22eb28e78f9190d8f"
 
 [[package]]
 name = "portable-atomic"

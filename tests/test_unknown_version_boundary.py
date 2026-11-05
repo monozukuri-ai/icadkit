@@ -1,7 +1,8 @@
-"""Unknown-version rejection only; these are NOT real V8L4 files.
+"""Unknown-version rejection only; these are NOT real V8L5 files.
 
-The version bytes are deliberately changed in authored synthetic fixtures.
-Passing these tests qualifies rejection, never V8L4 compatibility.
+The version bytes are deliberately changed in authored synthetic fixtures to a
+level no reader has observed (V8L5; V8L4 is qualified since 0.3.14). Passing
+these tests qualifies rejection, never compatibility with that version.
 """
 
 import json
@@ -35,7 +36,7 @@ def unsupported_input(kind):
     if isinstance(value, icadkit.Document):
         value = value.source_bytes(icadkit.ByteRange(0, value.file_size))
     raw = bytearray(value)
-    raw[12:16] = b"\0\x08\0\x04"
+    raw[12:16] = b"\0\x08\0\x05"
     return bytes(raw)
 
 
@@ -54,7 +55,7 @@ def unsupported_input(kind):
 )
 def test_unknown_version_never_becomes_a_successful_empty_model(kind):
     doc = icadkit.read(unsupported_input(kind))
-    assert doc.header.raw_version == b"\0\x08\0\x04"
+    assert doc.header.raw_version == b"\0\x08\0\x05"
     parts = doc.read_parts()
     assert parts.profile is None and not parts.parts
     assert parts.status.index == parts.status.hierarchy == "unsupported"

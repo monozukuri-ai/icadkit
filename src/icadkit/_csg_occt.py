@@ -49,7 +49,14 @@ def _shapes(shape: Any, kind: Any, api: dict[str, Any]) -> Any:
         iterator.Next()
 
 
-def _check(shape: Any, limits: CsgLimits, api: dict[str, Any]) -> int:
+def _check(
+    shape: Any, limits: CsgLimits, api: dict[str, Any], *, allow_sheet: bool = False
+) -> int:
+    """Validate a kernel result and count its solids.
+
+    ``allow_sheet`` admits a result without solids whose shells are open: the
+    converted saved sheet body. CSG results and primitives are always solids.
+    """
     if shape.IsNull() or not api["BRepCheck"].BRepCheck_Analyzer(shape).IsValid():
         _fail(
             "csg.invalid_shape",
@@ -71,6 +78,10 @@ def _check(shape: Any, limits: CsgLimits, api: dict[str, Any]) -> int:
                     category="limit_exceeded",
                 )
     solids = sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_SOLID, api))
+    if allow_sheet and not solids:
+        if not any(True for _ in _shapes(shape, api["TopAbs"].TopAbs_FACE, api)):
+            _fail("csg.empty_result", "Sheet result has no faces", category="invalid")
+        return 0
     if not solids:
         _fail(
             "csg.empty_result",
@@ -419,18 +430,26 @@ def evaluate(body: CsgBody, limits: CsgLimits, deflection: float) -> CsgMesh:
 
 
 def mesh_shape(
-    shape: Any, body_id: str, limits: CsgLimits, deflection: float, api: dict[str, Any]
+    shape: Any,
+    body_id: str,
+    limits: CsgLimits,
+    deflection: float,
+    api: dict[str, Any],
+    *,
+    allow_sheet: bool = False,
 ) -> CsgMesh:
-    solids = _check(shape, limits, api)
+    solids = _check(shape, limits, api, allow_sheet=allow_sheet)
     volume = api["GProp"].GProp_GProps()
     area = api["GProp"].GProp_GProps()
     api["BRepGProp"].BRepGProp.VolumeProperties_s(shape, volume)
     api["BRepGProp"].BRepGProp.SurfaceProperties_s(shape, area)
-    center = volume.CentreOfMass()
+    # A sheet body has no volume: its measure is the area and the area centroid.
+    center = (area if allow_sheet and not solids else volume).CentreOfMass()
     centroid = (center.X(), center.Y(), center.Z())
+    mass = 0.0 if allow_sheet and not solids else volume.Mass()
     if (
-        not all(math.isfinite(v) for v in (*centroid, volume.Mass(), area.Mass()))
-        or volume.Mass() <= 0
+        not all(math.isfinite(v) for v in (*centroid, mass, area.Mass()))
+        or (mass <= 0 and not (allow_sheet and not solids))
         or area.Mass() <= 0
     ):
         _fail("csg.mass_properties", "Invalid CSG mass properties", category="invalid")
@@ -489,7 +508,7 @@ def mesh_shape(
         tuple(positions),
         tuple(triangles),
         tuple(edges),
-        volume.Mass(),
+        mass,
         area.Mass(),
         centroid,
         solids,

@@ -22,6 +22,12 @@ pub struct NativeEntityRecord {
     pub byte_range: ByteRange,
     pub source_id: Option<u32>,
     pub raw_type: Option<u32>,
+    /// The qualified record kind: a primitive kind, construction geometry
+    /// (`reference_point`, `reference_plane`, `reference_axis`) or an
+    /// annotation (`text`, `note`, `dimension`, `angular_dimension`,
+    /// `diameter_dimension`, `coordinate_systems`, `annotation`). None while
+    /// the layout is unqualified.
+    pub kind: Option<&'static str>,
     pub layer: Option<u32>,
     pub color_index: Option<u32>,
     pub visible: Option<bool>,
@@ -52,6 +58,7 @@ fn undecoded_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRecord {
         byte_range,
         source_id: None,
         raw_type: (bytes.len() >= 16).then(|| word(bytes, 12) >> 24),
+        kind: None,
         layer: None,
         color_index: None,
         visible: None,
@@ -142,6 +149,134 @@ pub(crate) fn read_entity(bytes: &[u8], byte_range: ByteRange) -> NativeEntityRe
     decode_entity(bytes, byte_range, false)
 }
 
+/// The standalone entity header shared by primitives, construction geometry
+/// and annotations: byte length, layer, zero, the marker word, a source ID
+/// in the 0x8... range and zero. The marker's class bytes are checked by the
+/// caller.
+fn standalone_header(bytes: &[u8]) -> bool {
+    bytes.len() >= 32
+        && word(bytes, 0) as usize == bytes.len()
+        && word(bytes, 4) > 0
+        && word(bytes, 8) == 0
+        && word(bytes, 16) & 0xf0000000 == 0x80000000
+        && word(bytes, 20) == 0
+}
+
+/// The 16-bit payload length at +24: the bytes after the 24-byte header for
+/// fixed records, or the fixed block before the variable tail of annotations.
+fn payload_length(bytes: &[u8]) -> usize {
+    usize::from(u16::from_le_bytes([bytes[24], bytes[25]]))
+}
+
+fn doubles(bytes: &[u8]) -> Vec<f64> {
+    bytes
+        .chunks_exact(8)
+        .map(|chunk| {
+            let mut raw = [0; 8];
+            raw.copy_from_slice(chunk);
+            f64::from_le_bytes(raw)
+        })
+        .collect()
+}
+
+fn unit_vector(v: &[f64]) -> bool {
+    (v.iter().map(|x| x * x).sum::<f64>() - 1.0).abs() <= 1e-8
+}
+
+fn norm(v: &[f64]) -> f64 {
+    v.iter().map(|x| x * x).sum::<f64>().sqrt()
+}
+
+fn header_fields(result: &mut NativeEntityRecord, bytes: &[u8], kind: &'static str) {
+    result.kind = Some(kind);
+    result.source_id = Some(word(bytes, 16));
+    result.layer = Some(word(bytes, 4));
+    result.visible = Some(word(bytes, 12) & 0x40 != 0);
+    result.geometry_status = Status::Complete;
+}
+
+fn unqualified_layout(mut result: NativeEntityRecord) -> NativeEntityRecord {
+    result.issue(
+        ErrorKind::Unsupported,
+        "native.layout",
+        0,
+        "Unqualified native entity layout; source range retained",
+    );
+    result
+}
+
+/// Construction geometry that owns no body. After the header and the payload
+/// length word come two retained values and, for a reference point (type 1,
+/// 80 bytes) a point and one retained value; for a reference plane (type 2,
+/// 104 bytes) a point, a unit normal and one retained value; for a reference
+/// axis (type 5, 152 bytes) a point, the half-length, a unit direction and the
+/// two end offsets of that length. The marker byte is 0xc0 on default planes
+/// and 0xc1 (or 0x81 hidden) otherwise. Qualified on 57 points, 607 planes
+/// and 82 axes of V7L2–V8L4 files; a qualified record leaves nothing drawable
+/// of its part unread.
+fn construction_entity(
+    mut result: NativeEntityRecord,
+    bytes: &[u8],
+    kind: &'static str,
+    length: usize,
+    unit_at: Option<usize>,
+) -> NativeEntityRecord {
+    let layout = bytes.len() == length
+        && standalone_header(bytes)
+        && word(bytes, 12) & 0x00ffefbe == 0x00010080
+        && payload_length(bytes) == length - 24;
+    if !layout {
+        return unqualified_layout(result);
+    }
+    let values = doubles(&bytes[32..length]);
+    let mut qualified = values.iter().all(|v| v.is_finite())
+        && unit_at.is_none_or(|at| unit_vector(&values[at..at + 3]));
+    if kind == "reference_axis" {
+        let half = values[5];
+        qualified = qualified
+            && half > 0.0
+            && (norm(&values[9..12]) - half).abs() <= 1e-6 * half.max(1.0)
+            && (norm(&values[12..15]) - half).abs() <= 1e-6 * half.max(1.0);
+    }
+    if !qualified {
+        return unqualified_layout(result);
+    }
+    header_fields(&mut result, bytes, kind);
+    result
+}
+
+/// Annotations that own no body: text (type 21), leader notes (22), length,
+/// angular and diameter dimensions (25, 26, 27), coordinate-system tables
+/// (248) and type-15 labels. Their marker carries the class byte 0x80 instead
+/// of the geometry class 0x01, and the payload length word names a fixed
+/// 96-byte block: two retained values and a rigid frame (origin, Z axis, X
+/// axis). The attribute block, text runs and drawn items that follow are
+/// retained raw. Qualified on 1,761 records of V7L2–V8L4 files.
+fn annotation_entity(
+    mut result: NativeEntityRecord,
+    bytes: &[u8],
+    kind: &'static str,
+) -> NativeEntityRecord {
+    let layout = bytes.len() >= 120
+        && standalone_header(bytes)
+        && word(bytes, 12) & 0x0000ffbe == 0x00008080
+        && payload_length(bytes) == 96;
+    if !layout {
+        return unqualified_layout(result);
+    }
+    let frame = doubles(&bytes[48..120]);
+    let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a * b).sum::<f64>();
+    let rigid = frame.iter().all(|v| v.is_finite())
+        && unit_vector(&frame[3..6])
+        && unit_vector(&frame[6..9])
+        && dot(&frame[3..6], &frame[6..9]).abs() <= 1e-8;
+    if !rigid {
+        return unqualified_layout(result);
+    }
+    header_fields(&mut result, bytes, kind);
+    result
+}
+
 /// A component record of a saved boolean body: the standalone layout with the
 /// component bit set, an optional explicit-result bit, and a result backlink
 /// where a standalone record stores zero. The caller checks that backlink and
@@ -152,6 +287,21 @@ pub(crate) fn read_component_entity(bytes: &[u8], byte_range: ByteRange) -> Nati
 
 fn decode_entity(bytes: &[u8], byte_range: ByteRange, component: bool) -> NativeEntityRecord {
     let mut result = undecoded_entity(bytes, byte_range);
+    if !component {
+        match result.raw_type {
+            Some(1) => return construction_entity(result, bytes, "reference_point", 80, None),
+            Some(2) => return construction_entity(result, bytes, "reference_plane", 104, Some(5)),
+            Some(5) => return construction_entity(result, bytes, "reference_axis", 152, Some(6)),
+            Some(15) => return annotation_entity(result, bytes, "annotation"),
+            Some(21) => return annotation_entity(result, bytes, "text"),
+            Some(22) => return annotation_entity(result, bytes, "note"),
+            Some(25) => return annotation_entity(result, bytes, "dimension"),
+            Some(26) => return annotation_entity(result, bytes, "angular_dimension"),
+            Some(27) => return annotation_entity(result, bytes, "diameter_dimension"),
+            Some(248) => return annotation_entity(result, bytes, "coordinate_systems"),
+            _ => {}
+        }
+    }
     // Layer, saved visibility and palette index are qualified only for these
     // exact native layouts. A Parasolid body has a different attribute layout.
     // Variable-length layouts carry their own length in the marker word.
@@ -279,6 +429,7 @@ fn decode_entity(bytes: &[u8], byte_range: ByteRange, component: bool) -> Native
                     frame,
                     parameters,
                 });
+                result.kind = Some(kind);
                 result.geometry_status = Status::Complete;
             }
             Err((kind, code, text)) => {
@@ -390,6 +541,7 @@ fn decode_entity(bytes: &[u8], byte_range: ByteRange, component: bool) -> Native
         frame,
         parameters: values[9..].to_vec(),
     });
+    result.kind = Some(kind);
     result.geometry_status = Status::Complete;
     result
 }

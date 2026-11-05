@@ -28,7 +28,7 @@ for entity in drawing.entities:
 
 Observed big-endian profiles cover V1L9, V3L1/L2/L3/L4/L5/L7/L8/L9,
 V5L1/L2/L3/L4, V6L1/L2 and V7L1. Little-endian profiles cover V7L2–V7L7
-and V8L1–V8L3. The counted view header and record boundaries must also match;
+and V8L1–V8L4. The counted view header and record boundaries must also match;
 a version label alone does not establish support. V3L6 and V8L4 are not qualified.
 Numeric values follow the file byte order. Packed attribute bytes have separate
 rules and cannot be decoded by swapping the entire file.

@@ -407,7 +407,7 @@ def read_assembly(
                 "references.profile",
                 None,
                 "Assembly requires a complete qualified "
-                "V7L6/V7L7/V8L1/V8L2/V8L3 part index and root",
+                "V7L6/V7L7/V8L1/V8L2/V8L3/V8L4 part index and root",
             )
         )
     documents = [

@@ -210,6 +210,7 @@ class RawNativeEntity(TypedDict):
     byte_range: tuple[int, int]
     source_id: int | None
     raw_type: int | None
+    kind: str | None
     layer: int | None
     color_index: int | None
     visible: bool | None

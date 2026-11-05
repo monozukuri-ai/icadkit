@@ -1,4 +1,4 @@
-//! Bounded V7L2 through V7L7 and V8L1 through V8L3 part records.
+//! Bounded V7L2 through V7L7 and V8L1 through V8L4 part records.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -166,6 +166,7 @@ enum PartProfile {
     V8L1,
     V8L2,
     V8L3,
+    V8L4,
 }
 
 impl PartProfile {
@@ -248,6 +249,14 @@ impl PartProfile {
                 Some("v8_resource_association"),
                 None,
             ),
+            Self::V8L4 => (
+                "icad-v8l4-parts-r3",
+                "root_relative",
+                "saved_entities",
+                Some("mm"),
+                Some("v8_resource_association"),
+                None,
+            ),
         };
         PartProfileInfo {
             profile_id,
@@ -279,6 +288,7 @@ impl PartProfile {
             [0, 8, 0, 1] => Some(Self::V8L1),
             [0, 8, 0, 2] => Some(Self::V8L2),
             [0, 8, 0, 3] => Some(Self::V8L3),
+            [0, 8, 0, 4] => Some(Self::V8L4),
             _ => None,
         }
     }
@@ -288,13 +298,14 @@ impl PartProfile {
             Self::V7L2 | Self::V7L3 | Self::V7L4 | Self::V7L5 => 0x61000001,
             Self::V7L6 | Self::V7L7 => 0x61000002,
             Self::V8L1 | Self::V8L2 | Self::V8L3 => 0x61000003,
+            Self::V8L4 => 0x61000004,
         }
     }
 
     fn mirrors(self) -> bool {
         matches!(
             self,
-            Self::V7L6 | Self::V7L7 | Self::V8L1 | Self::V8L2 | Self::V8L3
+            Self::V7L6 | Self::V7L7 | Self::V8L1 | Self::V8L2 | Self::V8L3 | Self::V8L4
         )
     }
 
@@ -306,7 +317,7 @@ impl PartProfile {
     }
 
     fn v8(self) -> bool {
-        matches!(self, Self::V8L1 | Self::V8L2 | Self::V8L3)
+        matches!(self, Self::V8L1 | Self::V8L2 | Self::V8L3 | Self::V8L4)
     }
 
     fn metadata_layout(self, bytes: &[u8]) -> bool {
@@ -543,7 +554,7 @@ impl PartIndex {
 }
 
 impl Document {
-    /// Read observed little-endian V7L2–V7L7/V8L1–V8L3 3DGLOBAL part records.
+    /// Read observed little-endian V7L2–V7L7/V8L1–V8L4 3DGLOBAL part records.
     /// Unknown entities stop the view; their bytes are never scanned for parts.
     pub fn read_parts(&self, limits: PartLimits) -> Result<PartIndex, InspectError> {
         if limits.max_parts == 0
@@ -581,7 +592,7 @@ impl Document {
                 ErrorKind::Unsupported,
                 "parts.profile",
                 12,
-                "part records require an observed little-endian V7L2 through V7L7 or V8L1 through V8L3 profile",
+                "part records require an observed little-endian V7L2 through V7L7 or V8L1 through V8L4 profile",
             );
             for r in self.records().iter().filter(|r| r.tag == "V/W") {
                 result.opaque(
@@ -705,7 +716,7 @@ impl Document {
                     }
                     break;
                 }
-                if matches!(tag, 0x61000001..=0x61000003) && tag != profile.part_tag() {
+                if matches!(tag, 0x61000001..=0x61000004) && tag != profile.part_tag() {
                     result.index_status = if result.parts.is_empty() {
                         Status::Unsupported
                     } else {
@@ -779,7 +790,7 @@ impl Document {
                 // their own byte length, not another marker.
                 if tag == 0x30010000 && !in_entities && !result.parts.is_empty() {
                     if end - at >= 8
-                        && matches!(word(bytes, at + 4), 0xfe000000 | 0x61000001..=0x61000003)
+                        && matches!(word(bytes, at + 4), 0xfe000000 | 0x61000001..=0x61000004)
                     {
                         result.index_status = Status::Partial;
                         result.issue(
@@ -842,12 +853,20 @@ impl Document {
                 let next = at + length + prefix;
                 if is_part {
                     in_entities = false;
+                    // V8L4 external occurrences (flags 0x50) append a 564-byte
+                    // extension behind a 0x101 marker: counted UTF-16 attribute
+                    // strings and resource links. It is retained as opaque bytes.
+                    let v8l4_external_extension = profile == PartProfile::V8L4
+                        && length == 916
+                        && word(bytes, at + 8) == 0x50
+                        && word(bytes, at + 360) == 0x101;
                     let extended_part = ((length == 700 && profile.v8())
                         || (matches!(profile, PartProfile::V8L1 | PartProfile::V8L2)
-                            && length == 22364))
+                            && length == 22364)
+                        || v8l4_external_extension)
                         && word(bytes, at + 12) == 1
                         && word(bytes, at + 356) as usize == length - 352
-                        && word(bytes, at + 360) == 1
+                        && (word(bytes, at + 360) == 1 || v8l4_external_extension)
                         && word(bytes, at + 364) == 1;
                     if length != 352 && !extended_part {
                         result.index_status = Status::Partial;
@@ -878,7 +897,10 @@ impl Document {
                         && length == 700
                         && matches!(
                             profile,
-                            PartProfile::V8L1 | PartProfile::V8L2 | PartProfile::V8L3
+                            PartProfile::V8L1
+                                | PartProfile::V8L2
+                                | PartProfile::V8L3
+                                | PartProfile::V8L4
                         );
                     if result.parts.len() >= limits.max_parts {
                         return Err(limit(
@@ -980,8 +1002,11 @@ impl Document {
                     && (word(bytes, at + 12) == 0xcf010081
                         || (profile.mirrors() && word(bytes, at + 12) == 0xcf011081))
                 {
+                    // The second word is 1 in every V7L7–V8L3 record; V8L4 user
+                    // attribute text (the same `User_*,"value"` list) saves 230.
                     if length >= 32
-                        && word(bytes, at + 4) == 1
+                        && (word(bytes, at + 4) == 1
+                            || (profile == PartProfile::V8L4 && word(bytes, at + 4) == 230))
                         && word(bytes, at + 8) == 0
                         && word(bytes, at + 20) == 0
                         && word(bytes, at + 24) & 0xff000000 == 0xfd000000
@@ -1095,7 +1120,7 @@ impl Document {
                         };
                         part.entities.push(if parametric_owner {
                             crate::native::read_parametric_entity(&bytes[at..next], range)
-                        } else if profile == PartProfile::V8L3 {
+                        } else if matches!(profile, PartProfile::V8L3 | PartProfile::V8L4) {
                             crate::native::read_entity(&bytes[at..next], range)
                         } else if profile == PartProfile::V7L7 {
                             crate::native::read_opaque_entity(&bytes[at..next], range)

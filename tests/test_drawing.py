@@ -68,7 +68,7 @@ def test_registered_original_without_resave(number):
     "order,version",
     [
         ("big", b"\0\x03\0\x06"),
-        ("little", b"\0\x08\0\x04"),
+        ("little", b"\0\x08\0\x05"),
         ("little", b"\0\x06\0\x02"),
         ("big", b"\0\x08\0\x03"),
     ],

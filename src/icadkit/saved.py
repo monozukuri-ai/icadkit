@@ -32,7 +32,10 @@ class SavedBodyLimits:
     max_subshapes: int = 20_000
     max_triangles: int = 250_000
     max_vertices: int = 500_000
-    max_source_tolerance_mm: float = 0.01
+    # Tolerant edges and vertices up to this bound convert and validate; the
+    # 2026 production corpus converted 50 of its 54 bodies between 0.01 and
+    # 0.5 mm, and none of the 9 bodies above 0.5 mm.
+    max_source_tolerance_mm: float = 0.5
 
     def __post_init__(self) -> None:
         for name in self.__dataclass_fields__:
@@ -223,9 +226,16 @@ def _read_saved_bodies(
                     or words[2]
                     or (
                         words[3] not in (0x550108C1, 0x55010881)
+                        # The 0xc0 state (bit 0 clear) is observed on V8 extended
+                        # owners and, since V8L4, on 352-byte purchased parts
+                        # whose only bodies carry it; binding and conversion
+                        # qualify those bodies like the 0xc1 state.
                         and not (
                             not v7
-                            and part.byte_range.length == 704
+                            and (
+                                part.byte_range.length == 704
+                                or profile.profile_id == "icad-v8l4-parts-r3"
+                            )
                             and words[3] == 0x550108C0
                         )
                     )
