@@ -102,8 +102,12 @@ The current converter covers solid and sheet bodies with planes, cylinders,
 spheres, cones and tori, bounded by lines, circles, ellipses, source-identified
 surface-intersection curves and explicit trims of those curves. A sheet body
 becomes its open shell: it meshes and exports like a solid, with no volume
-(`solid_count` 0) and the area centroid as its centroid. Wire bodies (edges
-without faces) and other body kinds stay unqualified. This is a
+(`solid_count` 0) and the area centroid as its centroid. A wire body (edges
+without faces, as iCAD saves construction curves) becomes its edges, chained
+into wires where they connect: its mesh is the edge polylines with no
+triangles, `volume_mm3` 0.0 and `area_mm2` 0.0, the part shape reports
+`volume_mm3` and `area_mm2` as `None` with the length centroid, and the GLB
+of `cad3d-ir-icad` draws it as lines. Other body kinds stay unqualified. This is a
 bounded surface/boundary combination, not support for arbitrary solids
 containing those surfaces. Faces require explicit boundary loops. A conical
 face that ends in its apex is stored with a loop of one vertex and no edge; the

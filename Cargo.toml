@@ -4,13 +4,13 @@ resolver = "3"
 
 [workspace.package]
 # Release version source. Update with: python3 scripts/bump_version.py X.Y.Z
-version = "0.3.14"
+version = "0.3.15"
 edition = "2024"
 rust-version = "1.88"
 license = "PolyForm-Noncommercial-1.0.0"
 
 [workspace.dependencies]
-parasolid-core = "=0.3.12"
+parasolid-core = "=0.3.13"
 pyo3 = { version = "=0.29.2", features = ["abi3-py310"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 sha2 = "0.10"

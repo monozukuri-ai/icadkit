@@ -15,6 +15,36 @@
 
 ### Added
 
+- The saved-body decoder (Rust) moves to `parasolid-core` 0.3.13: a
+  construction blend with null thumb weights no longer fails its body with
+  "double array contains null or non-finite data" (four bodies of a 2026
+  production file).
+- Saved **wire bodies** (edges without faces: construction curves) convert
+  to their edges, chained into wires where they connect. `read_saved_bodies`
+  and `read_part_shapes` report them `complete` with `solid_count` 0, no
+  volume and no area (`None` in part shapes, `0.0` in meshes) and the length
+  centroid; their mesh is the edge polylines without triangles, which
+  `cad3d-ir-icad` already draws as lines. Fourteen bodies of a 2026
+  production file were refused as "Only saved solid and sheet bodies are
+  qualified" before. Requires `parasolid-kit` 0.3.14.
+- A saved FIN whose source geometry leaves its declared edge tolerance (plus
+  the conversion budget) no longer fails the body while the deviation stays
+  within `SavedBodyLimits.max_source_tolerance_mm`, the bound that also
+  qualifies declared tolerances: the output edge tolerance covers the
+  measured deviation and the operation
+  `source_fin_deviation_within_tolerance_bound` records it (three bodies of
+  a 2026 production file whose FINs differ from the shared edge by 3.5 to
+  3.9 µm against a declared 1 µm).
+- Blend-heavy saved bodies convert with `parasolid-kit` 0.3.14, which
+  rebuilds rolling-ball blends (pipes around their spines, with a fixed frame
+  around a closed spine), their contact curves and the edges between blends,
+  reads periodic B-surfaces and ring FINs stored a period away from their
+  curve, and revolves a spun profile that meets its axis at one end. On the
+  three largest V8L4 production files, 407 of 417, 40 of 40 and 199 of 199
+  saved bodies convert; the nine others of the first declare edge or vertex
+  tolerances above `max_source_tolerance_mm` and the last fails its output
+  tolerance where faces reach several millimetres into a B-surface's linear
+  extension.
 - iCAD SX **V8L4** (header bytes `00 08 00 04`) is qualified for the part,
   view and drawing readers, observed on seven 2026 production files. Its part
   records carry the new tag `0x61000004` with the V8L3 352-byte layout

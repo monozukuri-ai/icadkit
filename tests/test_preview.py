@@ -213,13 +213,13 @@ def test_v34_bridge_does_not_reparse(
     assert signed_volume(triangles) == pytest.approx(6e-6, rel=1e-6)
 
 
-def test_wire_is_explicitly_unsupported(optional_backend, preview_doc, tmp_path):
+def test_wire_previews_as_its_edges(optional_backend, preview_doc, tmp_path):
+    # A wire body has no faces: the preview is its edge polylines alone.
     doc = preview_doc(wire_payload(embedded=True))
-    with pytest.raises(PreviewError, match="unsupported_body"):
-        write_preview(
-            doc, doc.resources[0].resource_id, tmp_path / "out", source_unit="mm"
-        )
-    assert not (tmp_path / "out").exists()
+    result = write_preview(
+        doc, doc.resources[0].resource_id, tmp_path / "out", source_unit="mm"
+    )
+    assert result.triangle_count == 0 and result.edge_count == 1
 
 
 @pytest.mark.parametrize(

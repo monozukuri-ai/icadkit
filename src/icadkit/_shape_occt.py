@@ -50,8 +50,22 @@ def surface_properties(
     return area.Mass(), (centre.X(), centre.Y(), centre.Z())
 
 
+def linear_properties(
+    shape: Any, api: dict[str, Any]
+) -> tuple[float, tuple[float, float, float]]:
+    """Exact kernel curve length and length centroid; the measure of a wire body."""
+    length = api["GProp"].GProp_GProps()
+    api["BRepGProp"].BRepGProp.LinearProperties_s(shape, length)
+    centre = length.CentreOfMass()
+    return length.Mass(), (centre.X(), centre.Y(), centre.Z())
+
+
 def solid_count(shape: Any, api: dict[str, Any]) -> int:
     return sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_SOLID, api))
+
+
+def face_count(shape: Any, api: dict[str, Any]) -> int:
+    return sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_FACE, api))
 
 
 def compound(shapes: list[Any], api: dict[str, Any]) -> Any:

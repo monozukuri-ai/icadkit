@@ -20,8 +20,10 @@ from .saved import SavedBody, SavedBodyLimits, SavedBodyMesh, _error
 def _preflight(model: Any, limits: SavedBodyLimits) -> None:
     if not model.complete or not model.topology.valid or not model.bodies:
         raise _error("topology", "Saved B-Rep must be complete and topologically valid")
-    if any(b.kind.value not in ("solid", "sheet") for b in model.bodies):
-        raise _error("body_kind", "Only saved solid and sheet bodies are qualified")
+    if any(b.kind.value not in ("solid", "sheet", "wire") for b in model.bodies):
+        raise _error(
+            "body_kind", "Only saved solid, sheet and wire bodies are qualified"
+        )
     for value in (*model.edges, *model.vertices):
         if value.tolerance is not None and (
             not math.isfinite(value.tolerance)
@@ -77,10 +79,12 @@ def _preflight(model: Any, limits: SavedBodyLimits) -> None:
     if any(f.sense.value == "unknown" or not f.loops for f in model.faces):
         raise _error("face", "Saved faces require explicit oriented boundary loops")
     apex = {h for _, _, loop in _apex_loops(model) for h in loop.half_edges}
+    # The fins of a wire body's edges belong to no loop and are stored as
+    # dummies; they carry no face geometry and the builder never reads them.
     if any(
         h.dummy or h.edge is None or h.sense.value == "unknown"
         for h in model.half_edges
-        if h.id not in apex
+        if h.id not in apex and h.loop is not None
     ):
         raise _error("half_edge", "Unqualified saved half-edge")
 
@@ -278,25 +282,39 @@ def _build(
                     "output_tolerance",
                     "Kernel vertex tolerance exceeds configured bound",
                 )
-        if not api["BRepCheck"].BRepCheck_Analyzer(shape).IsValid():
+        builder.face_shapes[face.id] = shape
+        try:
+            # The builder's own check applies its wire repair (tolerance growth
+            # over a crossing just before a shared vertex) before judging.
+            builder._check_face(face)
+        except ValueError as exc:
             raise _error(
                 "invalid_face", f"Saved face {face.id} failed kernel validation"
-            )
-        builder.face_shapes[face.id] = shape
+            ) from exc
     builder._validate_source_boundaries()
     # The builder's fatal diagnostics stop the conversion. Its non-fatal ones
-    # (edges whose sampled FIN-to-output difference exceeds the source edge
-    # tolerance while the conversion error budget passed) are recorded as an
-    # operation; the output stays within the budget the builder validated.
+    # are recorded as operations: edges whose sampled FIN-to-output difference
+    # exceeds the source edge tolerance while the conversion error budget
+    # passed, and edges whose source FIN leaves even that budget but stays
+    # within the qualified source-tolerance bound (the output edge tolerance
+    # covers the measured deviation).
     if any(_fatal(d) for d in builder.diagnostics):
         raise _error(
             "conversion_diagnostics",
             "Saved boundary conversion has unresolved diagnostics",
         )
-    operations = [*builder.operations, "restore_declared_body_resolution"]
-    if builder.diagnostics:
-        operations.append("source_fin_deviation_within_conversion_budget")
     shape = builder._make_root(builder._build_bodies())
+    operations = [*builder.operations, "restore_declared_body_resolution"]
+    codes = {d.code for d in builder.diagnostics}
+    if codes - {"occt.source_fin_deviation", "occt.intersection_deviation"}:
+        operations.append("source_fin_deviation_within_conversion_budget")
+    if "occt.source_fin_deviation" in codes:
+        operations.append("source_fin_deviation_within_tolerance_bound")
+    if "occt.intersection_deviation" in codes:
+        # An intersection whose supports meet only within the same bound (a
+        # blend spine across a crease of an offset, a chart a few micrometres
+        # off a rebuilt blend pipe); the edges on it carry the deviation.
+        operations.append("intersection_deviation_within_tolerance_bound")
     count = sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_FACE, api))
     if count != len(model.faces):
         raise _error("face_coverage", "Saved face count changed during conversion")
@@ -324,10 +342,13 @@ def build_base(
     # The preflight has bounded that resolution; nothing is healed.
     resolution = min(b.linear_resolution for b in model.bodies) * 1000
     occt = import_module("parasolid_kit.interop.occt.options")
+    # A FIN that leaves its declared edge tolerance is still accepted while the
+    # deviation stays within the same bound that qualifies declared tolerances.
     options = occt.OcctConversionOptions(
         source_unit="m",
         target_unit="mm",
         validation=occt.ValidationTolerances(linear_absolute=max(1e-6, resolution)),
+        fin_deviation_cap=limits.max_source_tolerance_mm,
     )
     shape, operations = _build(model, options, api, limits)
     return shape, operations, len(model.faces)
@@ -350,9 +371,16 @@ def convert(
             max_triangles=limits.max_triangles,
             max_vertices=limits.max_vertices,
         )
-        # A saved sheet body is its open shell; solids arrive closed or not at all.
+        # A saved sheet body is its open shell and a wire body its edges;
+        # solids arrive closed or not at all.
         mesh = mesh_shape(
-            shape, body.body_id, bounded, deflection, api, allow_sheet=True
+            shape,
+            body.body_id,
+            bounded,
+            deflection,
+            api,
+            allow_sheet=True,
+            allow_wire=True,
         )
         assert body.resource_id is not None
         return SavedBodyMesh(

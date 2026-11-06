@@ -396,7 +396,14 @@ def _convert(
     if context.api is None:
         assert context.api_error is not None
         return _failed(source, body, (context.api_error,), resource_id), None
-    from ._shape_occt import mass_properties, place, solid_count, surface_properties
+    from ._shape_occt import (
+        face_count,
+        linear_properties,
+        mass_properties,
+        place,
+        solid_count,
+        surface_properties,
+    )
 
     payload: str | None = None
     faces: int | None = None
@@ -422,17 +429,28 @@ def _convert(
                 shape = place(shape, transform, context.api)
         solids = solid_count(shape, context.api)
         volume: float | None
+        area: float | None
         if isinstance(body, SavedBody) and solids == 0:
-            # A saved sheet body converts to its open shell: no volume, a
-            # positive area and the area centroid. Solids never arrive here
-            # without a solid; the builder closes their shells or fails.
-            volume = None
-            area, centroid = surface_properties(shape, context.api)
-            valid = math.isfinite(area) and area > 0
+            if face_count(shape, context.api) == 0:
+                # A saved wire body converts to its edges: neither volume nor
+                # area, a positive length and the length centroid.
+                volume = None
+                area = None
+                length, centroid = linear_properties(shape, context.api)
+                valid = math.isfinite(length) and length > 0
+            else:
+                # A saved sheet body converts to its open shell: no volume, a
+                # positive area and the area centroid. Solids never arrive
+                # here without a solid; the builder closes their shells or
+                # fails.
+                volume = None
+                area, centroid = surface_properties(shape, context.api)
+                valid = math.isfinite(area) and area > 0
         else:
             volume, area, centroid = mass_properties(shape, context.api)
             valid = volume > 0 and area > 0 and math.isfinite(volume)
-        if not valid or not all(math.isfinite(v) for v in (area, *centroid)):
+        measures = (*(() if area is None else (area,)), *centroid)
+        if not valid or not all(math.isfinite(v) for v in measures):
             raise UnsupportedFormatError(
                 Diagnostic(
                     "invalid",
@@ -586,12 +604,20 @@ def _part_shape(context: _Context, part: Part, frame: ShapeFrame) -> PartShape:
         compound = make_compound(shapes, context.api)
         volume = sum(b.volume_mm3 or 0.0 for b in done)
         area = sum(b.area_mm2 or 0.0 for b in done)
+        # The part centroid weights its bodies by volume; a part of sheets
+        # only by area, and one of wires only (no volume, no area) evenly.
+        weights = [b.volume_mm3 or 0.0 for b in done]
+        if not any(weights):
+            weights = [b.area_mm2 or 0.0 for b in done]
+        if not any(weights):
+            weights = [1.0 for _ in done]
+        total = sum(weights)
         centroid = tuple(
             sum(
-                (b.volume_mm3 or 0.0) * (b.centroid_mm or (0.0, 0.0, 0.0))[i]
-                for b in done
+                w * (b.centroid_mm or (0.0, 0.0, 0.0))[i]
+                for w, b in zip(weights, done, strict=True)
             )
-            / volume
+            / total
             for i in range(3)
         )
     return PartShape(

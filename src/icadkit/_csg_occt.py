@@ -50,12 +50,19 @@ def _shapes(shape: Any, kind: Any, api: dict[str, Any]) -> Any:
 
 
 def _check(
-    shape: Any, limits: CsgLimits, api: dict[str, Any], *, allow_sheet: bool = False
+    shape: Any,
+    limits: CsgLimits,
+    api: dict[str, Any],
+    *,
+    allow_sheet: bool = False,
+    allow_wire: bool = False,
 ) -> int:
     """Validate a kernel result and count its solids.
 
-    ``allow_sheet`` admits a result without solids whose shells are open: the
-    converted saved sheet body. CSG results and primitives are always solids.
+    ``allow_sheet`` admits a result without solids whose shells are open (the
+    converted saved sheet body); ``allow_wire`` one without faces that still
+    has edges (the converted saved wire body). CSG results and primitives are
+    always solids.
     """
     if shape.IsNull() or not api["BRepCheck"].BRepCheck_Analyzer(shape).IsValid():
         _fail(
@@ -78,10 +85,18 @@ def _check(
                     category="limit_exceeded",
                 )
     solids = sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_SOLID, api))
-    if allow_sheet and not solids:
-        if not any(True for _ in _shapes(shape, api["TopAbs"].TopAbs_FACE, api)):
-            _fail("csg.empty_result", "Sheet result has no faces", category="invalid")
-        return 0
+    if not solids and (allow_sheet or allow_wire):
+        faces = any(True for _ in _shapes(shape, api["TopAbs"].TopAbs_FACE, api))
+        edges = any(True for _ in _shapes(shape, api["TopAbs"].TopAbs_EDGE, api))
+        if (allow_sheet and faces) or (allow_wire and edges and not faces):
+            return 0
+        _fail(
+            "csg.empty_result",
+            "Sheet result has no faces"
+            if allow_sheet and not allow_wire
+            else "Open result has neither faces nor edges",
+            category="invalid",
+        )
     if not solids:
         _fail(
             "csg.empty_result",
@@ -437,20 +452,35 @@ def mesh_shape(
     api: dict[str, Any],
     *,
     allow_sheet: bool = False,
+    allow_wire: bool = False,
 ) -> CsgMesh:
-    solids = _check(shape, limits, api, allow_sheet=allow_sheet)
+    solids = _check(shape, limits, api, allow_sheet=allow_sheet, allow_wire=allow_wire)
+    wire_only = (
+        allow_wire
+        and not solids
+        and not any(True for _ in _shapes(shape, api["TopAbs"].TopAbs_FACE, api))
+    )
     volume = api["GProp"].GProp_GProps()
     area = api["GProp"].GProp_GProps()
     api["BRepGProp"].BRepGProp.VolumeProperties_s(shape, volume)
     api["BRepGProp"].BRepGProp.SurfaceProperties_s(shape, area)
-    # A sheet body has no volume: its measure is the area and the area centroid.
-    center = (area if allow_sheet and not solids else volume).CentreOfMass()
+    if wire_only:
+        # A wire body has neither volume nor area: its measure is the length
+        # and the length centroid.
+        length = api["GProp"].GProp_GProps()
+        api["BRepGProp"].BRepGProp.LinearProperties_s(shape, length)
+        center = length.CentreOfMass()
+        mass, measure = 0.0, length.Mass()
+    else:
+        # A sheet body has no volume: its measure is the area and the area centroid.
+        center = (area if allow_sheet and not solids else volume).CentreOfMass()
+        mass = 0.0 if allow_sheet and not solids else volume.Mass()
+        measure = area.Mass()
     centroid = (center.X(), center.Y(), center.Z())
-    mass = 0.0 if allow_sheet and not solids else volume.Mass()
     if (
-        not all(math.isfinite(v) for v in (*centroid, mass, area.Mass()))
-        or (mass <= 0 and not (allow_sheet and not solids))
-        or area.Mass() <= 0
+        not all(math.isfinite(v) for v in (*centroid, mass, measure))
+        or (mass <= 0 and not ((allow_sheet or allow_wire) and not solids))
+        or measure <= 0
     ):
         _fail("csg.mass_properties", "Invalid CSG mass properties", category="invalid")
     mesher = api["BRepMesh"].BRepMesh_IncrementalMesh(
@@ -501,7 +531,36 @@ def mesh_shape(
         for (a, b), count in boundary.items():
             if count == 1:
                 edges.extend((a, b))
-    if not triangles or not all(math.isfinite(v) for v in positions):
+    if wire_only:
+        # The mesher discretises free edges into their 3D polygons; a wire
+        # body's mesh is those polylines and has no triangles.
+        for item in _shapes(shape, api["TopAbs"].TopAbs_EDGE, api):
+            edge = api["TopoDS"].TopoDS.Edge_s(item)
+            location = api["TopLoc"].TopLoc_Location()
+            polygon = api["BRep"].BRep_Tool.Polygon3D_s(edge, location)
+            if polygon is None or polygon.NbNodes() < 2:
+                _fail(
+                    "csg.tessellation",
+                    "Wire edge has no polygon; no partial mesh",
+                    category="invalid",
+                )
+            offset = len(positions) // 3
+            if offset + polygon.NbNodes() > limits.max_vertices:
+                _fail(
+                    "csg.limit_mesh",
+                    "CSG mesh exceeds vertex/triangle limits",
+                    category="limit_exceeded",
+                )
+            transform = location.Transformation()
+            nodes = polygon.Nodes()
+            for i in range(nodes.Lower(), nodes.Upper() + 1):
+                point = nodes.Value(i).Transformed(transform)
+                positions.extend((point.X(), point.Y(), point.Z()))
+            for i in range(polygon.NbNodes() - 1):
+                edges.extend((offset + i, offset + i + 1))
+    if (not edges if wire_only else not triangles) or not all(
+        math.isfinite(v) for v in positions
+    ):
         _fail("csg.tessellation", "Invalid or empty CSG mesh", category="invalid")
     return CsgMesh(
         body_id,
@@ -509,7 +568,7 @@ def mesh_shape(
         tuple(triangles),
         tuple(edges),
         mass,
-        area.Mass(),
+        0.0 if wire_only else area.Mass(),
         centroid,
         solids,
         deflection,

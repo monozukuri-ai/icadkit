@@ -152,7 +152,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "parasolid-kit", extras = ["occt"], marker = "extra == 'preview'", specifier = ">=0.3.12,<0.4" }]
+requires-dist = [{ name = "parasolid-kit", extras = ["occt"], marker = "extra == 'preview'", specifier = ">=0.3.14,<0.4" }]
 provides-extras = ["preview"]
 
 [package.metadata.requires-dev]
@@ -413,14 +413,14 @@ wheels = [
 
 [[package]]
 name = "parasolid-kit"
-version = "0.3.12"
+version = "0.3.14"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8a/89/969fc41c765cef38989f21912b0d5821c953dfddce6bd2a396cb2976ad77/parasolid_kit-0.3.12.tar.gz", hash = "sha256:8591a7ec1e7603eb596c9751004fa6f6695a253c9d73de6ec7eedd2bbdb64948", size = 1321550, upload-time = "2026-11-03T14:32:34.342Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ce/18/ea924395d4fcf039651650fdefa5bb00fa80e96761f2585b6535380890e2/parasolid_kit-0.3.14.tar.gz", hash = "sha256:645364beb6d32df6ba84a7cd3521f1053aaca87829b4f50063eff0aec9a5c151", size = 1353492, upload-time = "2026-11-06T00:34:30.781Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/a1/7254c0c0dc1bda15a3c404ebec360f0be684851628c6cd510785f9d896d2/parasolid_kit-0.3.12-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:391a1cca7f3ee44fbb7aca0dc27691f0c3c2ee537930d61846b735d3c8f6fd28", size = 1421048, upload-time = "2026-11-03T14:32:27.192Z" },
-    { url = "https://files.pythonhosted.org/packages/39/01/0e6d66b66702b848fb3f8f93db0be976b84a478cabd554d6b755fc4804a5/parasolid_kit-0.3.12-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:f6776c70d63297bc8c1d48f94bf5dd7cda7b18f52e8473bb7e049f17dd0b591c", size = 1407358, upload-time = "2026-11-03T14:32:29.093Z" },
-    { url = "https://files.pythonhosted.org/packages/74/a7/ed785cdcdf099631e69b58aa8c3edf4393c8311f846f6e366a7e5367a7e3/parasolid_kit-0.3.12-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8f0fad1f1d04d7928759aad79dbd8fa6e659bff8e60dc6ced6082312efa14c76", size = 1496697, upload-time = "2026-11-03T14:32:30.999Z" },
-    { url = "https://files.pythonhosted.org/packages/1e/53/5bf342743fa61be31f2893c4a486ca6425cd4cd6679e0efacd26ab6aacbd/parasolid_kit-0.3.12-cp310-abi3-win_amd64.whl", hash = "sha256:2088314ced589990d6fbe94a1737acb6bc0d5aa0761aaeba8c00b05b0164f9c3", size = 1328758, upload-time = "2026-11-03T14:32:32.882Z" },
+    { url = "https://files.pythonhosted.org/packages/db/b3/ef85eae83b8877aeb1f76f3fff124b51828295e14b5ec7446599e7727cda/parasolid_kit-0.3.14-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:068a6c662c7a69b88e16e6fc166dd5202fb58503ca976da49e9c4f4f5d4aa746", size = 1443250, upload-time = "2026-11-06T00:34:23.366Z" },
+    { url = "https://files.pythonhosted.org/packages/90/4b/b985ce833e9beea82286c7d57920a07eb4f3cb5d2df59a115a20b0c15fc9/parasolid_kit-0.3.14-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:9ec69cd7bf1e5b08e6d0787ad794f4e5ef467502585779746a9926632155b3e1", size = 1430065, upload-time = "2026-11-06T00:34:25.354Z" },
+    { url = "https://files.pythonhosted.org/packages/17/43/f0a43f30ff0ffb9afb51ba186c95712605da5aff26b3c3f982a72bf71595/parasolid_kit-0.3.14-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ab186180166570a8ac77d3e62b163a92a70075cfb4c2b5461dabbf8a3cd4fa2c", size = 1519421, upload-time = "2026-11-06T00:34:27.275Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/59/fcaf329c2053acdc84de7ad144d316537227bcdeced1d9aeec5491a40970/parasolid_kit-0.3.14-cp310-abi3-win_amd64.whl", hash = "sha256:31f24e32719502cc8b1f09f00d780325e95e286c123d7bd4e016a432de1c119d", size = 1352020, upload-time = "2026-11-06T00:34:28.96Z" },
 ]
 
 [package.optional-dependencies]

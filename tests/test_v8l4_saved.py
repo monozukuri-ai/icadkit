@@ -340,8 +340,57 @@ def test_saved_sheet_bodies_convert_to_open_shells():
     with pytest.raises(icadkit.UnsupportedFormatError, match="csg.empty_result"):
         mesh_shape(shape, "sheet", icadkit.CsgLimits(), 0.05, _runtime())
     # Other body kinds stay unqualified.
-    wire = replace(
-        model, bodies=tuple(replace(b, kind=BodyKind.WIRE) for b in model.bodies)
+    general = replace(
+        model, bodies=tuple(replace(b, kind=BodyKind.GENERAL) for b in model.bodies)
     )
-    with pytest.raises(icadkit.UnsupportedFormatError, match="solid and sheet"):
-        _preflight(wire, limits)
+    with pytest.raises(icadkit.UnsupportedFormatError, match="solid, sheet and wire"):
+        _preflight(general, limits)
+
+
+def test_saved_wire_bodies_convert_to_their_edges():
+    pytest.importorskip("parasolid_kit")
+    pytest.importorskip("OCP")
+    import math
+
+    from parasolid_kit.brep.topology import BodyKind, RegionKind
+    from parasolid_kit.interop.occt.options import OcctConversionOptions
+    from saved_fixtures import oblique_cylinder_model
+
+    from icadkit._csg_occt import _runtime, _shapes, mesh_shape
+    from icadkit._saved_occt import _build, _preflight
+
+    model = oblique_cylinder_model()
+    # A wire body: its edges hang off the shell of a void region and there is
+    # no face, as saved resources store construction curves.
+    wire = replace(
+        model,
+        bodies=tuple(
+            replace(b, kind=BodyKind.WIRE, regions=(0,)) for b in model.bodies
+        ),
+        regions=(replace(model.regions[0], kind=RegionKind.VOID, shells=(0,)),),
+        shells=(
+            replace(model.shells[0], back_faces=(), front_faces=(), wire_edges=(0, 1)),
+        ),
+        faces=(),
+        loops=(),
+        half_edges=tuple(replace(h, loop=None) for h in model.half_edges),
+    )
+    limits = icadkit.SavedBodyLimits()
+    _preflight(wire, limits)
+    api = _runtime()
+    shape, operations = _build(
+        wire, OcctConversionOptions(source_unit="m", target_unit="mm"), api, limits
+    )
+    assert "wire_body_from_edges" in operations
+    wires = sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_WIRE, api))
+    edges = sum(1 for _ in _shapes(shape, api["TopAbs"].TopAbs_EDGE, api))
+    assert (wires, edges) == (2, 2)
+    mesh = mesh_shape(
+        shape, "wire", icadkit.CsgLimits(), 0.05, api, allow_sheet=True, allow_wire=True
+    )
+    assert mesh.solid_count == 0 and mesh.volume_mm3 == 0.0 and mesh.area_mm2 == 0.0
+    assert mesh.triangles == () and len(mesh.edges) >= 8
+    assert all(math.isfinite(v) for v in mesh.centroid_mm)
+    # Without the wire admission the edges are still an empty result.
+    with pytest.raises(icadkit.InvalidFormatError, match="csg.empty_result"):
+        mesh_shape(shape, "wire", icadkit.CsgLimits(), 0.05, api, allow_sheet=True)
